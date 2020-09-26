@@ -28,11 +28,13 @@ impl Glitcher {
       commands: Vec::new(),
     }
   }
-  pub fn each_scanline(&mut self, f: ScanLineOperatorFunction) {
-    self.commands.push(Command::ScanLine(f))
+  pub fn each_scanline(&mut self, f: ScanLineOperatorFunction) -> &mut Glitcher {
+    self.commands.push(Command::ScanLine(f));
+    self
   }
-  pub fn glitch(&mut self, f: GlitchOperatorFunction) {
-    self.commands.push(Command::Glitch(f))
+  pub fn glitch(&mut self, f: GlitchOperatorFunction) -> &mut Glitcher {
+    self.commands.push(Command::Glitch(f));
+    self
   }
   pub fn serialize(&mut self, dest: &mut dyn Write) -> std::io::Result<()> {
     self.execute();
