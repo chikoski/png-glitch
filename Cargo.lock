@@ -158,7 +158,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "png-glitch"
+name = "png_glitch"
 version = "0.1.0"
 dependencies = [
  "clap",
