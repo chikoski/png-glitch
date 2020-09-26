@@ -6,7 +6,7 @@ use png_glitch::ErrorKind;
 fn start(file_name: &str) -> Result<(), ErrorKind> {
   info!("file name = {}", file_name);
   let mut glitch = png_glitch::open(file_name)?;
-  glitch.scan_line(|row| row[0] = if row[0] % 2 == 1 { 1 } else { 3 });
+  glitch.each_scanline(|row| row[0] = if row[0] % 2 == 1 { 1 } else { 3 });
   glitch
     .serialize(&mut std::io::stdout())
     .map_err(|_| ErrorKind::IOError)?;

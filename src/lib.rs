@@ -9,9 +9,11 @@ use std::fs::File;
 use std::io::{Read, Write};
 
 type ScanLineOperatorFunction = fn(&mut [u8]) -> ();
+type GlitchOperatorFunction = fn(&mut Vec<u8>) -> ();
 
 enum Command {
   ScanLine(ScanLineOperatorFunction),
+  Glitch(GlitchOperatorFunction),
 }
 
 pub struct Glitcher {
@@ -26,8 +28,11 @@ impl Glitcher {
       commands: Vec::new(),
     }
   }
-  pub fn scan_line(&mut self, f: ScanLineOperatorFunction) {
+  pub fn each_scanline(&mut self, f: ScanLineOperatorFunction) {
     self.commands.push(Command::ScanLine(f))
+  }
+  pub fn glitch(&mut self, f: GlitchOperatorFunction) {
+    self.commands.push(Command::Glitch(f))
   }
   pub fn serialize(&mut self, dest: &mut dyn Write) -> std::io::Result<()> {
     self.execute();
@@ -37,10 +42,11 @@ impl Glitcher {
     for command in self.commands.iter() {
       match command {
         Command::ScanLine(f) => {
-          for line in self.png.scan_lines_mut() {
+          for line in self.png.scanlines_mut() {
             f(line);
           }
         }
+        Command::Glitch(f) => f(&mut self.png.data),
       }
     }
   }

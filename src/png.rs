@@ -31,7 +31,7 @@ impl ColorType {
 
 pub struct PNG {
   header: [u8; 25],
-  data: Vec<u8>,
+  pub data: Vec<u8>,
 }
 
 impl<'a> PNG {
@@ -63,8 +63,8 @@ impl<'a> PNG {
     ColorType::new(self.header[17])
   }
 
-  pub fn scan_lines_mut(&mut self) -> std::slice::ChunksMut<u8> {
-    let bytes = self.bytes_per_scan_line();
+  pub fn scanlines_mut(&mut self) -> std::slice::ChunksMut<u8> {
+    let bytes = self.bytes_per_scanline();
     if bytes == 0 {
       let size = self.data.len();
       self.data.chunks_mut(size)
@@ -73,7 +73,7 @@ impl<'a> PNG {
     }
   }
 
-  fn bytes_per_scan_line(&self) -> usize {
+  fn bytes_per_scanline(&self) -> usize {
     let unit = match self.color_type() {
       ColorType::Grayscale => 1,
       ColorType::RGB => 3,
