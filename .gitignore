@@ -1,3 +1,5 @@
 /target
 /etc
 *.png
+.DS_Store
+/.idea
