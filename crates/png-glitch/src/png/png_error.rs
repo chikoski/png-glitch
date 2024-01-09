@@ -1,5 +1,5 @@
 use thiserror::Error;
-use crate::png::chunk::Chunk;
+use crate::png::Chunk;
 
 #[derive(Error, Debug)]
 pub enum PngError {
@@ -18,5 +18,9 @@ pub enum PngError {
     #[error("Another IEND chunk found.")]
     DuplicateIENDFound,
     #[error("Invalid chunk type.")]
-    InvalidChunkType(Chunk)
+    InvalidChunkType(Chunk),
+    #[error("Invalid color type.")]
+    InvalidColorType,
+    #[error("Invalid filter type.")]
+    InvalidFilterType,
 }

@@ -3,16 +3,15 @@ use std::io::Write;
 use flate2::{Compression, Crc};
 use flate2::write::ZlibEncoder;
 
-use crate::png::chunk::{Chunk, ChunkType};
+use crate::png::parser::{Chunk, ChunkType, Header, Terminator};
 use crate::png::Png;
-use crate::png::png_parser::png_header::PngHeader;
-use crate::png::png_parser::SIGNATURE;
+use crate::png::SIGNATURE;
 
-pub trait PngEncoder {
+pub trait Encoder {
     fn encode(&self, writer: impl Write) -> anyhow::Result<impl Write>;
 }
 
-impl PngEncoder for ChunkType {
+impl Encoder for ChunkType {
     fn encode(&self, mut writer: impl Write) -> anyhow::Result<impl Write> {
         match self {
             Self::Start => writer.write_all(&ChunkType::IHDR),
@@ -24,7 +23,7 @@ impl PngEncoder for ChunkType {
     }
 }
 
-impl PngEncoder for Chunk {
+impl Encoder for Chunk {
     fn encode(&self, mut writer: impl Write) -> anyhow::Result<impl Write> {
         writer.write_all(&(self.length() as u32).to_be_bytes())?;
         let mut writer = self.chunk_type.encode(writer)?;
@@ -34,21 +33,27 @@ impl PngEncoder for Chunk {
     }
 }
 
-impl PngEncoder for PngHeader {
+impl Encoder for Header {
     fn encode(&self, writer: impl Write) -> anyhow::Result<impl Write> {
         self.inner.encode(writer)
     }
 }
 
-impl PngEncoder for Png {
+impl Encoder for Terminator {
+    fn encode(&self, writer: impl Write) -> anyhow::Result<impl Write> {
+        self.inner.encode(writer)
+    }
+}
+
+impl Encoder for Png {
     fn encode(&self, mut writer: impl Write) -> anyhow::Result<impl Write> {
-        writer.write_all(&SIGNATURE)?;
-        self.header.inner.encode(&mut writer)?;
+        writer.write_all(SIGNATURE)?;
+        self.header.encode(&mut writer)?;
         for chunk in self.misc_chunks.iter() {
             chunk.encode(&mut writer)?;
         }
         create_idat_chunk(self)?.encode(&mut writer)?;
-        self.terminator.inner.encode(&mut writer)?;
+        self.terminator.encode(&mut writer)?;
         Ok(writer)
     }
 }

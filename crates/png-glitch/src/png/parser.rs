@@ -1,30 +1,31 @@
 use std::io::Cursor;
 use anyhow::Context;
 use flate2::read::ZlibDecoder;
-
-use crate::png::chunk::{Chunk, ChunkType};
-use crate::png::error::PngError;
-use crate::png::png_parser::png_header::PngHeader;
-use crate::png::png_parser::png_terminator::PngTerminator;
 use std::io::prelude::*;
-use crate::png::Png;
 
-pub mod png_terminator;
-pub mod png_header;
+use crate::png::png_error::PngError;
+use crate::png::{Png, SIGNATURE};
 
-pub const SIGNATURE: [u8; 8] =[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+pub use crate::png::parser::chunk::{Chunk, ChunkType};
+pub use crate::png::parser::header::Header;
+pub use crate::png::parser::terminator::Terminator;
 
-pub struct PngParser {
-    header: Option<PngHeader>,
-    terminator: Option<PngTerminator>,
+mod terminator;
+mod header;
+mod chunk;
+
+
+pub struct Parser {
+    header: Option<Header>,
+    terminator: Option<Terminator>,
     data: Vec<u8>,
     misc: Vec<Chunk>,
 }
 
-impl PngParser {
+impl Parser {
 
     pub fn parse(buffer: &[u8]) -> anyhow::Result<Png> {
-        if buffer.starts_with(&SIGNATURE){
+        if buffer.starts_with(SIGNATURE){
             let mut parser = Self::new();
             parser.parse_chunks(&buffer[8..])?;
             parser.build()
@@ -38,7 +39,6 @@ impl PngParser {
         let mut index = 0;
         while index < buffer.len() {
             let chunk = Chunk::parse(&buffer[index..])?;
-            println!("{:?}", chunk.chunk_type);
             index += chunk.consumed_size();
             self.found_chunk(chunk)?;
             if self.has_iend() {
@@ -56,8 +56,8 @@ impl PngParser {
         Ok(Png::new(header, terminator, self.misc, data))
     }
 
-    fn new() -> PngParser {
-        PngParser {
+    fn new() -> Parser {
+        Parser {
             header: None,
             terminator: None,
             data: vec![],

@@ -1,6 +1,6 @@
 use anyhow::Context;
 
-use crate::png::error::PngError;
+use crate::png::png_error::PngError;
 
 #[derive(PartialEq, Debug)]
 pub enum ChunkType {

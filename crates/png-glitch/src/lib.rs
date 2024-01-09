@@ -4,8 +4,8 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 
-use crate::png::Png;
-use crate::png::PngEncoder;
+use crate::png::{GlitchContext, Png};
+use crate::png::Encoder;
 
 mod png;
 
@@ -22,11 +22,11 @@ impl PngGlitch {
     }
 
     pub fn new(buffer: Vec<u8>) -> anyhow::Result<PngGlitch> {
-        let png = Png::parse(&buffer)?;
+        let png = Png::try_from(&buffer)?;
         Ok(PngGlitch { png })
     }
 
-    pub fn glitch<F>(&mut self, modifier: F) where F: FnMut(&mut [u8]) {
+    pub fn glitch<F>(&mut self, modifier: F) where F: FnMut(&mut GlitchContext) {
         self.png.glitch(modifier)
     }
 

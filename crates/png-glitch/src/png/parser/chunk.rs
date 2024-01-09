@@ -1,7 +1,7 @@
 use anyhow::Context;
 
-pub use crate::png::chunk::chunk_type::ChunkType;
-use crate::png::error::PngError;
+pub use crate::png::parser::chunk::chunk_type::ChunkType;
+use crate::png::png_error::PngError;
 
 mod chunk_type;
 
