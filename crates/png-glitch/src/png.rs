@@ -8,6 +8,7 @@ use crate::png::parser::Parser;
 
 pub use crate::png::encoder::Encoder;
 pub use crate::png::glitch_context::GlitchContext;
+pub use crate::png::scan_line::ScanLine;
 
 mod parser;
 mod encoder;
@@ -23,6 +24,30 @@ pub struct Png {
 }
 
 impl Png {
+
+    pub fn glitch<F>(&mut self, mut modifier: F) where F: FnMut(&mut GlitchContext) {
+        let mut context = self.glitch_context();
+        modifier(&mut context);
+    }
+
+    pub fn foreach_scanline<F>(&mut self, mut modifier: F) where F: FnMut(&mut ScanLine) {
+        let mut start = 0;
+        while start + self.scan_line_width() < self.data.len() {
+            let end = start + self.scan_line_width();
+            let buffer = &mut self.data[start..end];
+            if let Ok(mut scan_line) = ScanLine::try_from(buffer){
+                modifier(&mut scan_line);
+            }
+            start = end;
+        }
+    }
+
+    pub fn save(&self, path: impl AsRef<Path>) -> anyhow::Result<()> {
+        let mut file = File::create(path)?;
+        let _ = self.encode(&mut file)?;
+        Ok(())
+    }
+
     fn new(header: Header,
            terminator: Terminator,
            misc_chunks: Vec<Chunk>,
@@ -45,17 +70,6 @@ impl Png {
 
     fn scan_line_width(&self) -> usize {
         self.header.scan_line_width()
-    }
-
-    pub fn glitch<F>(&mut self, mut modifier: F) where F: FnMut(&mut GlitchContext) {
-        let mut context = self.glitch_context();
-        modifier(&mut context);
-    }
-
-    pub fn save(&self, path: impl AsRef<Path>) -> anyhow::Result<()> {
-        let mut file = File::create(path)?;
-        let _ = self.encode(&mut file)?;
-        Ok(())
     }
 
     fn glitch_context(&mut self) -> GlitchContext {

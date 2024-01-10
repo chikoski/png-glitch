@@ -17,8 +17,10 @@ fn main() {
 fn run(path: impl AsRef<Path>) -> anyhow::Result<()>{
     let mut glitch = PngGlitch::open(path)?;
     glitch.glitch(|context|{
-        let width = context.scan_line_width();
         context.data()[1] = 0;
+    });
+    glitch.foreach_scanline(|scanline|{
+        scanline[2] = 0;
     });
     glitch.save("aaa.png")
 }

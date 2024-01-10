@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 
-use crate::png::{GlitchContext, Png};
+use crate::png::{GlitchContext, Png, ScanLine};
 use crate::png::Encoder;
 
 mod png;
@@ -28,6 +28,10 @@ impl PngGlitch {
 
     pub fn glitch<F>(&mut self, modifier: F) where F: FnMut(&mut GlitchContext) {
         self.png.glitch(modifier)
+    }
+
+    pub fn foreach_scanline<F>(&mut self, modifier: F) where F: FnMut(&mut ScanLine) {
+        self.png.foreach_scanline(modifier)
     }
 
     pub fn save(&self, path: impl AsRef<Path>) -> anyhow::Result<()> {

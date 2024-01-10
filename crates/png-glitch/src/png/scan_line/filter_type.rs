@@ -1,6 +1,6 @@
 use crate::png::png_error::PngError;
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum FilterType {
     None,
     Sub,
