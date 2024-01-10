@@ -6,7 +6,9 @@ Please visit "[The Art of PNG Glitch](https://ucnv.github.io/pnglitch/)" for mor
 
 ![Glitched PNG image](etc/sample00-glitched.png)
 
-The original image: ![The original PNG file is a photo of a media art placed in a slightly darker space.](etc/sample00.png)
+The original image: 
+
+![The original PNG file is a photo of a media art placed in a slightly darker space.](etc/sample00.png)
 
 # Example usage
 
