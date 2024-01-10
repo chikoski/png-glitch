@@ -2,5 +2,7 @@ use clap::Parser;
 
 #[derive(Parser, Debug)]
 pub struct CommandLineArguments {
-    pub files: Vec<String>
+    pub file: String,
+    #[arg(short)]
+    pub output_file: Option<String>,
 }

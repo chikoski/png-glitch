@@ -4,6 +4,10 @@ A library to glitch PNG files. This library is inspired by the [pnglitch](https:
 
 Please visit "[The Art of PNG Glitch](https://ucnv.github.io/pnglitch/)" for more details about glitching PNG images.
 
+![Glitched PNG image](etc/sample00-glitched.png)
+
+The original image: ![The original PNG file is a photo of a media art placed in a slightly darker space.](etc/sample00.png)
+
 # Example usage
 
 The following snippet glitches `./a_png_file.png` by 
