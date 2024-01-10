@@ -1,13 +1,13 @@
 use std::fs::File;
 use std::path::Path;
 
-use crate::png::parser::Chunk;
-use crate::png::parser::Header;
-use crate::png::parser::Terminator;
-use crate::png::parser::Parser;
-
 pub use crate::png::encoder::Encoder;
 pub use crate::png::glitch_context::GlitchContext;
+use crate::png::parser::Chunk;
+use crate::png::parser::Header;
+use crate::png::parser::Parser;
+use crate::png::parser::Terminator;
+pub use crate::png::scan_line::FilterType;
 pub use crate::png::scan_line::ScanLine;
 
 mod parser;
@@ -24,7 +24,6 @@ pub struct Png {
 }
 
 impl Png {
-
     pub fn glitch<F>(&mut self, mut modifier: F) where F: FnMut(&mut GlitchContext) {
         let mut context = self.glitch_context();
         modifier(&mut context);
@@ -35,7 +34,7 @@ impl Png {
         while start + self.scan_line_width() < self.data.len() {
             let end = start + self.scan_line_width();
             let buffer = &mut self.data[start..end];
-            if let Ok(mut scan_line) = ScanLine::try_from(buffer){
+            if let Ok(mut scan_line) = ScanLine::try_from(buffer) {
                 modifier(&mut scan_line);
             }
             start = end;
@@ -75,7 +74,6 @@ impl Png {
     fn glitch_context(&mut self) -> GlitchContext {
         GlitchContext::new(self)
     }
-
 }
 
 impl TryFrom<&Vec<u8>> for Png {

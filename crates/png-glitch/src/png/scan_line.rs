@@ -5,6 +5,7 @@ pub use filter_type::FilterType;
 
 mod filter_type;
 
+/// ScanLine represents each scan line in a PNG image.
 pub struct ScanLine<'a> {
     t: FilterType,
     inner: &'a mut [u8],
@@ -15,15 +16,18 @@ impl<'a> ScanLine<'a> {
         ScanLine { t: filter_type, inner }
     }
 
-    fn filter_type(&self) -> FilterType {
+    /// This method returns the filter method applied to the scan line.
+    pub fn filter_type(&self) -> FilterType {
         self.t
     }
 
-    fn set_filter_type(&mut self, filter_type: FilterType) {
+    /// This methods updates the filter method of the scan line with the specified one.
+    pub fn set_filter_type(&mut self, filter_type: FilterType) {
         self.t = filter_type;
         self.inner[0] = filter_type.into();
     }
 
+    /// This method returns the byte size of the scan line.
     fn size(&self) -> usize {
         self.inner.len() - 1
     }

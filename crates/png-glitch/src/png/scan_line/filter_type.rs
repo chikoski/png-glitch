@@ -1,11 +1,18 @@
 use crate::png::png_error::PngError;
 
 #[derive(Debug, Copy, Clone)]
+/// FilterType represents filter methods defined in [the PNG specification](https://www.w3.org/TR/2003/REC-PNG-20031110/#9Filters).
+/// Each variants represents different method.
 pub enum FilterType {
+    /// None method
     None,
+    /// Sub method
     Sub,
+    /// Up method
     Up,
+    /// Average method
     Average,
+    /// Paeth method
     Paeth,
 }
 
