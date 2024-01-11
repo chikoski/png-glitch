@@ -2,7 +2,7 @@
 name = "png-glitch"
 version = "0.1.0"
 edition = "2021"
-authors = ["Chiko Shimizu <chikoski@gmail.com>"]
+authors = ["N.Shimizu <chikoski@gmail.com>"]
 description = "A library to glitch PNG images."
 license-file = "LICENSE"
 readme = "README.md"
