@@ -5,7 +5,6 @@ edition = "2021"
 authors = ["N.Shimizu <chikoski@gmail.com>"]
 description = "A library to glitch PNG images."
 license = "MIT"
-license-file = "LICENSE"
 readme = "README.md"
 repository = "https://github.com/chikoski/png-glitch"
 
