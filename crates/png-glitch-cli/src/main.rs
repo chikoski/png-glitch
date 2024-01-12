@@ -20,11 +20,13 @@ fn main() {
 
 fn run(input: impl AsRef<Path>, output: impl AsRef<Path>) -> anyhow::Result<()> {
     let mut glitch = PngGlitch::open(input)?;
+
     glitch.glitch(|context| {
         context.data()[1] = 0;
     });
     glitch.foreach_scanline(|scanline| {
         scanline[2] = 0;
     });
+
     glitch.save(output)
 }

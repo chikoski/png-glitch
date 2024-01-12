@@ -29,6 +29,7 @@ impl Encoder for Chunk {
         let mut writer = self.chunk_type.encode(writer)?;
         writer.write_all(&self.data)?;
         writer.write_all(&self.crc)?;
+        writer.flush()?;
         Ok(writer)
     }
 }
@@ -54,6 +55,7 @@ impl Encoder for Png {
         }
         create_idat_chunk(self)?.encode(&mut writer)?;
         self.terminator.encode(&mut writer)?;
+        writer.flush()?;
         Ok(writer)
     }
 }
@@ -61,11 +63,12 @@ impl Encoder for Png {
 fn create_idat_chunk(png: &Png) -> anyhow::Result<Chunk> {
     let mut encoder = ZlibEncoder::new(vec![], Compression::fast());
     encoder.write_all(&png.data)?;
-
+    encoder.flush()?;
+    let encoded = encoder.get_ref();
     let mut crc = Crc::new();
-    crc.update(encoder.get_ref());
-
-    let chunk = Chunk::new(ChunkType::Data, encoder.get_ref().to_vec(), crc.amount().to_be_bytes());
+    crc.update(&encoded);
+    let chunk =
+        Chunk::new(ChunkType::Data, encoded.to_vec(), crc.amount().to_be_bytes());
     Ok(chunk)
 }
 
@@ -74,7 +77,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_encode_ihdr() -> anyhow::Result<()>{
+    fn test_encode_ihdr() -> anyhow::Result<()> {
         let bytes = include_bytes!("../../etc/sample00.png");
         let png = Png::parse(bytes)?;
         let mut buffer = vec![];

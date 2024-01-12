@@ -28,7 +28,7 @@ impl<'a> ScanLine<'a> {
     }
 
     /// This method returns the byte size of the scan line.
-    fn size(&self) -> usize {
+    pub fn size(&self) -> usize {
         self.inner.len() - 1
     }
 }
