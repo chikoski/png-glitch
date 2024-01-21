@@ -1,7 +1,8 @@
 use std::io::Write;
 
-use flate2::{Compression, Crc};
+use anyhow::Context;
 use flate2::write::ZlibEncoder;
+use flate2::{Compression, Crc};
 
 use crate::png::parser::{Chunk, ChunkType, Header, Terminator};
 use crate::png::Png;
@@ -17,7 +18,7 @@ impl Encoder for ChunkType {
             Self::Start => writer.write_all(&ChunkType::IHDR),
             Self::End => writer.write_all(&ChunkType::IEND),
             Self::Data => writer.write_all(&ChunkType::IDAT),
-            Self::Other(t) => writer.write_all(t)
+            Self::Other(t) => writer.write_all(t),
         }?;
         Ok(writer)
     }
@@ -49,27 +50,38 @@ impl Encoder for Terminator {
 impl Encoder for Png {
     fn encode(&self, mut writer: impl Write) -> anyhow::Result<impl Write> {
         writer.write_all(SIGNATURE)?;
-        self.header.encode(&mut writer)?;
+        self.header
+            .encode(&mut writer)
+            .context("Failed to encode IHDR")?;
         for chunk in self.misc_chunks.iter() {
             chunk.encode(&mut writer)?;
         }
-        create_idat_chunk(self)?.encode(&mut writer)?;
+        let idat_chunk_list =
+            create_idat_chunk(self).context("Failed to create IDAT chunk list")?;
+        for chunk in idat_chunk_list.iter() {
+            chunk.encode(&mut writer).context("Failed to encode IDAT")?;
+        }
         self.terminator.encode(&mut writer)?;
         writer.flush()?;
         Ok(writer)
     }
 }
 
-fn create_idat_chunk(png: &Png) -> anyhow::Result<Chunk> {
+fn create_idat_chunk(png: &Png) -> anyhow::Result<Vec<Chunk>> {
+    let mut list = vec![];
+
     let mut encoder = ZlibEncoder::new(vec![], Compression::fast());
     encoder.write_all(&png.data)?;
-    encoder.flush()?;
-    let encoded = encoder.get_ref();
+    let buffer = encoder.finish()?;
+
     let mut crc = Crc::new();
-    crc.update(&encoded);
-    let chunk =
-        Chunk::new(ChunkType::Data, encoded.to_vec(), crc.amount().to_be_bytes());
-    Ok(chunk)
+    crc.update(ChunkType::IDAT);
+    crc.update(&buffer);
+
+    let chunk = Chunk::new(ChunkType::Data, buffer, crc.sum().to_be_bytes());
+
+    list.push(chunk);
+    Ok(list)
 }
 
 #[cfg(test)]
@@ -82,10 +94,27 @@ mod test {
         let png = Png::parse(bytes)?;
         let mut buffer = vec![];
         png.header.encode(&mut buffer)?;
-        assert_eq!(&buffer[0..4], &(png.header.inner.length() as u32).to_be_bytes());
+        assert_eq!(
+            &buffer[0..4],
+            &(png.header.inner.length() as u32).to_be_bytes()
+        );
         assert_eq!(&buffer[4..8], ChunkType::IHDR);
         assert_eq!(&buffer[8..21], &png.header.inner.data);
         assert_eq!(&buffer[21..25], &png.header.inner.crc);
+        Ok(())
+    }
+
+    #[test]
+    fn test_encode() -> anyhow::Result<()> {
+        let bytes = include_bytes!("../../etc/sample00.png");
+        let png = Png::parse(bytes)?;
+        let mut buffer = vec![];
+        png.encode(&mut buffer)?;
+        let another = Png::parse(&buffer)?;
+        assert_eq!(png.data.len(), another.data.len());
+        for i in 0..png.data.len() {
+            assert_eq!(png.data[i], another.data[i]);
+        }
         Ok(())
     }
 }

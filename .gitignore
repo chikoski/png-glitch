@@ -2,3 +2,5 @@
 /etc
 .DS_Store
 /.idea
+PngSuite
+*.png
