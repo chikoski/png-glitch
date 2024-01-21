@@ -10,11 +10,11 @@ use crate::png::parser::Terminator;
 pub use crate::png::scan_line::FilterType;
 pub use crate::png::scan_line::ScanLine;
 
-mod parser;
 mod encoder;
-mod scan_line;
-mod png_error;
 mod glitch_context;
+mod parser;
+mod png_error;
+mod scan_line;
 
 pub struct Png {
     header: Header,
@@ -24,12 +24,18 @@ pub struct Png {
 }
 
 impl Png {
-    pub fn glitch<F>(&mut self, mut modifier: F) where F: FnMut(&mut GlitchContext) {
+    pub fn glitch<F>(&mut self, mut modifier: F)
+    where
+        F: FnMut(&mut GlitchContext),
+    {
         let mut context = self.glitch_context();
         modifier(&mut context);
     }
 
-    pub fn foreach_scanline<F>(&mut self, mut modifier: F) where F: FnMut(&mut ScanLine) {
+    pub fn foreach_scanline<F>(&mut self, mut modifier: F)
+    where
+        F: FnMut(&mut ScanLine),
+    {
         let mut start = 0;
         while start + self.scan_line_width() < self.data.len() {
             let end = start + self.scan_line_width();
@@ -47,11 +53,13 @@ impl Png {
         Ok(())
     }
 
-    fn new(header: Header,
-           terminator: Terminator,
-           misc_chunks: Vec<Chunk>,
-           data: Vec<u8>) -> Png {
-        Png { header, terminator, misc_chunks, data }
+    fn new(header: Header, terminator: Terminator, misc_chunks: Vec<Chunk>, data: Vec<u8>) -> Png {
+        Png {
+            header,
+            terminator,
+            misc_chunks,
+            data,
+        }
     }
 
     fn parse(buffer: &[u8]) -> anyhow::Result<Png> {
