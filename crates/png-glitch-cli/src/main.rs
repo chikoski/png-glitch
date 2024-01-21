@@ -1,3 +1,6 @@
+#[cfg(target_arch = "wasm32")]
+cargo_component_bindings::generate!();
+
 use std::path::Path;
 
 use clap::Parser;
@@ -30,3 +33,6 @@ fn run(input: impl AsRef<Path>, output: impl AsRef<Path>) -> anyhow::Result<()> 
 
     glitch.save(output)
 }
+
+#[cfg(target_arch = "wasm32")]
+mod wasm32 {}

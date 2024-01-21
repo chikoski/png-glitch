@@ -1,8 +1,8 @@
 use std::io::Write;
 
 use anyhow::Context;
-use flate2::write::ZlibEncoder;
-use flate2::{Compression, Crc};
+use crc32fast::Hasher as Crc;
+use fdeflate::Compressor;
 
 use crate::png::parser::{Chunk, ChunkType, Header, Terminator};
 use crate::png::Png;
@@ -15,9 +15,9 @@ pub trait Encoder {
 impl Encoder for ChunkType {
     fn encode(&self, mut writer: impl Write) -> anyhow::Result<impl Write> {
         match self {
-            Self::Start => writer.write_all(&ChunkType::IHDR),
-            Self::End => writer.write_all(&ChunkType::IEND),
-            Self::Data => writer.write_all(&ChunkType::IDAT),
+            Self::Start => writer.write_all(ChunkType::IHDR),
+            Self::End => writer.write_all(ChunkType::IEND),
+            Self::Data => writer.write_all(ChunkType::IDAT),
             Self::Other(t) => writer.write_all(t),
         }?;
         Ok(writer)
@@ -70,15 +70,16 @@ impl Encoder for Png {
 fn create_idat_chunk(png: &Png) -> anyhow::Result<Vec<Chunk>> {
     let mut list = vec![];
 
-    let mut encoder = ZlibEncoder::new(vec![], Compression::fast());
-    encoder.write_all(&png.data)?;
+    let mut encoder = Compressor::new(vec![])?;
+    encoder.write_data(&png.data)?;
     let buffer = encoder.finish()?;
 
     let mut crc = Crc::new();
     crc.update(ChunkType::IDAT);
     crc.update(&buffer);
+    let crc = crc.finalize().to_be_bytes();
 
-    let chunk = Chunk::new(ChunkType::Data, buffer, crc.sum().to_be_bytes());
+    let chunk = Chunk::new(ChunkType::Data, buffer, crc);
 
     list.push(chunk);
     Ok(list)

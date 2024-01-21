@@ -1,5 +1,5 @@
-use thiserror::Error;
 use crate::png::Chunk;
+use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum PngError {
@@ -23,4 +23,6 @@ pub enum PngError {
     InvalidColorType,
     #[error("Invalid filter type.")]
     InvalidFilterType,
+    #[error("Failed to deflate data.")]
+    DeflateFailure,
 }
