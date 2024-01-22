@@ -26,14 +26,14 @@ impl TryFrom<u8> for FilterType {
             2 => Ok(FilterType::Up),
             3 => Ok(FilterType::Average),
             4 => Ok(FilterType::Paeth),
-            _ => Err(PngError::InvalidFilterType)
+            _ => Err(PngError::InvalidFilterType),
         }
     }
 }
 
-impl Into<u8> for FilterType {
-    fn into(self) -> u8 {
-        match self {
+impl From<FilterType> for u8 {
+    fn from(value: FilterType) -> Self {
+        match value {
             FilterType::None => 0,
             FilterType::Sub => 1,
             FilterType::Up => 2,
