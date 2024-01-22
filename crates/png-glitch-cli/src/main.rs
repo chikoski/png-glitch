@@ -1,6 +1,3 @@
-#[cfg(target_arch = "wasm32")]
-cargo_component_bindings::generate!();
-
 use std::path::Path;
 
 use clap::Parser;
