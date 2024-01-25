@@ -7,8 +7,9 @@ use crate::png::parser::Chunk;
 use crate::png::parser::Header;
 use crate::png::parser::Parser;
 use crate::png::parser::Terminator;
-pub use crate::png::scan_line::FilterType;
 pub use crate::png::scan_line::ScanLine;
+
+pub use scan_line::FilterType;
 
 mod encoder;
 mod glitch_context;

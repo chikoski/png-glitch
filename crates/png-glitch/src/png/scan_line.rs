@@ -13,7 +13,10 @@ pub struct ScanLine<'a> {
 
 impl<'a> ScanLine<'a> {
     fn new(filter_type: FilterType, inner: &mut [u8]) -> ScanLine {
-        ScanLine { t: filter_type, inner }
+        ScanLine {
+            t: filter_type,
+            inner,
+        }
     }
 
     /// This method returns the filter method applied to the scan line.
