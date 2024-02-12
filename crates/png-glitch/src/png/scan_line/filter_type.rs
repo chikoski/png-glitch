@@ -1,5 +1,13 @@
-pub use crate::bindings::chikoski::png_glitch::types::FilterType;
 use crate::png::png_error::PngError;
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum FilterType {
+    None,
+    Sub,
+    Up,
+    Average,
+    Paeth,
+}
 
 impl TryFrom<u8> for FilterType {
     type Error = PngError;
