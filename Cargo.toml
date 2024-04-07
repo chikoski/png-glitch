@@ -1,7 +1,8 @@
 [workspace]
 members = [
     "crates/png-glitch",
-    "crates/png-glitch-cli"
+    "crates/png-glitch-cli", 
+    "crates/png-glitch-wasm"
 ]
 resolver = "2"
 

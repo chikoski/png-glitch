@@ -1,0 +1,43 @@
+package chikoski:png-glitch;
+
+interface types {
+    resource glitch-context {
+        scan-lines: func() -> list<scan-line>;
+        read: func() -> list<u8>;
+        write: func(data: list<u8>) -> result<glitch-error>;
+    }
+
+    resource scan-line {
+        filter-type: func() -> filter-type;
+        data: func() -> list<u8>;
+        set-filter-type: func(filter-type: filter-type);
+        write: func(data: list<u8>);
+    }
+
+    enum filter-type {
+        none,
+        sub,
+        up,
+        average,
+        paeth,
+    }
+
+    enum glitch-error {
+        invalid-png,
+        encode-error,
+    }
+}
+
+interface glitchable {
+    use types.{ glitch-context, glitch-error};
+
+    get-context: func(png: list<u8>) -> result<glitch-context, glitch-error>;    
+}
+
+world library {
+    export glitchable;
+}
+
+world glitcher {
+    import glitchable;
+}
