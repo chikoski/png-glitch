@@ -1,6 +1,6 @@
 [package]
 name = "png-glitch"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 authors = ["N.Shimizu <chikoski@gmail.com>"]
 description = "A library to glitch PNG images."
@@ -8,22 +8,8 @@ license = "MIT"
 readme = "README.md"
 repository = "https://github.com/chikoski/png-glitch"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[package.metadata.component]
-package = "chikoski:png-glitch"
-
-[package.metadata.component.bindings]
-implementor = "PngGlitch"
-
-[package.metadata.component.target]
-world = "library"
-
-[package.metadata.component.dependencies]
-
 [dependencies]
 anyhow = "1.0.79"
 crc32fast = "1.3.2"
 fdeflate = "0.3.4"
 thiserror = "1.0.56"
-wit-bindgen = "0.17.0"

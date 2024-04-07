@@ -80,9 +80,6 @@ impl PngGlitch {
     /// # Example
     ///
     /// ```
-    /// # use std::env;
-    /// # env::set_current_dir(env::var("CARGO_MANIFEST_DIR").unwrap_or(".".to_string())).expect("");
-    ///
     /// use png_glitch::PngGlitch;
     ///
     /// let mut png_glitch = PngGlitch::open("./etc/sample00.png").expect("The PNG file should be successfully parsed");
