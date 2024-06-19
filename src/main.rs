@@ -4,14 +4,14 @@ use clap::Parser;
 
 use png_glitch::PngGlitch;
 
-use crate::command_line_arguments::CommandLineArguments;
+use crate::cli::Cli;
 
-mod command_line_arguments;
+mod cli;
 
 fn main() {
-    let arguments = CommandLineArguments::parse();
-    let input_file = arguments.file;
-    let output_file = arguments.output_file.unwrap_or("output.png".to_string());
+    let arguments = Cli::parse();
+    let input_file = arguments.png_file;
+    let output_file = arguments.output_file.unwrap();
 
     if let Err(e) = run(input_file, output_file) {
         println!("{:?}", e);
@@ -30,6 +30,3 @@ fn run(input: impl AsRef<Path>, output: impl AsRef<Path>) -> anyhow::Result<()> 
 
     glitch.save(output)
 }
-
-#[cfg(target_arch = "wasm32")]
-mod wasm32 {}

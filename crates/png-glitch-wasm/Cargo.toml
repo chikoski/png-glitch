@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 bitflags = "2.5.0"
 wit-bindgen-rt = "0.24.0"
+png-glitch = { path = "../png-glitch" }
 
 [lib]
 crate-type = ["cdylib"]
