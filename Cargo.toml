@@ -2,8 +2,17 @@
 name = "png-glitch-cli"
 version = "0.1.0"
 edition = "2021"
+authors = ["N.Shimizu <chikoski@gmail.com>"]
+description = "Cli to glitch PNG images."
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/chikoski/png-glitch"
+
+[[bin]]
+name = "png-glitch"
+path = "src/main.rs"
 
 [dependencies]
 anyhow = { version = "1.0.86", features = [] }
 clap = { version = "4.5.7", features = ["derive"] }
-png-glitch = { path = "crates/png-glitch" }
+png-glitch = "0.1.5"
