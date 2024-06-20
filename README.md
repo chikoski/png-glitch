@@ -13,8 +13,7 @@ To install `png-glitch` from source, run the following command:
 `png-glitch` glitches given PNG file and emit it to `glitched.png`. The file name for the glitched PNG file can be specified with `-o` option. Please run the command with `--help` option for full option: 
 
 ```zsh
-./target/release/png-glitch-cli -h
-Usage: png-glitch-cli [OPTIONS] <PNG_FILE>
+Usage: png-glitch [OPTIONS] <PNG_FILE>
 
 Arguments:
   <PNG_FILE>
