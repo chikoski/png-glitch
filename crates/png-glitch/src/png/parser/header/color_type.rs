@@ -31,7 +31,7 @@ impl TryFrom<u8> for ColorType {
             3 => Ok(ColorType::IndexColor),
             4 => Ok(ColorType::GrayScaleAlpha),
             6 => Ok(ColorType::TrueColorAlpha),
-            _ => Err(PngError::InvalidColorType)
+            _ => Err(PngError::InvalidColorType),
         }
     }
 }

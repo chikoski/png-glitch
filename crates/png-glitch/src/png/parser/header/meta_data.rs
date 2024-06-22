@@ -9,13 +9,13 @@ pub struct MetaData {
 }
 
 impl MetaData {
-    pub fn new(
-        width: u32,
-        height: u32,
-        color_type: ColorType,
-        bit_depth: u8,
-    ) -> MetaData {
-        MetaData{width, height, color_type, bit_depth}
+    pub fn new(width: u32, height: u32, color_type: ColorType, bit_depth: u8) -> MetaData {
+        MetaData {
+            width,
+            height,
+            color_type,
+            bit_depth,
+        }
     }
 
     pub fn bits_per_scanline(&self) -> usize {

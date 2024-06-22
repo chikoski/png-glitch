@@ -15,8 +15,10 @@ pub enum ChunkType {
 impl ChunkType {
     pub fn new(bytes: &[u8]) -> anyhow::Result<ChunkType> {
         if bytes.len() < 4 {
-            Err(PngError::TooShortInput)
-                .context(format!("Input has only {} bytes, while 4 bytes input is expected", bytes.len()))
+            Err(PngError::TooShortInput).context(format!(
+                "Input has only {} bytes, while 4 bytes input is expected",
+                bytes.len()
+            ))
         } else {
             let bytes = &bytes[0..4];
             let t = match bytes {
@@ -41,7 +43,9 @@ impl Debug for ChunkType {
             Self::Start => "IHDR".to_string(),
             Self::Data => "IDAT".to_string(),
             Self::End => "IEND".to_string(),
-            Self::Other(bytes) => String::from_utf8(bytes.to_vec()).unwrap_or("Unknown".to_string())
+            Self::Other(bytes) => {
+                String::from_utf8(bytes.to_vec()).unwrap_or("Unknown".to_string())
+            }
         };
         write!(f, "chunk type = {}", label)
     }

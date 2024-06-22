@@ -14,19 +14,9 @@ pub struct Header {
 }
 
 impl Header {
-    fn new(
-        width: u32,
-        height: u32,
-        bit_depth: u8,
-        color_type: ColorType,
-        inner: Chunk,
-    ) -> Header {
-        let metadata =
-            MetaData::new(width, height, color_type, bit_depth);
-        Header {
-            inner,
-            metadata,
-        }
+    fn new(width: u32, height: u32, bit_depth: u8, color_type: ColorType, inner: Chunk) -> Header {
+        let metadata = MetaData::new(width, height, color_type, bit_depth);
+        Header { inner, metadata }
     }
 
     pub fn width(&self) -> u32 {
@@ -42,21 +32,11 @@ impl Header {
     }
 
     fn parse_width(chunk: &Chunk) -> u32 {
-        u32::from_be_bytes([
-            chunk.data[0],
-            chunk.data[1],
-            chunk.data[2],
-            chunk.data[3],
-        ])
+        u32::from_be_bytes([chunk.data[0], chunk.data[1], chunk.data[2], chunk.data[3]])
     }
 
     fn parse_height(chunk: &Chunk) -> u32 {
-        u32::from_be_bytes([
-            chunk.data[4],
-            chunk.data[5],
-            chunk.data[6],
-            chunk.data[7],
-        ])
+        u32::from_be_bytes([chunk.data[4], chunk.data[5], chunk.data[6], chunk.data[7]])
     }
 
     fn parse_bit_depth(chunk: &Chunk) -> u8 {
@@ -64,8 +44,7 @@ impl Header {
     }
 
     fn parse_color_type(chunk: &Chunk) -> anyhow::Result<ColorType> {
-        ColorType::try_from(chunk.data[9])
-            .context("Failed to retrieve color type.")
+        ColorType::try_from(chunk.data[9]).context("Failed to retrieve color type.")
     }
 }
 

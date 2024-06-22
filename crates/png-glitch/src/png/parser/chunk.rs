@@ -22,7 +22,11 @@ impl Chunk {
     }
 
     pub fn new(chunk_type: ChunkType, data: Vec<u8>, crc: [u8; 4]) -> Chunk {
-        Chunk { chunk_type, data, crc }
+        Chunk {
+            chunk_type,
+            data,
+            crc,
+        }
     }
 
     pub fn parse(buffer: &[u8]) -> anyhow::Result<Chunk> {
@@ -49,8 +53,7 @@ impl Chunk {
 
     fn parse_data(buffer: &[u8], length: usize) -> anyhow::Result<Vec<u8>> {
         if buffer.len() < length {
-            Err(PngError::TooShortInput)
-                .context("Failed to parse payload of a chunk")
+            Err(PngError::TooShortInput).context("Failed to parse payload of a chunk")
         } else {
             Ok(buffer[..length].to_vec())
         }
@@ -58,8 +61,7 @@ impl Chunk {
 
     fn parse_crc(buffer: &[u8]) -> anyhow::Result<[u8; 4]> {
         if buffer.len() < 4 {
-            Err(PngError::TooShortInput)
-                .context("Failed to parse crc of a chunk")
+            Err(PngError::TooShortInput).context("Failed to parse crc of a chunk")
         } else {
             Ok([buffer[0], buffer[1], buffer[2], buffer[3]])
         }
@@ -70,13 +72,7 @@ fn parse_u32(buffer: &[u8]) -> Result<u32, PngError> {
     if buffer.len() < 4 {
         Err(PngError::TooShortInput)
     } else {
-        let value = u32::from_be_bytes([
-            buffer[0],
-            buffer[1],
-            buffer[2],
-            buffer[3],
-        ]);
+        let value = u32::from_be_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
         Ok(value)
     }
 }
-
