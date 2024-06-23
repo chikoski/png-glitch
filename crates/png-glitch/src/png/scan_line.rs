@@ -7,26 +7,23 @@ mod filter_type;
 
 /// ScanLine represents each scan line in a PNG image.
 pub struct ScanLine<'a> {
-    t: FilterType,
+    filter_type: FilterType,
     inner: &'a mut [u8],
 }
 
 impl<'a> ScanLine<'a> {
     fn new(filter_type: FilterType, inner: &mut [u8]) -> ScanLine {
-        ScanLine {
-            t: filter_type,
-            inner,
-        }
+        ScanLine { filter_type, inner }
     }
 
     /// This method returns the filter method applied to the scan line.
     pub fn filter_type(&self) -> FilterType {
-        self.t
+        self.filter_type
     }
 
-    /// This methods updates the filter method of the scan line with the specified one.
+    /// This method updates the filter method of the scan line with the specified one.
     pub fn set_filter_type(&mut self, filter_type: FilterType) {
-        self.t = filter_type;
+        self.filter_type = filter_type;
         self.inner[0] = filter_type.into();
     }
 

@@ -1,6 +1,8 @@
 use std::fs::File;
 use std::path::Path;
 
+pub use scan_line::FilterType;
+
 pub use crate::png::encoder::Encoder;
 pub use crate::png::glitch_context::GlitchContext;
 use crate::png::parser::Chunk;
@@ -8,8 +10,6 @@ use crate::png::parser::Header;
 use crate::png::parser::Parser;
 use crate::png::parser::Terminator;
 pub use crate::png::scan_line::ScanLine;
-
-pub use scan_line::FilterType;
 
 mod encoder;
 mod glitch_context;
@@ -33,18 +33,22 @@ impl Png {
         modifier(&mut context);
     }
 
+    pub fn scan_lines(&mut self) -> Vec<ScanLine> {
+        let size = self.scan_line_width();
+        self.data
+            .chunks_mut(size)
+            .map(|data| ScanLine::try_from(data))
+            .filter(|r| r.is_ok())
+            .map(|r| r.unwrap())
+            .collect()
+    }
+
     pub fn foreach_scanline<F>(&mut self, mut modifier: F)
     where
         F: FnMut(&mut ScanLine),
     {
-        let mut start = 0;
-        while start + self.scan_line_width() < self.data.len() {
-            let end = start + self.scan_line_width();
-            let buffer = &mut self.data[start..end];
-            if let Ok(mut scan_line) = ScanLine::try_from(buffer) {
-                modifier(&mut scan_line);
-            }
-            start = end;
+        for mut scan_line in self.scan_lines() {
+            modifier(&mut scan_line);
         }
     }
 

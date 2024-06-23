@@ -98,6 +98,32 @@ impl PngGlitch {
         self.png.glitch(modifier)
     }
 
+    /// The method returns a list of [scan line](https://www.w3.org/TR/2003/REC-PNG-20031110/#4Concepts.EncodingScanlineAbs%22). in the given PNG file.
+    ///
+    /// # Example
+    ///
+    /// The following example changes the filter type of each scan line according its position
+    ///
+    /// ```
+    /// use std::env;
+    /// # env::set_current_dir(env::var("CARGO_MANIFEST_DIR").unwrap_or(".".to_string())).expect("");
+    ///
+    /// use png_glitch::{FilterType, PngGlitch};
+    ///
+    /// let mut png_glitch = PngGlitch::open("./etc/sample00.png").expect("The PNG file should be successfully parsed");
+    /// for (index, scan_line) in png_glitch.scan_lines().iter_mut().enumerate() {
+    ///    let filter_type = if index % 2 == 0 {
+    ///        FilterType::None
+    ///    } else {
+    ///        FilterType::Average
+    ///    };
+    ///    scan_line.set_filter_type(filter_type);
+    /// }
+    /// ```
+    pub fn scan_lines(&mut self) -> Vec<ScanLine> {
+        self.png.scan_lines()
+    }
+
     /// The method allows you to manipulate for each [scan line](https://www.w3.org/TR/2003/REC-PNG-20031110/#4Concepts.EncodingScanlineAbs%22).
     /// The modifier function is called with a `ScanLine` object which represents a scan line.
     ///
