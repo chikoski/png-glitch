@@ -1,7 +1,4 @@
-use std::path::Path;
-
 use clap::Parser;
-
 use png_glitch::PngGlitch;
 
 use crate::cli::{Cli, Config};
