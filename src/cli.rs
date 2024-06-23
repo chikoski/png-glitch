@@ -16,7 +16,7 @@ impl From<Cli> for Config {
     fn from(value: Cli) -> Self {
         Config {
             output_file: value.output_file.unwrap(),
-            input_file: value.png_file
+            input_file: value.png_file,
         }
     }
 }

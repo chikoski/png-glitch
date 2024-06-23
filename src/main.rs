@@ -23,7 +23,7 @@ fn start(config: &Config) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn run(glitch: &mut PngGlitch)  {
+fn run(glitch: &mut PngGlitch) {
     glitch.glitch(|context| {
         context.data()[1] = 0;
     });
