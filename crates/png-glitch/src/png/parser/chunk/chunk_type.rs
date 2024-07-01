@@ -36,7 +36,6 @@ impl ChunkType {
     pub const IEND: &'static [u8] = &[73, 69, 78, 68];
 }
 
-#[cfg(debug_assertions)]
 impl Debug for ChunkType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let label = match self {
