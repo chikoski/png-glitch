@@ -1,19 +1,35 @@
+use std::fmt::Debug;
 use std::io::{Read, Write};
-use std::ops::{Index, IndexMut};
+use std::ops::Range;
+
+use thiserror::Error;
 
 pub use filter_type::FilterType;
 
+use crate::png::SharedDecodedData;
+
 mod filter_type;
 
+pub type UsizeRange = Range<usize>;
+
 /// ScanLine represents each scan line in a PNG image.
-pub struct ScanLine<'a> {
+pub struct ScanLine {
     filter_type: FilterType,
-    inner: &'a mut [u8],
+    range: UsizeRange,
+    decoded_data: SharedDecodedData,
 }
 
-impl<'a> ScanLine<'a> {
-    fn new(filter_type: FilterType, inner: &mut [u8]) -> ScanLine {
-        ScanLine { filter_type, inner }
+impl ScanLine {
+    fn new(filter_type: FilterType, decoded_data: SharedDecodedData, range: UsizeRange) -> ScanLine {
+        ScanLine {
+            filter_type,
+            decoded_data,
+            range,
+        }
+    }
+
+    fn pixel_data_range(&self) -> UsizeRange {
+        self.range.start + 1..self.range.end
     }
 
     /// This method returns the filter method applied to the scan line.
@@ -24,86 +40,137 @@ impl<'a> ScanLine<'a> {
     /// This method updates the filter method of the scan line with the specified one.
     pub fn set_filter_type(&mut self, filter_type: FilterType) {
         self.filter_type = filter_type;
-        self.inner[0] = filter_type.into();
+        self.decoded_data.borrow_mut()[self.range.start] = filter_type.into()
     }
 
     /// This method returns the byte size of the scan line.
     pub fn size(&self) -> usize {
-        self.inner.len() - 1
+        self.range.len() - 1
+    }
+
+    /// index method returns a byte in a pixel_data specified with the index parameter
+    pub fn index(&self, index: usize) -> Option<u8> {
+        let pixel_data_range = self.pixel_data_range();
+        let index = pixel_data_range.start + index;
+        if index < pixel_data_range.end {
+            Some(self.decoded_data.borrow()[index])
+        } else {
+            None
+        }
+    }
+
+    /// update method updates a value of the pixel specified by the index with the given value
+    pub fn update(&self, index: usize, value: u8) {
+        let pixel_data_range = self.pixel_data_range();
+        let index = pixel_data_range.start + index;
+        if index < pixel_data_range.end {
+            self.decoded_data.borrow_mut()[index] = value
+        }
     }
 }
 
-impl<'a> Read for ScanLine<'a> {
+
+impl Read for ScanLine {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let mut buffer = &self.inner[1..];
+        let mut buffer = &self.decoded_data.borrow()[self.pixel_data_range()];
         buffer.read(buf)
     }
 
     fn read_to_end(&mut self, buf: &mut Vec<u8>) -> std::io::Result<usize> {
-        let mut buffer = &self.inner[1..];
+        let mut buffer = &self.decoded_data.borrow()[self.pixel_data_range()];
         buffer.read_to_end(buf)
     }
 }
 
-impl<'a> Write for ScanLine<'a> {
+impl Write for ScanLine {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let mut buffer = &mut self.inner[1..];
+        let pixel_data_range = self.pixel_data_range();
+        let mut buffer = &mut self.decoded_data.borrow_mut()[pixel_data_range];
         buffer.write(buf)
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-        self.inner.flush()
+        self.decoded_data.borrow_mut().flush()
     }
 }
 
-impl<'a> Index<usize> for ScanLine<'a> {
-    type Output = u8;
+pub struct MemoryRange {
+    decoded_data: SharedDecodedData,
+    range: UsizeRange,
+}
 
-    fn index(&self, index: usize) -> &Self::Output {
-        let buffer = &self.inner[1..];
-        Index::index(buffer, index)
+impl MemoryRange {
+    pub fn new(decoded_data: SharedDecodedData, range: UsizeRange) -> MemoryRange {
+        MemoryRange {
+            decoded_data,
+            range,
+        }
+    }
+
+    fn first_byte(&self) -> Option<u8> {
+        let borrowed_decoded_data = self.decoded_data.borrow();
+        let index = self.range.start;
+        if index < borrowed_decoded_data.len() {
+            Some(borrowed_decoded_data[index])
+        } else {
+            None
+        }
     }
 }
 
-impl<'a> IndexMut<usize> for ScanLine<'a> {
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        let buffer = &mut self.inner[1..];
-        IndexMut::index_mut(buffer, index)
-    }
-}
-
-impl<'a> TryFrom<&'a mut [u8]> for ScanLine<'a> {
+impl TryFrom<MemoryRange> for ScanLine {
     type Error = anyhow::Error;
 
-    fn try_from(value: &'a mut [u8]) -> Result<Self, Self::Error> {
-        let filter_type = FilterType::try_from(value[0])?;
-        Ok(ScanLine::new(filter_type, value))
+    fn try_from(value: MemoryRange) -> Result<Self, Self::Error> {
+        let byte = value
+            .first_byte()
+            .ok_or(ScanLineError::InvalidMemoryRange)?;
+
+        let filter_type = FilterType::try_from(byte)?;
+        Ok(ScanLine::new(filter_type, value.decoded_data, value.range))
     }
+}
+
+#[derive(Error, Debug)]
+enum ScanLineError {
+    #[error("Invalid memory range is specified")]
+    InvalidMemoryRange,
 }
 
 #[cfg(test)]
 mod test {
+    use crate::png::share_decoded_data;
+
     use super::*;
 
     struct TestTarget {
-        buffer: Vec<u8>,
+        buffer: SharedDecodedData,
     }
 
     impl<'a> TestTarget {
         fn new() -> Self {
             let buffer = vec![0, 1, 2, 3, 4, 5];
-            TestTarget {
-                buffer,
-            }
+            let buffer = share_decoded_data(buffer);
+            TestTarget { buffer }
         }
 
-        fn scan_line(&'a mut self) -> ScanLine<'a> {
-            ScanLine::new(FilterType::None, &mut self.buffer)
+        fn usize_range(&self) -> UsizeRange {
+            (0..self.buffer.borrow().len())
+        }
+
+        fn scan_line(&self) -> ScanLine {
+            ScanLine::new(FilterType::None, self.buffer.clone(), self.usize_range())
+        }
+
+        fn memory_range(&self) -> MemoryRange {
+            let range = self.usize_range();
+            MemoryRange::new(self.buffer.clone(), range)
         }
     }
 
     mod read {
         use std::io::Read;
+
         use super::*;
 
         #[test]
@@ -116,7 +183,7 @@ mod test {
             let result = scan_line.read(&mut buffer);
             assert_eq!(true, result.is_ok());
             assert_eq!(scan_line.size(), buffer.len());
-            assert_eq!(&scan_line.inner[1..], &buffer);
+            assert_eq!(&scan_line.decoded_data.borrow()[1..], &buffer);
         }
 
         #[test]
@@ -129,7 +196,7 @@ mod test {
             let size = scan_line.size();
             let result = scan_line.read_to_end(&mut buffer);
             assert_eq!(true, result.is_ok());
-            assert_eq!(&scan_line.inner[1..], &buffer[0..size]);
+            assert_eq!(&scan_line.decoded_data.borrow()[1..], &buffer[0..size]);
         }
     }
 
@@ -146,7 +213,7 @@ mod test {
             let result = scan_line.write(&buffer);
             assert_eq!(true, result.is_ok());
             assert_eq!(buffer.len(), result.unwrap());
-            assert_eq!(&buffer, &scan_line.inner[1..]);
+            assert_eq!(&buffer, &scan_line.decoded_data.borrow()[1..]);
         }
     }
 }

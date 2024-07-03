@@ -1,6 +1,6 @@
 [package]
 name = "png-glitch"
-version = "0.2.2"
+version = "0.3.0"
 edition = "2021"
 authors = ["N.Shimizu <chikoski@gmail.com>"]
 description = "A library to glitch PNG images."

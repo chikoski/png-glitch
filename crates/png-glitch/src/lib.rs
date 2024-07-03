@@ -4,7 +4,7 @@ use std::path::Path;
 
 use crate::png::Encoder;
 use crate::png::Png;
-pub use crate::png::{FilterType, GlitchContext, ScanLine};
+pub use crate::png::{FilterType, ScanLine};
 
 mod png;
 
@@ -24,7 +24,8 @@ mod png;
 /// let mut png_glitch = PngGlitch::open("./etc/sample00.png").expect("The PNG file should be successfully parsed");
 /// png_glitch.foreach_scanline(|scan_line|{
 ///   scan_line.set_filter_type(FilterType::None);
-///   scan_line[4] = 1;
+///   let pixel = scan_line.index(4).unwrap_or(0);
+///   scan_line.update(4, pixel / 2);
 /// });
 /// png_glitch.save("./glitched.png").expect("The glitched file should be saved as a PNG file");
 /// ```
@@ -72,30 +73,6 @@ impl PngGlitch {
     pub fn new(buffer: Vec<u8>) -> anyhow::Result<PngGlitch> {
         let png = Png::try_from(&buffer)?;
         Ok(PngGlitch { png })
-    }
-
-    /// The method manipulates the decoded bitmap data with the specified modifier function.
-    /// The specified modifier is called with a `GlitchContext` object.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use png_glitch::PngGlitch;
-    ///
-    /// let mut png_glitch = PngGlitch::open("./etc/sample00.png").expect("The PNG file should be successfully parsed");
-    /// png_glitch.glitch(|context|{
-    ///   let mut index = 1;
-    ///   while index  < (context.width() as usize) {
-    ///      context.data()[index] = 0;
-    ///      index += context.scan_line_width();
-    ///   }
-    /// });
-    /// ```
-    pub fn glitch<F>(&mut self, modifier: F)
-    where
-        F: FnMut(&mut GlitchContext),
-    {
-        self.png.glitch(modifier)
     }
 
     /// The method returns a list of [scan line](https://www.w3.org/TR/2003/REC-PNG-20031110/#4Concepts.EncodingScanlineAbs%22). in the given PNG file.
@@ -171,6 +148,8 @@ impl PngGlitch {
     /// The following example writes a PNG format data into the `encoded_data`.
     ///
     /// ```
+    /// # use std::env;
+    /// # env::set_current_dir(env::var("CARGO_MANIFEST_DIR").unwrap_or(".".to_string())).expect("");
     /// use png_glitch::PngGlitch;
     ///
     /// let png_glitch = PngGlitch::open("./etc/sample00.png").expect("The PNG file should be successfully parsed");
@@ -180,5 +159,41 @@ impl PngGlitch {
     pub fn encode(&self, buffer: &mut Vec<u8>) -> anyhow::Result<()> {
         let _ = self.png.encode(buffer)?;
         Ok(())
+    }
+
+    /// The method returns the width of the loaded PNG file
+    ///
+    /// # Example
+    ///
+    /// The following example retrieves width of ./etc/sample00.png
+    ///
+    /// ```
+    /// # use std::env;
+    /// # env::set_current_dir(env::var("CARGO_MANIFEST_DIR").unwrap_or(".".to_string())).expect("");
+    /// use png_glitch::PngGlitch;
+    ///
+    /// let png_glitch = PngGlitch::open("./etc/sample00.png").expect("The PNG file should be successfully parsed");
+    /// let width = png_glitch.width();
+    /// ```
+    pub fn width(&self) -> u32 {
+        self.png.width()
+    }
+
+    /// The method returns the height of the loaded PNG file
+    ///
+    /// # Example
+    ///
+    /// The following example retrieves height of ./etc/sample00.png
+    ///
+    /// ```
+    /// # use std::env;
+    /// # env::set_current_dir(env::var("CARGO_MANIFEST_DIR").unwrap_or(".".to_string())).expect("");
+    /// use png_glitch::PngGlitch;
+    ///
+    /// let png_glitch = PngGlitch::open("./etc/sample00.png").expect("The PNG file should be successfully parsed");
+    /// let width = png_glitch.width();
+    /// ```
+    pub fn height(&self) -> u32 {
+        self.png.height()
     }
 }

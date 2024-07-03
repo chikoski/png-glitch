@@ -71,7 +71,7 @@ fn create_idat_chunk(png: &Png) -> anyhow::Result<Vec<Chunk>> {
     let mut list = vec![];
 
     let mut encoder = Compressor::new(vec![])?;
-    encoder.write_data(&png.data)?;
+    encoder.write_data(&png.data.borrow())?;
     let buffer = encoder.finish()?;
 
     let mut crc = Crc::new();
@@ -112,9 +112,11 @@ mod test {
         let mut buffer = vec![];
         png.encode(&mut buffer)?;
         let another = Png::parse(&buffer)?;
-        assert_eq!(png.data.len(), another.data.len());
-        for i in 0..png.data.len() {
-            assert_eq!(png.data[i], another.data[i]);
+        assert_eq!(png.decoded_data_size(), another.decoded_data_size());
+        for i in 0..png.decoded_data_size() {
+            let decoded_data = &png.data.borrow();
+            let another_decoded_data = &another.data.borrow();
+            assert_eq!(decoded_data[i], another_decoded_data[i]);
         }
         Ok(())
     }

@@ -1,4 +1,5 @@
 use crate::png::Png;
+use crate::ScanLine;
 
 /// GlitchContext provides information necessary to glitch PNG images.
 pub struct GlitchContext<'a> {
@@ -25,8 +26,7 @@ impl<'a> GlitchContext<'a> {
         self.png.scan_line_width()
     }
 
-    /// This method returns the decoded PNG bitmap data as a sequence of `u8`.
-    pub fn data(&mut self) -> &mut [u8] {
-        &mut self.png.data
+    pub fn scan_lines(&mut self) -> Vec<ScanLine> {
+        self.png.scan_lines()
     }
 }

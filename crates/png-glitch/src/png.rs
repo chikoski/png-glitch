@@ -1,51 +1,60 @@
+use std::cell::RefCell;
 use std::fs::File;
 use std::path::Path;
+use std::rc::Rc;
 
 pub use scan_line::FilterType;
 
 pub use crate::png::encoder::Encoder;
-pub use crate::png::glitch_context::GlitchContext;
 use crate::png::parser::Chunk;
 use crate::png::parser::Header;
 use crate::png::parser::Parser;
 use crate::png::parser::Terminator;
+use crate::png::scan_line::MemoryRange;
 pub use crate::png::scan_line::ScanLine;
 
 mod encoder;
-mod glitch_context;
 mod parser;
 mod png_error;
 mod scan_line;
+
+pub type DecodedData = Vec<u8>;
+pub type SharedDecodedData = Rc<RefCell<DecodedData>>;
+
+pub fn share_decoded_data(value: DecodedData) -> SharedDecodedData {
+    Rc::new(RefCell::new(value))
+}
 
 pub struct Png {
     header: Header,
     terminator: Terminator,
     misc_chunks: Vec<Chunk>,
-    data: Vec<u8>,
+    data: SharedDecodedData,
 }
 
 impl Png {
-    pub fn glitch<F>(&mut self, mut modifier: F)
-    where
-        F: FnMut(&mut GlitchContext),
-    {
-        let mut context = self.glitch_context();
-        modifier(&mut context);
-    }
 
     pub fn scan_lines(&mut self) -> Vec<ScanLine> {
         let size = self.scan_line_width();
-        self.data
-            .chunks_mut(size)
-            .map(|data| ScanLine::try_from(data))
+        let decoded_data_size = self.decoded_data_size();
+
+        vec![size; decoded_data_size / size]
+            .iter().enumerate().map(|(index, size)| {
+            let start = *size * index;
+            let end = start + *size;
+            start..end
+        }).map(|range| {
+            let memory_range = MemoryRange::new(self.data.clone(), range);
+            ScanLine::try_from(memory_range)
+        })
             .filter(|r| r.is_ok())
             .map(|r| r.unwrap())
             .collect()
     }
 
     pub fn foreach_scanline<F>(&mut self, mut modifier: F)
-    where
-        F: FnMut(&mut ScanLine),
+        where
+            F: FnMut(&mut ScanLine),
     {
         for mut scan_line in self.scan_lines() {
             modifier(&mut scan_line);
@@ -59,6 +68,7 @@ impl Png {
     }
 
     fn new(header: Header, terminator: Terminator, misc_chunks: Vec<Chunk>, data: Vec<u8>) -> Png {
+        let data = share_decoded_data(data);
         Png {
             header,
             terminator,
@@ -72,11 +82,11 @@ impl Png {
         Ok(png)
     }
 
-    fn width(&self) -> u32 {
+    pub fn width(&self) -> u32 {
         self.header.width()
     }
 
-    fn height(&self) -> u32 {
+    pub fn height(&self) -> u32 {
         self.header.height()
     }
 
@@ -84,8 +94,8 @@ impl Png {
         self.header.scan_line_width()
     }
 
-    fn glitch_context(&mut self) -> GlitchContext {
-        GlitchContext::new(self)
+    fn decoded_data_size(&self) -> usize {
+        self.data.borrow().len()
     }
 }
 
