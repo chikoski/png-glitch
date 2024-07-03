@@ -1,12 +1,12 @@
 use clap::Parser;
-use png_glitch::{FilterType, PngGlitch};
+use png_glitch::PngGlitch;
 
 use crate::cli::Cli;
 
 mod cli;
 
 fn main() {
-    let config = Cli::parse().into();
+    let config = Cli::parse();
 
     if let Err(e) = start(&config) {
         println!("{:?}", e);
@@ -21,11 +21,7 @@ fn start(cli: &Cli) -> anyhow::Result<()> {
 }
 
 fn run(glitch: &mut PngGlitch) {
-    glitch.glitch(|context| {
-        context.data()[1] = 0;
-    });
-
     glitch.foreach_scanline(|scanline| {
-        scanline[2] = 0;
+        scanline.update(2, 0);
     });
 }

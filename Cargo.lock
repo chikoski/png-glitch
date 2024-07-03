@@ -141,9 +141,9 @@ checksum = "f8478577c03552c21db0e2724ffb8986a5ce7af88107e6be5d2ee6e158c12800"
 
 [[package]]
 name = "png-glitch"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8cc9d41d10594b51c88edeb4a85920e35a18decb6f74313b74a16ed66e1d4683"
+checksum = "5fe396fac198720df02f8b442e1cce3d84112e95939f4870a0e06b8d36098c51"
 dependencies = [
  "anyhow",
  "crc32fast",
