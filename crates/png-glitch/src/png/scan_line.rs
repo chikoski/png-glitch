@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 use std::io::{Read, Write};
-use std::ops::Range;
+use std::ops::{Index, IndexMut, Range};
 
 use thiserror::Error;
 
@@ -28,8 +28,12 @@ impl ScanLine {
         }
     }
 
+    fn pixel_data_offset(&self) -> usize {
+        self.range.start + 1
+    }
+
     fn pixel_data_range(&self) -> UsizeRange {
-        self.range.start + 1..self.range.end
+        self.pixel_data_offset()..self.range.end
     }
 
     /// This method returns the filter method applied to the scan line.
@@ -69,6 +73,25 @@ impl ScanLine {
     }
 }
 
+impl Index<usize> for ScanLine {
+    type Output = u8;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        unsafe {
+            let index = index + self.pixel_data_offset();
+            &(*self.decoded_data.as_ptr()).index(index)
+        }
+    }
+}
+
+impl IndexMut<usize> for ScanLine {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        unsafe {
+            let index = index + self.pixel_data_offset();
+            (*self.decoded_data.as_ptr()).index_mut(index)
+        }
+    }
+}
 
 impl Read for ScanLine {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
@@ -155,7 +178,7 @@ mod test {
         }
 
         fn usize_range(&self) -> UsizeRange {
-            (0..self.buffer.borrow().len())
+            0..self.buffer.borrow().len()
         }
 
         fn scan_line(&self) -> ScanLine {
@@ -165,6 +188,27 @@ mod test {
         fn memory_range(&self) -> MemoryRange {
             let range = self.usize_range();
             MemoryRange::new(self.buffer.clone(), range)
+        }
+    }
+
+    mod index {
+        use crate::png::scan_line::test::TestTarget;
+
+        #[test]
+        fn test_index() {
+            let target = TestTarget::new();
+            let scan_line = target.scan_line();
+
+            assert_eq!(scan_line[0], target.buffer.borrow()[0]);
+        }
+
+        fn test_index_mut() {
+            let target = TestTarget::new();
+            let scan_line = target.scan_line();
+
+            scan_line[0] = 10;
+
+            assert_eq!(scan_line[0], target.buffer.borrow()[0]);
         }
     }
 
@@ -205,8 +249,8 @@ mod test {
 
         #[test]
         fn test_write() {
-            let mut taget = TestTarget::new();
-            let mut scan_line = taget.scan_line();
+            let mut target = TestTarget::new();
+            let mut scan_line = target.scan_line();
             let size = scan_line.size();
 
             let buffer = vec![10; size];
