@@ -1,6 +1,6 @@
 [package]
 name = "png-glitch-cli"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 authors = ["N.Shimizu <chikoski@gmail.com>"]
 description = "Cli to glitch PNG images."
@@ -13,6 +13,8 @@ name = "png-glitch"
 path = "src/main.rs"
 
 [dependencies]
-anyhow = { version = "1.0.86", features = [] }
-clap = { version = "4.5.7", features = ["derive"] }
-png-glitch = "0.3.0"
+anyhow = { version = "1.0.89", features = [] }
+clap = { version = "4.5.18", features = ["derive"] }
+png-glitch = "0.3.1"
+rand = "0.8.5"
+log = "0.4.22"

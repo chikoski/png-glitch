@@ -1,27 +1,20 @@
 use clap::Parser;
-use png_glitch::PngGlitch;
 
 use crate::cli::Cli;
+use crate::context::Context;
 
 mod cli;
+mod command;
+mod context;
 
 fn main() {
     let config = Cli::parse();
-
-    if let Err(e) = start(&config) {
+    if let Err(e) = start(config) {
         println!("{:?}", e);
     }
 }
 
-fn start(cli: &Cli) -> anyhow::Result<()> {
-    let mut glitch = PngGlitch::open(&cli.png_file)?;
-    run(&mut glitch);
-    glitch.save(&cli.output_file)?;
-    Ok(())
-}
-
-fn run(glitch: &mut PngGlitch) {
-    glitch.foreach_scanline(|scanline| {
-        scanline.update(2, 0);
-    });
+fn start(cli: Cli) -> anyhow::Result<()> {
+    let mut context: Context = cli.try_into()?;
+    context.start()
 }
