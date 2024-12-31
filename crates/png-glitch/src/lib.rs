@@ -1,12 +1,13 @@
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
-
+pub use crate::operation::Transpose;
 use crate::png::Encoder;
 use crate::png::Png;
 pub use crate::png::{FilterType, ScanLine};
 
 mod png;
+mod operation;
 
 /// PngGlitch is a crate to create a glitched PNG image.
 /// Please refer to ["The Art of PNG glitch"](https://ucnv.github.io/pnglitch/) for the description about what glitched PNG is.
@@ -195,5 +196,18 @@ impl PngGlitch {
     /// ```
     pub fn height(&self) -> u32 {
         self.png.height()
+    }
+
+    /// The method copies the lines starting from src to dest
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use png_glitch::PngGlitch;
+    /// let mut png_glitch = PngGlitch::open("./etc/sample00.png").expect("The PNG file should be successfully parsed");
+    /// let width = png_glitch.transpose(2, 5, 10);
+    /// ```
+    pub fn transpose(&mut self, src: usize, dst: usize, lines: u32) {
+        self.png.transpose(src, dst, lines)
     }
 }
