@@ -3,10 +3,10 @@ use std::fs::File;
 use std::ops::Range;
 use std::path::Path;
 use std::rc::Rc;
-
+use anyhow::Context;
 use crate::operation::Transpose;
-pub use crate::png::encoder::Encoder;
-use crate::png::parser::Chunk;
+use crate::operation::Encode;
+use crate::png::parser::{Chunk, ChunkType};
 use crate::png::parser::Header;
 use crate::png::parser::Parser;
 use crate::png::parser::Terminator;
@@ -14,7 +14,6 @@ use scan_line::MemoryRange;
 pub use crate::png::scan_line::ScanLine;
 pub use scan_line::FilterType;
 
-mod encoder;
 mod parser;
 mod png_error;
 mod scan_line;
@@ -127,4 +126,81 @@ impl Transpose for Png {
     }
 }
 
+
+impl Encode for Png {
+    fn encode(&self, mut writer: impl std::io::Write) -> anyhow::Result<()> {
+        writer.write_all(SIGNATURE)?;
+        self.header
+            .encode(&mut writer)
+            .context("Failed to encode IHDR")?;
+        for chunk in self.misc_chunks.iter() {
+            chunk.encode(&mut writer)?;
+        }
+        let idat_chunk_list =
+            create_idat_chunk(self).context("Failed to create IDAT chunk list")?;
+        for chunk in idat_chunk_list.iter() {
+            chunk.encode(&mut writer).context("Failed to encode IDAT")?;
+        }
+        self.terminator.encode(&mut writer)?;
+        writer.flush()?;
+        Ok(())
+    }
+}
+
+fn create_idat_chunk(png: &Png) -> anyhow::Result<Vec<Chunk>> {
+    let mut list = vec![];
+
+    let mut encoder = fdeflate::Compressor::new(vec![])?;
+    encoder.write_data(&png.data.borrow())?;
+    let buffer = encoder.finish()?;
+
+    let mut crc = crc32fast::Hasher::new();
+    crc.update(ChunkType::IDAT);
+    crc.update(&buffer);
+    let crc = crc.finalize().to_be_bytes();
+
+    let chunk = Chunk::new(ChunkType::Data, buffer, crc);
+
+    list.push(chunk);
+    Ok(list)
+}
+
+
 pub const SIGNATURE: &'static [u8] = &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_encode_ihdr() -> anyhow::Result<()> {
+        let bytes = include_bytes!("../etc/sample00.png");
+        let png = Png::parse(bytes)?;
+        let mut buffer = vec![];
+        png.header.encode(&mut buffer)?;
+        assert_eq!(
+            &buffer[0..4],
+            &(png.header.inner.length() as u32).to_be_bytes()
+        );
+        assert_eq!(&buffer[4..8], ChunkType::IHDR);
+        assert_eq!(&buffer[8..21], &png.header.inner.data);
+        assert_eq!(&buffer[21..25], &png.header.inner.crc);
+        Ok(())
+    }
+
+    #[test]
+    fn test_encode() -> anyhow::Result<()> {
+        let bytes = include_bytes!("../etc/sample00.png");
+        let png = Png::parse(bytes)?;
+        let mut buffer = vec![];
+        png.encode(&mut buffer)?;
+        let another = Png::parse(&buffer)?;
+        assert_eq!(png.decoded_data_size(), another.decoded_data_size());
+        for i in 0..png.decoded_data_size() {
+            let decoded_data = &png.data.borrow();
+            let another_decoded_data = &another.data.borrow();
+            assert_eq!(decoded_data[i], another_decoded_data[i]);
+        }
+        Ok(())
+    }
+}

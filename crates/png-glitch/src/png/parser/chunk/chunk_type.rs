@@ -1,7 +1,6 @@
 use std::fmt::{Debug, Formatter};
-
 use anyhow::Context;
-
+use crate::operation::Encode;
 use crate::png::png_error::PngError;
 
 #[derive(PartialEq)]
@@ -47,5 +46,17 @@ impl Debug for ChunkType {
             }
         };
         write!(f, "chunk type = {}", label)
+    }
+}
+
+impl Encode for ChunkType {
+    fn encode(&self, mut writer: impl std::io::Write) -> anyhow::Result<()> {
+        match self {
+            Self::Start => writer.write_all(ChunkType::IHDR),
+            Self::End => writer.write_all(ChunkType::IEND),
+            Self::Data => writer.write_all(ChunkType::IDAT),
+            Self::Other(t) => writer.write_all(t),
+        }?;
+        Ok(())
     }
 }

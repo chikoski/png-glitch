@@ -4,6 +4,7 @@ use crate::png::parser::chunk::{Chunk, ChunkType};
 use crate::png::png_error::PngError;
 pub use color_type::ColorType;
 use meta_data::MetaData;
+use crate::operation::Encode;
 
 pub mod color_type;
 mod meta_data;
@@ -64,5 +65,12 @@ impl TryFrom<Chunk> for Header {
         } else {
             Err(PngError::InvalidChunkType(chunk)).context("IHDR is expected")
         }
+    }
+}
+
+impl Encode for Header {
+    fn encode(&self, writer: impl std::io::Write) -> anyhow::Result<()> {
+
+        self.inner.encode(writer)
     }
 }

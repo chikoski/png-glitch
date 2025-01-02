@@ -1,3 +1,4 @@
+use crate::operation::Encode;
 use crate::png::parser::chunk::{Chunk, ChunkType};
 use crate::png::png_error::PngError;
 
@@ -14,5 +15,12 @@ impl TryFrom<Chunk> for Terminator {
         } else {
             Err(PngError::InvalidChunkType(value))
         }
+    }
+}
+
+impl Encode for Terminator {
+    fn encode(&self, writer: impl std::io::Write) -> anyhow::Result<()> {
+
+        self.inner.encode(writer)
     }
 }

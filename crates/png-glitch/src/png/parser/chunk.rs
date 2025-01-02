@@ -1,5 +1,5 @@
 use anyhow::Context;
-
+use crate::operation::Encode;
 pub use crate::png::parser::chunk::chunk_type::ChunkType;
 use crate::png::png_error::PngError;
 
@@ -74,5 +74,16 @@ fn parse_u32(buffer: &[u8]) -> Result<u32, PngError> {
     } else {
         let value = u32::from_be_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
         Ok(value)
+    }
+}
+
+impl Encode for Chunk {
+    fn encode(&self, mut writer: impl std::io::Write) -> anyhow::Result<()> {
+        writer.write_all(&(self.length() as u32).to_be_bytes())?;
+        self.chunk_type.encode(&mut writer)?;
+        writer.write_all(&self.data)?;
+        writer.write_all(&self.crc)?;
+        writer.flush()?;
+        Ok(())
     }
 }
