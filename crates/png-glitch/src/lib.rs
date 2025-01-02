@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 pub use crate::operation::Transpose;
-use crate::operation::Encode;
+use crate::operation::{Encode, Scan};
 use crate::png::Png;
 pub use crate::png::{FilterType, ScanLine};
 

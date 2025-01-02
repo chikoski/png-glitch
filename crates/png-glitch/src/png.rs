@@ -4,8 +4,7 @@ use std::ops::Range;
 use std::path::Path;
 use std::rc::Rc;
 use anyhow::Context;
-use crate::operation::Transpose;
-use crate::operation::Encode;
+use crate::operation::{Scan, Transpose, Encode};
 use crate::png::parser::{Chunk, ChunkType};
 use crate::png::parser::Header;
 use crate::png::parser::Parser;
@@ -33,29 +32,6 @@ pub struct Png {
 }
 
 impl Png {
-    pub fn scan_lines(&mut self) -> Vec<ScanLine> {
-        let size = self.scan_line_width();
-        let decoded_data_size = self.decoded_data_size();
-
-        (0..decoded_data_size / size)
-            .map(|index| {
-                let range = self.scan_line_range(index, 1);
-                let memory_range = MemoryRange::new(self.data.clone(), range);
-                ScanLine::try_from(memory_range)
-            })
-            .filter(|r| r.is_ok())
-            .map(|r| r.unwrap())
-            .collect()
-    }
-
-    pub fn foreach_scanline<F>(&mut self, mut modifier: F)
-    where
-        F: FnMut(&mut ScanLine),
-    {
-        for mut scan_line in self.scan_lines() {
-            modifier(&mut scan_line);
-        }
-    }
 
     pub fn save(&self, path: impl AsRef<Path>) -> anyhow::Result<()> {
         let mut file = File::create(path)?;
@@ -144,6 +120,32 @@ impl Encode for Png {
         self.terminator.encode(&mut writer)?;
         writer.flush()?;
         Ok(())
+    }
+}
+
+impl Scan for Png {
+    fn scan_lines(&mut self) -> Vec<ScanLine> {
+        let size = self.scan_line_width();
+        let decoded_data_size = self.decoded_data_size();
+
+        (0..decoded_data_size / size)
+            .map(|index| {
+                let range = self.scan_line_range(index, 1);
+                let memory_range = MemoryRange::new(self.data.clone(), range);
+                ScanLine::try_from(memory_range)
+            })
+            .filter(|r| r.is_ok())
+            .map(|r| r.unwrap())
+            .collect()
+    }
+
+    fn foreach_scanline<F>(&mut self, mut modifier: F)
+    where
+        F: FnMut(&mut ScanLine),
+    {
+        for mut scan_line in self.scan_lines() {
+            modifier(&mut scan_line);
+        }
     }
 }
 
