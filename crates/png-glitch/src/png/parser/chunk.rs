@@ -1,7 +1,7 @@
-use anyhow::Context;
 use crate::operation::Encode;
 pub use crate::png::parser::chunk::chunk_type::ChunkType;
 use crate::png::png_error::PngError;
+use anyhow::Context;
 
 mod chunk_type;
 
@@ -42,9 +42,9 @@ impl Chunk {
     }
 
     fn parse_length(buffer: &[u8]) -> anyhow::Result<usize> {
-        parse_u32(buffer)
-            .map(|value| value as usize)
-            .context("Failed to retrieve data size of a chunk")
+        let array = buffer[..4].try_into().context("Failed to retrieve data size of a chunk")?;
+        let length = u32::from_be_bytes(array);
+        Ok(length as usize)
     }
 
     fn parse_chunk_type(buffer: &[u8]) -> anyhow::Result<ChunkType> {
@@ -60,20 +60,7 @@ impl Chunk {
     }
 
     fn parse_crc(buffer: &[u8]) -> anyhow::Result<[u8; 4]> {
-        if buffer.len() < 4 {
-            Err(PngError::TooShortInput).context("Failed to parse crc of a chunk")
-        } else {
-            Ok([buffer[0], buffer[1], buffer[2], buffer[3]])
-        }
-    }
-}
-
-fn parse_u32(buffer: &[u8]) -> Result<u32, PngError> {
-    if buffer.len() < 4 {
-        Err(PngError::TooShortInput)
-    } else {
-        let value = u32::from_be_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
-        Ok(value)
+        buffer[..4].try_into().context("Failed to retrieve CRC")
     }
 }
 

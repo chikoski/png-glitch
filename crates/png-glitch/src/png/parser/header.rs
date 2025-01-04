@@ -1,23 +1,24 @@
 use anyhow::Context;
 
+use crate::operation::Encode;
 use crate::png::parser::chunk::{Chunk, ChunkType};
-use crate::png::png_error::PngError;
 pub use color_type::ColorType;
 use meta_data::MetaData;
-use crate::operation::Encode;
 
 pub mod color_type;
 mod meta_data;
 
 pub struct Header {
-    pub inner: Chunk,
+    pub(crate) inner: Chunk, // for test
     metadata: MetaData,
+    scanline_width: usize,
 }
 
 impl Header {
     fn new(width: u32, height: u32, bit_depth: u8, color_type: ColorType, inner: Chunk) -> Header {
         let metadata = MetaData::new(width, height, color_type, bit_depth);
-        Header { inner, metadata }
+        let scanline_width = metadata.bits_per_scanline() / 8 + 1;
+        Header { inner, metadata, scanline_width }
     }
 
     pub fn width(&self) -> u32 {
@@ -29,7 +30,7 @@ impl Header {
     }
 
     pub fn scan_line_width(&self) -> usize {
-        self.metadata.bits_per_scanline() / 8 + 1
+        self.scanline_width
     }
 
     fn parse_width(chunk: &Chunk) -> u32 {
@@ -53,24 +54,20 @@ impl TryFrom<Chunk> for Header {
     type Error = anyhow::Error;
 
     fn try_from(chunk: Chunk) -> Result<Self, Self::Error> {
-        if chunk.chunk_type == ChunkType::Start {
-            let header = Header::new(
-                Header::parse_width(&chunk),
-                Header::parse_height(&chunk),
-                Header::parse_bit_depth(&chunk),
-                Header::parse_color_type(&chunk)?,
-                chunk,
-            );
-            Ok(header)
-        } else {
-            Err(PngError::InvalidChunkType(chunk)).context("IHDR is expected")
-        }
+        anyhow::ensure!(chunk.chunk_type == ChunkType::Start);
+        let header = Header::new(
+            Header::parse_width(&chunk),
+            Header::parse_height(&chunk),
+            Header::parse_bit_depth(&chunk),
+            Header::parse_color_type(&chunk)?,
+            chunk,
+        );
+        Ok(header)
     }
 }
 
 impl Encode for Header {
     fn encode(&self, writer: impl std::io::Write) -> anyhow::Result<()> {
-
         self.inner.encode(writer)
     }
 }
