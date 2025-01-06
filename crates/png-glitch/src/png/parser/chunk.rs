@@ -35,9 +35,6 @@ impl Chunk {
         let data = Self::parse_data(&buffer[8..], length)?;
         let crc = Self::parse_crc(&buffer[length + 8..])?;
 
-        #[cfg(debug_assertions)]
-        println!("{:?}", chunk_type);
-
         Ok(Chunk::new(chunk_type, data, crc))
     }
 

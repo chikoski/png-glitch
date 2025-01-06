@@ -1,16 +1,20 @@
 use crate::png::scan_line::UsizeRange;
-use crate::png::SharedDecodedData;
+use crate::png::{ColorType, SharedDecodedData};
 
 pub struct MemoryRange {
     pub(super) decoded_data: SharedDecodedData,
     pub(super) range: UsizeRange,
+    pub(super) color_type: ColorType,
+    pub(super) bit_depth: u8,
 }
 
 impl MemoryRange {
-    pub fn new(decoded_data: SharedDecodedData, range: UsizeRange) -> MemoryRange {
+    pub fn new(decoded_data: SharedDecodedData, range: UsizeRange, color_type: ColorType, bit_depth: u8) -> MemoryRange {
         MemoryRange {
             decoded_data,
             range,
+            color_type,
+            bit_depth
         }
     }
 

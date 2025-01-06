@@ -1,3 +1,4 @@
+use std::fmt::{Debug, Formatter};
 use anyhow::Context;
 
 use crate::operation::Encode;
@@ -5,7 +6,7 @@ use crate::png::parser::chunk::{Chunk, ChunkType};
 pub use color_type::ColorType;
 use meta_data::MetaData;
 
-pub mod color_type;
+mod color_type;
 mod meta_data;
 
 pub struct Header {
@@ -17,7 +18,7 @@ pub struct Header {
 impl Header {
     fn new(width: u32, height: u32, bit_depth: u8, color_type: ColorType, inner: Chunk) -> Header {
         let metadata = MetaData::new(width, height, color_type, bit_depth);
-        let scanline_width = metadata.bits_per_scanline() / 8 + 1;
+        let scanline_width = metadata.bits_per_scanline() / 8;
         Header { inner, metadata, scanline_width }
     }
 
@@ -31,6 +32,14 @@ impl Header {
 
     pub fn scan_line_width(&self) -> usize {
         self.scanline_width
+    }
+
+    pub fn color_type(&self) -> ColorType {
+        self.metadata.color_type
+    }
+
+    pub fn bit_depth(&self) -> u8 {
+        self.metadata.bit_depth
     }
 
     fn parse_width(chunk: &Chunk) -> u32 {
@@ -69,5 +78,11 @@ impl TryFrom<Chunk> for Header {
 impl Encode for Header {
     fn encode(&self, writer: impl std::io::Write) -> anyhow::Result<()> {
         self.inner.encode(writer)
+    }
+}
+
+impl Debug for Header {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}, scanline width = {}", self.metadata, self.scan_line_width())
     }
 }

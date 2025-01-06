@@ -210,4 +210,18 @@ impl PngGlitch {
     pub fn transpose(&mut self, src: usize, dst: usize, lines: u32) {
         self.png.transpose(src, dst, lines)
     }
+
+    /// The method removes filter from all scan lines.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use png_glitch::PngGlitch;
+    /// let mut png_glitch = PngGlitch::open("./etc/sample00.png").expect("The PNG file should be successfully parsed");
+    /// png_glitch.remove_filter();
+    /// png_glitch.save("./etc/removed.png").expect("The PNG file should be successfully saved")
+    /// ```
+    pub fn remove_filter(&mut self) {
+        self.png.remove_filter()
+    }
 }

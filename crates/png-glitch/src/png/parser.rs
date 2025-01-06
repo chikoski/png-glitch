@@ -7,6 +7,7 @@ use crate::png::{Png, SIGNATURE};
 pub use crate::png::parser::chunk::{Chunk, ChunkType};
 pub use crate::png::parser::header::Header;
 pub use crate::png::parser::terminator::Terminator;
+pub use header::ColorType;
 
 mod chunk;
 mod header;

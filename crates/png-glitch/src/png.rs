@@ -1,17 +1,18 @@
+use crate::operation::{Encode, Scan, Transpose};
+use crate::png::parser::Header;
+use crate::png::parser::Parser;
+use crate::png::parser::Terminator;
+use crate::png::parser::{Chunk, ChunkType};
+pub use crate::png::scan_line::ScanLine;
+use anyhow::Context;
+pub use parser::ColorType;
+pub use scan_line::FilterType;
+use scan_line::MemoryRange;
 use std::cell::RefCell;
 use std::fs::File;
 use std::ops::Range;
 use std::path::Path;
 use std::rc::Rc;
-use anyhow::Context;
-use crate::operation::{Scan, Transpose, Encode};
-use crate::png::parser::{Chunk, ChunkType};
-use crate::png::parser::Header;
-use crate::png::parser::Parser;
-use crate::png::parser::Terminator;
-use scan_line::MemoryRange;
-pub use crate::png::scan_line::ScanLine;
-pub use scan_line::FilterType;
 
 mod parser;
 mod png_error;
@@ -32,7 +33,6 @@ pub struct Png {
 }
 
 impl Png {
-
     pub fn save(&self, path: impl AsRef<Path>) -> anyhow::Result<()> {
         let mut file = File::create(path)?;
         let _ = self.encode(&mut file)?;
@@ -62,6 +62,14 @@ impl Png {
         self.header.height()
     }
 
+    pub fn color_type(&self) -> ColorType {
+        self.header.color_type()
+    }
+
+    pub fn bit_depth(&self) -> u8 {
+        self.header.bit_depth()
+    }
+
     fn scan_line_width(&self) -> usize {
         self.header.scan_line_width()
     }
@@ -79,6 +87,16 @@ impl Png {
         let start = self.index_of(scan_line_index);
         let end = start + self.scan_line_width() * lines as usize;
         start..end
+    }
+
+    pub fn remove_filter(&mut self) {
+        let mut scanlines = self.scan_lines();
+        scanlines[0].remove_filter(None);
+
+        while scanlines.len() > 1 {
+            let previous = scanlines.pop();
+            scanlines[0].remove_filter(previous.as_ref());
+        }
     }
 }
 
@@ -127,11 +145,13 @@ impl Scan for Png {
     fn scan_lines(&mut self) -> Vec<ScanLine> {
         let size = self.scan_line_width();
         let decoded_data_size = self.decoded_data_size();
+        let color_type = self.header.color_type();
+        let bit_depth = self.header.bit_depth();
 
         (0..decoded_data_size / size)
             .map(|index| {
                 let range = self.scan_line_range(index, 1);
-                let memory_range = MemoryRange::new(self.data.clone(), range);
+                let memory_range = MemoryRange::new(self.data.clone(), range, color_type, bit_depth);
                 ScanLine::try_from(memory_range)
             })
             .filter(|r| r.is_ok())

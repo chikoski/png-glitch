@@ -1,15 +1,17 @@
 use std::fmt::Debug;
 use std::io::{Read, Write};
 use std::ops::{Index, IndexMut, Range};
-
 use thiserror::Error;
 
+use crate::png::{ColorType, SharedDecodedData};
 pub use filter_type::FilterType;
 pub use memory_range::MemoryRange;
-use crate::png::SharedDecodedData;
 
 mod filter_type;
 mod memory_range;
+mod paeth;
+mod filter_remover;
+mod filter_applier;
 
 pub type UsizeRange = Range<usize>;
 
@@ -18,14 +20,18 @@ pub struct ScanLine {
     filter_type: FilterType,
     range: UsizeRange,
     decoded_data: SharedDecodedData,
+    color_type: ColorType,
+    bit_depth: u8,
 }
 
 impl ScanLine {
-    fn new(filter_type: FilterType, decoded_data: SharedDecodedData, range: UsizeRange) -> ScanLine {
+    fn new(filter_type: FilterType, decoded_data: SharedDecodedData, range: UsizeRange, color_type: ColorType, bit_depth: u8) -> ScanLine {
         ScanLine {
             filter_type,
             decoded_data,
             range,
+            color_type,
+            bit_depth,
         }
     }
 
@@ -37,6 +43,26 @@ impl ScanLine {
         self.pixel_data_offset()..self.range.end
     }
 
+    fn bytes_per_pixel(&self) -> usize {
+        let bits = self.bit_depth;
+        match self.color_type {
+            ColorType::GrayScale => std::cmp::max(bits / 8, 1) as usize,
+            ColorType::GrayScaleAlpha => std::cmp::max(bits * 2 / 8, 1) as usize,
+            ColorType::TrueColor => std::cmp::max(bits * 3 / 8, 1) as usize,
+            ColorType::TrueColorAlpha => std::cmp::max(bits * 4 / 8, 1) as usize,
+            ColorType::IndexColor => (bits / 8) as usize,
+        }
+    }
+
+    pub fn apply_filter(&mut self, filter_type: FilterType, previous: Option<&ScanLine>) {
+        filter_applier::apply(filter_type, self, previous);
+    }
+
+    pub fn remove_filter(&mut self, other: Option<&ScanLine>) {
+        filter_remover::remove(self, other);
+        self.set_filter_type(FilterType::None)
+    }
+
     /// This method returns the filter method applied to the scan line.
     pub fn filter_type(&self) -> FilterType {
         self.filter_type
@@ -45,12 +71,22 @@ impl ScanLine {
     /// This method updates the filter method of the scan line with the specified one.
     pub fn set_filter_type(&mut self, filter_type: FilterType) {
         self.filter_type = filter_type;
-        self.decoded_data.borrow_mut()[self.range.start] = filter_type.into()
+        self.decoded_data.borrow_mut()[self.range.start] = filter_type.into();
     }
 
     /// This method returns the byte size of the scan line.
     pub fn size(&self) -> usize {
         self.range.len() - 1
+    }
+
+    /// This method returns the color type of the scan line.
+    pub fn color_type(&self) -> ColorType {
+        self.color_type
+    }
+
+    /// This method returns the bit_depth of each pixel.
+    pub fn bit_depth(&self) -> u8 {
+        self.bit_depth
     }
 
     /// index method returns a byte in a pixel_data specified with the index parameter
@@ -127,7 +163,7 @@ impl TryFrom<MemoryRange> for ScanLine {
             .ok_or(ScanLineError::InvalidMemoryRange)?;
 
         let filter_type = FilterType::try_from(byte)?;
-        Ok(ScanLine::new(filter_type, value.decoded_data, value.range))
+         Ok(ScanLine::new(filter_type, value.decoded_data, value.range, value.color_type, value.bit_depth))
     }
 }
 
@@ -159,7 +195,7 @@ mod test {
         }
 
         fn scan_line(&self) -> ScanLine {
-            ScanLine::new(FilterType::None, self.buffer.clone(), self.usize_range())
+            ScanLine::new(FilterType::None, self.buffer.clone(), self.usize_range(), ColorType::TrueColorAlpha, 8)
         }
     }
 
