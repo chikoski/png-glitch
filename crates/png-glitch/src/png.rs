@@ -62,14 +62,6 @@ impl Png {
         self.header.height()
     }
 
-    pub fn color_type(&self) -> ColorType {
-        self.header.color_type()
-    }
-
-    pub fn bit_depth(&self) -> u8 {
-        self.header.bit_depth()
-    }
-
     fn scan_line_width(&self) -> usize {
         self.header.scan_line_width()
     }
@@ -91,13 +83,28 @@ impl Png {
 
     pub fn remove_filter(&mut self) {
         let mut scanlines = self.scan_lines();
-        scanlines[0].remove_filter(None);
+        let mut previous = None;
 
-        while scanlines.len() > 1 {
-            let previous = scanlines.pop();
-            scanlines[0].remove_filter(previous.as_ref());
+        scanlines.reverse();
+        while scanlines.len() > 0 {
+            let last = scanlines.len() - 1;
+            scanlines[last].remove_filter(previous.as_ref());
+            previous = scanlines.pop()
         }
     }
+
+    pub fn apply_filter(&mut self, filter: FilterType) {
+        let mut scanlines = self.scan_lines();
+        let mut previous = scanlines.pop();
+
+        while scanlines.len() > 0 {
+            if let Some(mut line) = previous {
+                previous = scanlines.pop();
+                line.apply_filter(filter, previous.as_ref());
+            }
+        }
+    }
+
 }
 
 impl TryFrom<&Vec<u8>> for Png {

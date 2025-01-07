@@ -20,7 +20,7 @@ mod operation;
 /// # use std::env;
 /// # env::set_current_dir(env::var("CARGO_MANIFEST_DIR").unwrap_or(".".to_string())).expect("");
 ///
-/// use png_glitch::{FilterType, PngGlitch};///
+/// use png_glitch::{FilterType, PngGlitch};
 ///
 /// let mut png_glitch = PngGlitch::open("./etc/sample00.png").expect("The PNG file should be successfully parsed");
 /// png_glitch.foreach_scanline(|scan_line|{
@@ -223,5 +223,19 @@ impl PngGlitch {
     /// ```
     pub fn remove_filter(&mut self) {
         self.png.remove_filter()
+    }
+
+    /// The method removes filter from all scan lines.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use png_glitch::{FilterType, PngGlitch};
+    /// let mut png_glitch = PngGlitch::open("./etc/none.png").expect("The PNG file should be successfully parsed");
+    /// png_glitch.apply_filter(FilterType::Sub);
+    /// png_glitch.save("./etc/filter-sub.png").expect("The PNG file should be successfully saved")
+    /// ```
+    pub fn apply_filter(&mut self, filter: FilterType) {
+        self.png.apply_filter(filter)
     }
 }

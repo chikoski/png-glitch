@@ -18,7 +18,7 @@ pub struct Header {
 impl Header {
     fn new(width: u32, height: u32, bit_depth: u8, color_type: ColorType, inner: Chunk) -> Header {
         let metadata = MetaData::new(width, height, color_type, bit_depth);
-        let scanline_width = metadata.bits_per_scanline() / 8;
+        let scanline_width = metadata.bits_per_scanline() / 8 + 1;
         Header { inner, metadata, scanline_width }
     }
 

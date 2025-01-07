@@ -2,16 +2,13 @@ use std::fmt::Debug;
 use std::io::{Read, Write};
 use std::ops::{Index, IndexMut, Range};
 use thiserror::Error;
-
 use crate::png::{ColorType, SharedDecodedData};
 pub use filter_type::FilterType;
 pub use memory_range::MemoryRange;
 
 mod filter_type;
 mod memory_range;
-mod paeth;
-mod filter_remover;
-mod filter_applier;
+mod filter;
 
 pub type UsizeRange = Range<usize>;
 
@@ -54,13 +51,16 @@ impl ScanLine {
         }
     }
 
+    /// Apply filter to the scanline
     pub fn apply_filter(&mut self, filter_type: FilterType, previous: Option<&ScanLine>) {
-        filter_applier::apply(filter_type, self, previous);
+        filter::apply(filter_type, self, previous);
+        self.set_filter_type(filter_type);
     }
 
+    /// Remove filter applied to the scanline
     pub fn remove_filter(&mut self, other: Option<&ScanLine>) {
-        filter_remover::remove(self, other);
-        self.set_filter_type(FilterType::None)
+        filter::remove(self, other);
+        self.set_filter_type(FilterType::None);
     }
 
     /// This method returns the filter method applied to the scan line.
