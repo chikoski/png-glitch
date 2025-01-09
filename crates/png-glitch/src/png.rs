@@ -119,11 +119,16 @@ impl Transpose for Png {
     fn transpose(&mut self, src: usize, dest: usize, lines: u32) {
         let src = self.scan_line_range(src, lines);
         let dest = self.scan_line_range(dest, lines);
-        let mut buf = vec![0; src.len()];
-        buf.copy_from_slice(&self.data.borrow()[src]);
+
+        let mut src_data = vec![0; src.len()];
+        src_data.copy_from_slice(&self.data.borrow()[src.clone()]);
+
+        let mut dest_data = vec![0; dest.len()];
+        dest_data.copy_from_slice(&self.data.borrow()[dest.clone()]);
 
         let mut data = self.data.borrow_mut();
-        data.splice(dest, buf);
+        data.splice(dest, src_data);
+        data.splice(src, dest_data);
     }
 }
 
