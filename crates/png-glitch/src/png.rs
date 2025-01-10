@@ -104,7 +104,6 @@ impl Png {
             }
         }
     }
-
 }
 
 impl TryFrom<&Vec<u8>> for Png {
@@ -154,30 +153,34 @@ impl Encode for Png {
 }
 
 impl Scan for Png {
-    fn scan_lines(&mut self) -> Vec<ScanLine> {
+    fn scan_lines(&self) -> Vec<ScanLine> {
         let size = self.scan_line_width();
         let decoded_data_size = self.decoded_data_size();
-        let color_type = self.header.color_type();
-        let bit_depth = self.header.bit_depth();
-
-        (0..decoded_data_size / size)
-            .map(|index| {
-                let range = self.scan_line_range(index, 1);
-                let memory_range = MemoryRange::new(self.data.clone(), range, color_type, bit_depth);
-                ScanLine::try_from(memory_range)
-            })
-            .filter(|r| r.is_ok())
-            .map(|r| r.unwrap())
-            .collect()
+        let lines = decoded_data_size / size;
+        self.scan_lines_from(0, lines)
     }
 
-    fn foreach_scanline<F>(&mut self, mut modifier: F)
+    fn foreach_scanline<F>(&self, mut modifier: F)
     where
         F: FnMut(&mut ScanLine),
     {
         for mut scan_line in self.scan_lines() {
             modifier(&mut scan_line);
         }
+    }
+
+    fn scan_lines_from(&self, from: usize, lines: usize) -> Vec<ScanLine> {
+        let color_type = self.header.color_type();
+        let bit_depth = self.header.bit_depth();
+        (0..lines).map(|index| {
+            let index = from + index;
+            let range = self.scan_line_range(index, 1);
+            let range = MemoryRange::new(self.data.clone(), range, color_type, bit_depth);
+            ScanLine::try_from(range)
+        })
+            .filter(|r| r.is_ok())
+            .map(|r| r.unwrap())
+            .collect()
     }
 }
 

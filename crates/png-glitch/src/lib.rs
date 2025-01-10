@@ -83,9 +83,8 @@ impl PngGlitch {
     /// The following example changes the filter type of each scan line according its position
     ///
     /// ```
-    /// use std::env;
+    /// # use std::env;
     /// # env::set_current_dir(env::var("CARGO_MANIFEST_DIR").unwrap_or(".".to_string())).expect("");
-    ///
     /// use png_glitch::{FilterType, PngGlitch};
     ///
     /// let mut png_glitch = PngGlitch::open("./etc/sample00.png").expect("The PNG file should be successfully parsed");
@@ -98,9 +97,25 @@ impl PngGlitch {
     ///    scan_line.set_filter_type(filter_type);
     /// }
     /// ```
-    pub fn scan_lines(&mut self) -> Vec<ScanLine> {
+    pub fn scan_lines(&self) -> Vec<ScanLine> {
         self.png.scan_lines()
     }
+
+    /// The method takes the specified number of ScanLine objects at most.
+    /// The maximum number of ScanLines is specified as `lines` parameter.
+    /// The `from` parameter specifies the index of first ScanLine.
+    ///
+    /// # Example
+    /// ```
+    /// use png_glitch::{FilterType, PngGlitch};
+    ///
+    /// let mut png_glitch = PngGlitch::open("./etc/sample00.png").expect("The PNG file should be successfully parsed");
+    /// let scan_liens = png_glitch.scan_lines_from(5, 10);
+    /// ```
+    pub fn scan_lines_from(&self, from: usize, lines: usize) -> Vec<ScanLine> {
+        self.png.scan_lines_from(from, lines)
+    }
+
 
     /// The method allows you to manipulate for each [scan line](https://www.w3.org/TR/2003/REC-PNG-20031110/#4Concepts.EncodingScanlineAbs%22).
     /// The modifier function is called with a `ScanLine` object which represents a scan line.
@@ -120,7 +135,7 @@ impl PngGlitch {
     ///    scan_line.set_filter_type(FilterType::None);
     /// });
     /// ```
-    pub fn foreach_scanline<F>(&mut self, modifier: F)
+    pub fn foreach_scanline<F>(&self, modifier: F)
     where
         F: FnMut(&mut ScanLine),
     {
