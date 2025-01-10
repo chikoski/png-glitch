@@ -66,10 +66,6 @@ impl Png {
         self.header.scan_line_width()
     }
 
-    fn decoded_data_size(&self) -> usize {
-        self.data.borrow().len()
-    }
-
     fn index_of(&self, scan_line_index: usize) -> usize {
         let size = self.scan_line_width();
         scan_line_index * size
@@ -154,10 +150,7 @@ impl Encode for Png {
 
 impl Scan for Png {
     fn scan_lines(&self) -> Vec<ScanLine> {
-        let size = self.scan_line_width();
-        let decoded_data_size = self.decoded_data_size();
-        let lines = decoded_data_size / size;
-        self.scan_lines_from(0, lines)
+        self.scan_lines_from(0, self.height() as usize)
     }
 
     fn foreach_scanline<F>(&self, mut modifier: F)
@@ -232,8 +225,9 @@ mod test {
         let mut buffer = vec![];
         png.encode(&mut buffer)?;
         let another = Png::parse(&buffer)?;
-        assert_eq!(png.decoded_data_size(), another.decoded_data_size());
-        for i in 0..png.decoded_data_size() {
+
+        let decoded_data_size = png.data.borrow().len();
+        for i in 0..decoded_data_size {
             let decoded_data = &png.data.borrow();
             let another_decoded_data = &another.data.borrow();
             assert_eq!(decoded_data[i], another_decoded_data[i]);
