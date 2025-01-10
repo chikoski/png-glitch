@@ -112,8 +112,8 @@ impl PngGlitch {
     /// let mut png_glitch = PngGlitch::open("./etc/sample00.png").expect("The PNG file should be successfully parsed");
     /// let scan_liens = png_glitch.scan_lines_from(5, 10);
     /// ```
-    pub fn scan_lines_from(&self, from: usize, lines: usize) -> Vec<ScanLine> {
-        self.png.scan_lines_from(from, lines)
+    pub fn scan_lines_from(&self, from: u32, lines: u32) -> Vec<ScanLine> {
+        self.png.scan_lines_from(from as usize, lines as usize)
     }
 
 
@@ -222,8 +222,8 @@ impl PngGlitch {
     /// let mut png_glitch = PngGlitch::open("./etc/sample00.png").expect("The PNG file should be successfully parsed");
     /// let width = png_glitch.transpose(2, 5, 10);
     /// ```
-    pub fn transpose(&mut self, src: usize, dst: usize, lines: u32) {
-        self.png.transpose(src, dst, lines)
+    pub fn transpose(&mut self, src: u32, dst: u32, lines: u32) {
+        self.png.transpose(src as usize, dst as usize, lines)
     }
 
     /// The method removes filter from all scan lines.
@@ -234,10 +234,37 @@ impl PngGlitch {
     /// use png_glitch::PngGlitch;
     /// let mut png_glitch = PngGlitch::open("./etc/sample00.png").expect("The PNG file should be successfully parsed");
     /// png_glitch.remove_filter();
-    /// png_glitch.save("./etc/removed.png").expect("The PNG file should be successfully saved")
+    /// png_glitch.save("./etc/removed-all.png").expect("The PNG file should be successfully saved")
     /// ```
     pub fn remove_filter(&mut self) {
-        self.png.remove_filter()
+        self.remove_filter_from(0, self.height());
+    }
+
+    /// The method removes filter from the scan lines in specified region
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use png_glitch::PngGlitch;
+    /// let mut png_glitch = PngGlitch::open("./etc/sample00.png").expect("The PNG file should be successfully parsed");
+    /// png_glitch.remove_filter_from(5, 10); // Remove filter from the scan line #5 - # 14
+    /// png_glitch.save("./etc/removed-partial.png").expect("The PNG file should be successfully saved")
+    /// ```
+    pub fn remove_filter_from(&mut self, from: u32, lines: u32) {
+        let index = if from > 0 { from - 1 } else { 0 };
+        let mut lines = self.scan_lines_from(index, lines);
+        lines.reverse();
+
+        let mut previous = if from > 0 {
+            lines.pop()
+        } else {
+            None
+        };
+        while lines.len() > 0 {
+            let last_index = lines.len() - 1;
+            lines[last_index].remove_filter(previous.as_ref());
+            previous = lines.pop()
+        }
     }
 
     /// The method removes filter from all scan lines.
@@ -248,9 +275,32 @@ impl PngGlitch {
     /// use png_glitch::{FilterType, PngGlitch};
     /// let mut png_glitch = PngGlitch::open("./etc/none.png").expect("The PNG file should be successfully parsed");
     /// png_glitch.apply_filter(FilterType::Sub);
-    /// png_glitch.save("./etc/filter-sub.png").expect("The PNG file should be successfully saved")
+    /// png_glitch.save("./etc/filter-all.png").expect("The PNG file should be successfully saved")
     /// ```
     pub fn apply_filter(&mut self, filter: FilterType) {
-        self.png.apply_filter(filter)
+        self.apply_filter_from(filter, 0, self.height());
     }
+
+    /// The method removes filter from scan lines in specified region
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use png_glitch::{FilterType, PngGlitch};
+    /// let mut png_glitch = PngGlitch::open("./etc/none.png").expect("The PNG file should be successfully parsed");
+    /// png_glitch.apply_filter_from(FilterType::Sub, 5, 3); // Apply sub filter to the scan line #5, #6, and #7.
+    /// png_glitch.save("./etc/filter-partial.png").expect("The PNG file should be successfully saved")
+    /// ```
+    pub fn apply_filter_from(&mut self, filter_type: FilterType, from: u32, lines: u32) {
+        let mut lines = self.scan_lines_from(from, lines);
+        let mut previous = lines.pop();
+
+        while lines.len() > 0 {
+            if let Some(mut line) = previous {
+                previous = lines.pop();
+                line.apply_filter(filter_type, previous.as_ref());
+            }
+        }
+    }
+
 }

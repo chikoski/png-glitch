@@ -77,29 +77,6 @@ impl Png {
         start..end
     }
 
-    pub fn remove_filter(&mut self) {
-        let mut scanlines = self.scan_lines();
-        let mut previous = None;
-
-        scanlines.reverse();
-        while scanlines.len() > 0 {
-            let last = scanlines.len() - 1;
-            scanlines[last].remove_filter(previous.as_ref());
-            previous = scanlines.pop()
-        }
-    }
-
-    pub fn apply_filter(&mut self, filter: FilterType) {
-        let mut scanlines = self.scan_lines();
-        let mut previous = scanlines.pop();
-
-        while scanlines.len() > 0 {
-            if let Some(mut line) = previous {
-                previous = scanlines.pop();
-                line.apply_filter(filter, previous.as_ref());
-            }
-        }
-    }
 }
 
 impl TryFrom<&Vec<u8>> for Png {
