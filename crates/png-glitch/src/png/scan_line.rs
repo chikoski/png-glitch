@@ -116,7 +116,7 @@ impl Index<usize> for ScanLine {
     fn index(&self, index: usize) -> &Self::Output {
         unsafe {
             let index = index + self.pixel_data_offset();
-            &(*self.decoded_data.as_ptr()).index(index)
+            &(&(*self.decoded_data.as_ptr()))[index]
         }
     }
 }
@@ -125,7 +125,7 @@ impl IndexMut<usize> for ScanLine {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         unsafe {
             let index = index + self.pixel_data_offset();
-            (*self.decoded_data.as_ptr()).index_mut(index)
+            &mut (&mut *self.decoded_data.as_ptr())[index]
         }
     }
 }
