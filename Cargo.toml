@@ -15,6 +15,6 @@ path = "src/main.rs"
 [dependencies]
 anyhow = { version = "1.0.89", features = [] }
 clap = { version = "4.5.18", features = ["derive"] }
-png-glitch = "0.3.1"
+png-glitch = { path = "crates/png-glitch", version = "0.5.0" }
 rand = "0.8.5"
 log = "0.4.22"
