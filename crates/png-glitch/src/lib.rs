@@ -5,16 +5,25 @@ pub use crate::operation::Transpose;
 use crate::operation::{Encode, Scan};
 use crate::png::Png;
 pub use crate::png::{FilterType, ScanLine};
+pub use crate::presets::{GlitchPresets, PresetError};
+pub use crate::presets::{
+    Region, ScanlineColor, ScanlineConfig, ScanlinePattern,
+    NoiseConfig, NoiseDistribution, RgbShiftConfig, WrapMode,
+    DegradationConfig, ArtifactType, PixelSortConfig, SortDirection, SortCriteria,
+    DatamoshConfig, BlockCorruptionConfig, CorruptionType, Direction
+};
 
 mod png;
 mod operation;
+pub mod presets;
 
 /// PngGlitch is a crate to create a glitched PNG image.
 /// Please refer to ["The Art of PNG glitch"](https://ucnv.github.io/pnglitch/) for the description about what glitched PNG is.
 ///
 /// # Examples
 ///
-/// The following snippet shows how you can glitch "./etc/sample00.png" and save the generated image as "./glitched.png".
+/// ## Low-level API
+/// The following snippet shows how you can glitch "./etc/sample00.png" using low-level scanline manipulation:
 ///
 /// ```
 /// # use std::env;
@@ -29,6 +38,25 @@ mod operation;
 ///   scan_line.update(4, pixel / 2);
 /// });
 /// png_glitch.save("./glitched.png").expect("The glitched file should be saved as a PNG file");
+/// ```
+///
+/// ## High-level Preset API
+/// The following snippet shows how to use the high-level preset API for common glitch effects:
+///
+/// ```no_run
+/// use png_glitch::{PngGlitch, GlitchPresets};
+///
+/// let mut png_glitch = PngGlitch::open("./input.png").expect("Failed to open PNG file");
+/// 
+/// // Apply scanline effect with default settings
+/// png_glitch.scanlines_default().expect("Failed to apply scanlines");
+/// 
+/// // Chain multiple effects
+/// png_glitch
+///     .noise_default().expect("Failed to apply noise")
+///     .rgb_shift_default().expect("Failed to apply RGB shift");
+/// 
+/// png_glitch.save("./glitched.png").expect("Failed to save glitched image");
 /// ```
 ///
 pub struct PngGlitch {

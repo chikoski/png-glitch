@@ -1,6 +1,6 @@
 use crate::png::png_error::PngError;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum ColorType {
     GrayScale,
     TrueColor,
