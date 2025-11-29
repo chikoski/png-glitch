@@ -1,15 +1,23 @@
 use crate::png::png_error::PngError;
 
+/// An enum representing the color type of a PNG image.
 #[derive(Copy, Clone, Debug)]
 pub enum ColorType {
+    /// Grayscale image.
     GrayScale,
+    /// Truecolor image.
     TrueColor,
+    /// Indexed-color image.
     IndexColor,
+    /// Grayscale image with alpha.
     GrayScaleAlpha,
+    /// Truecolor image with alpha.
     TrueColorAlpha,
 }
 
 impl ColorType {
+    /// The method returns the number of bits per pixel.
+    /// The `bit_depth` parameter is the bit depth of the PNG image.
     pub fn bit_per_pixel(&self, bit_depth: u8) -> usize {
         match self {
             Self::GrayScale => bit_depth as usize,

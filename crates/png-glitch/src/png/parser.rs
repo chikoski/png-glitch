@@ -13,6 +13,7 @@ mod chunk;
 mod header;
 mod terminator;
 
+/// A struct to parse a PNG file.
 pub struct Parser {
     header: Option<Header>,
     terminator: Option<Terminator>,
@@ -21,6 +22,8 @@ pub struct Parser {
 }
 
 impl Parser {
+    /// The method parses a PNG file and returns a `Png` object.
+    /// The `buffer` parameter is a byte array of a PNG file.
     pub fn parse(buffer: &[u8]) -> anyhow::Result<Png> {
         if buffer.starts_with(SIGNATURE) {
             let mut parser = Self::new();

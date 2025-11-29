@@ -10,9 +10,10 @@ mod filter_type;
 mod memory_range;
 mod filter;
 
+/// A type alias for a range of `usize`.
 pub type UsizeRange = Range<usize>;
 
-/// ScanLine represents each scan line in a PNG image.
+/// A struct representing a scan line in a PNG image.
 pub struct ScanLine {
     filter_type: FilterType,
     range: UsizeRange,
@@ -51,13 +52,16 @@ impl ScanLine {
         }
     }
 
-    /// Apply filter to the scanline
+    /// The method applies a filter to the scan line.
+    /// The `filter_type` parameter is the type of the filter to apply.
+    /// The `previous` parameter is the previous scan line.
     pub fn apply_filter(&mut self, filter_type: FilterType, previous: Option<&ScanLine>) {
         filter::apply(filter_type, self, previous);
         self.set_filter_type(filter_type);
     }
 
-    /// Remove filter applied to the scanline
+    /// The method removes the filter from the scan line.
+    /// The `other` parameter is the previous scan line.
     pub fn remove_filter(&mut self, other: Option<&ScanLine>) {
         filter::remove(self, other);
         self.set_filter_type(FilterType::None);
@@ -89,7 +93,7 @@ impl ScanLine {
         self.bit_depth
     }
 
-    /// index method returns a byte in a pixel_data specified with the index parameter
+    /// The method returns a byte in a pixel_data specified with the index parameter.
     pub fn index(&self, index: usize) -> Option<u8> {
         let pixel_data_range = self.pixel_data_range();
         let index = pixel_data_range.start + index;
@@ -100,7 +104,7 @@ impl ScanLine {
         }
     }
 
-    /// update method updates a value of the pixel specified by the index with the given value
+    /// The method updates a value of the pixel specified by the index with the given value.
     pub fn update(&self, index: usize, value: u8) {
         let pixel_data_range = self.pixel_data_range();
         let index = pixel_data_range.start + index;

@@ -5,22 +5,32 @@ use anyhow::Context;
 
 mod chunk_type;
 
+/// A struct representing a PNG chunk.
 #[derive(Debug)]
 pub struct Chunk {
+    /// The type of the chunk.
     pub chunk_type: ChunkType,
+    /// The data of the chunk.
     pub data: Vec<u8>,
+    /// The CRC of the chunk.
     pub crc: [u8; 4],
 }
 
 impl Chunk {
+    /// The method returns the length of the chunk data.
     pub fn length(&self) -> usize {
         self.data.len()
     }
 
+    /// The method returns the consumed size of the chunk.
     pub fn consumed_size(&self) -> usize {
         self.length() + 12
     }
 
+    /// The method creates a new chunk.
+    /// The `chunk_type` parameter is the type of the chunk.
+    /// The `data` parameter is the data of the chunk.
+    /// The `crc` parameter is the CRC of the chunk.
     pub fn new(chunk_type: ChunkType, data: Vec<u8>, crc: [u8; 4]) -> Chunk {
         Chunk {
             chunk_type,
@@ -29,6 +39,8 @@ impl Chunk {
         }
     }
 
+    /// The method parses a chunk from a byte array.
+    /// The `buffer` parameter is a byte array of a PNG file.
     pub fn parse(buffer: &[u8]) -> anyhow::Result<Chunk> {
         let length = Self::parse_length(buffer)?;
         let chunk_type = Self::parse_chunk_type(&buffer[4..])?;

@@ -1,10 +1,16 @@
 use crate::png::scan_line::filter::byte::{add_without_overflow, byte_in_pixel, byte_in_previous_line, byte_in_previous_pixel, byte_in_previous_pixel_in_previous_line, sub_without_overflow};
 use crate::ScanLine;
 
+/// The function removes the paeth filter from a scan line.
+/// The `line` parameter is the scan line to remove the filter from.
+/// The `previous` parameter is the previous scan line.
 pub fn remove(line: &ScanLine, previous: Option<&ScanLine>) {
     scan(line, previous, recon)
 }
 
+/// The function applies the paeth filter to a scan line.
+/// The `line` parameter is the scan line to apply the filter to.
+/// The `previous` parameter is the previous scan line.
 pub fn apply(line: &ScanLine, previous: Option<&ScanLine>) {
     scan_rev(line, previous, filter)
 }

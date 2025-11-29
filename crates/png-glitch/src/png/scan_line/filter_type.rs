@@ -1,11 +1,17 @@
 use crate::png::png_error::PngError;
 
+/// An enum representing the filter type of a scan line.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum FilterType {
+    /// No filter.
     None,
+    /// Sub filter.
     Sub,
+    /// Up filter.
     Up,
+    /// Average filter.
     Average,
+    /// Paeth filter.
     Paeth,
 }
 

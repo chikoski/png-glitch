@@ -1,10 +1,14 @@
 use crate::png::scan_line::filter::byte::{add_without_overflow, byte_in_pixel, byte_in_previous_pixel, sub_without_overflow};
 use crate::ScanLine;
 
+/// The function applies the sub filter to a scan line.
+/// The `line` parameter is the scan line to apply the filter to.
 pub fn apply(line: &ScanLine) {
     fold_rev(line, sub_without_overflow)
 }
 
+/// The function removes the sub filter from a scan line.
+/// The `line` parameter is the scan line to remove the filter from.
 pub fn remove(line: &ScanLine) {
     fold(line, add_without_overflow);
 }

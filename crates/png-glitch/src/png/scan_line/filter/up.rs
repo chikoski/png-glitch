@@ -2,10 +2,16 @@ use crate::png::scan_line::filter::byte;
 use crate::png::scan_line::filter::byte::{byte_in_pixel, byte_in_previous_line};
 use crate::ScanLine;
 
+/// The function removes the up filter from a scan line.
+/// The `line` parameter is the scan line to remove the filter from.
+/// The `other` parameter is the previous scan line.
 pub fn remove(line: &ScanLine, other: Option<&ScanLine>) {
     scan(line, other, byte::add_without_overflow)
 }
 
+/// The function applies the up filter to a scan line.
+/// The `line` parameter is the scan line to apply the filter to.
+/// The `previous` parameter is the previous scan line.
 pub fn apply(line: &ScanLine, previous: Option<&ScanLine>) {
     scan(line, previous, byte::sub_without_overflow)
 }

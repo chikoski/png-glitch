@@ -18,13 +18,17 @@ mod parser;
 mod png_error;
 mod scan_line;
 
+/// A type alias for a vector of bytes representing decoded PNG data.
 pub type DecodedData = Vec<u8>;
+/// A type alias for a shared, mutable reference to decoded PNG data.
 pub type SharedDecodedData = Rc<RefCell<DecodedData>>;
 
+/// A function to create a shared, mutable reference to decoded PNG data.
 pub fn share_decoded_data(value: DecodedData) -> SharedDecodedData {
     Rc::new(RefCell::new(value))
 }
 
+/// A struct representing a PNG image.
 pub struct Png {
     header: Header,
     terminator: Terminator,
@@ -33,6 +37,8 @@ pub struct Png {
 }
 
 impl Png {
+    /// The method saves the PNG image to a file.
+    /// The `path` parameter is the path to the file.
     pub fn save(&self, path: impl AsRef<Path>) -> anyhow::Result<()> {
         let mut file = File::create(path)?;
         let _ = self.encode(&mut file)?;
@@ -54,10 +60,12 @@ impl Png {
         Ok(png)
     }
 
+    /// The method returns the width of the PNG image.
     pub fn width(&self) -> u32 {
         self.header.width()
     }
 
+    /// The method returns the height of the PNG image.
     pub fn height(&self) -> u32 {
         self.header.height()
     }
@@ -76,34 +84,34 @@ impl Png {
         let end = start + self.scan_line_width() * lines as usize;
         start..end
     }
-
 }
 
-impl TryFrom<&Vec<u8>> for Png {
+impl TryFrom<&[u8]> for Png {
     type Error = anyhow::Error;
 
-    fn try_from(buffer: &Vec<u8>) -> Result<Self, Self::Error> {
+    fn try_from(buffer: &[u8]) -> Result<Self, Self::Error> {
         Png::parse(buffer)
     }
 }
-
 impl Transpose for Png {
     fn transpose(&mut self, src: usize, dest: usize, lines: u32) {
-        let src = self.scan_line_range(src, lines);
-        let dest = self.scan_line_range(dest, lines);
+        let src_range = self.scan_line_range(src, lines);
+        let dest_range = self.scan_line_range(dest, lines);
 
-        let mut src_data = vec![0; src.len()];
-        src_data.copy_from_slice(&self.data.borrow()[src.clone()]);
-
-        let mut dest_data = vec![0; dest.len()];
-        dest_data.copy_from_slice(&self.data.borrow()[dest.clone()]);
+        assert_eq!(
+            src_range.len(),
+            dest_range.len(),
+            "Source and destination ranges must have the same length for transpose."
+        );
 
         let mut data = self.data.borrow_mut();
-        data.splice(dest, src_data);
-        data.splice(src, dest_data);
+
+        // .clone() を削除
+        let tmp = data[src_range].to_vec();
+        data.copy_within(dest_range, src_range.start);
+        data[dest_range].copy_from_slice(&tmp);
     }
 }
-
 
 impl Encode for Png {
     fn encode(&self, mut writer: impl std::io::Write) -> anyhow::Result<()> {
@@ -142,14 +150,17 @@ impl Scan for Png {
     fn scan_lines_from(&self, from: usize, lines: usize) -> Vec<ScanLine> {
         let color_type = self.header.color_type();
         let bit_depth = self.header.bit_depth();
-        (0..lines).map(|index| {
-            let index = from + index;
-            let range = self.scan_line_range(index, 1);
-            let range = MemoryRange::new(self.data.clone(), range, color_type, bit_depth);
-            ScanLine::try_from(range)
-        })
-            .filter(|r| r.is_ok())
-            .map(|r| r.unwrap())
+        (0..lines)
+            .map(|index| {
+                let index = from + index;
+                let range = self.scan_line_range(index, 1);
+                let mem_range = MemoryRange::new(self.data.clone(), range, color_type, bit_depth);
+                // try_from の結果をそのまま返す
+                ScanLine::try_from(mem_range)
+            })
+            // Result::ok を filter_map に渡すことで、Ok(value) は Some(value) に、
+            // Err(_) は None に変換され、無視される。より慣用的で簡潔な書き方。
+            .filter_map(Result::ok)
             .collect()
     }
 }
@@ -172,7 +183,7 @@ fn create_idat_chunk(png: &Png) -> anyhow::Result<Vec<Chunk>> {
     Ok(list)
 }
 
-
+/// The signature of a PNG file.
 pub const SIGNATURE: &'static [u8] = &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 
 #[cfg(test)]

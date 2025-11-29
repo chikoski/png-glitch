@@ -3,15 +3,22 @@ use anyhow::Context;
 use crate::operation::Encode;
 use crate::png::png_error::PngError;
 
+/// An enum representing the type of a PNG chunk.
 #[derive(PartialEq)]
 pub enum ChunkType {
+    /// The IHDR chunk.
     Start,
+    /// The IDAT chunk.
     Data,
+    /// The IEND chunk.
     End,
+    /// Other chunk types.
     Other([u8; 4]),
 }
 
 impl ChunkType {
+    /// The method creates a new chunk type from a byte array.
+    /// The `bytes` parameter is a byte array of a PNG file.
     pub fn new(bytes: &[u8]) -> anyhow::Result<ChunkType> {
         if bytes.len() < 4 {
             Err(PngError::TooShortInput).context(format!(
@@ -30,8 +37,11 @@ impl ChunkType {
         }
     }
 
+    /// The IHDR chunk type.
     pub const IHDR: &'static [u8] = &[73, 72, 68, 82];
+    /// The IDAT chunk type.
     pub const IDAT: &'static [u8] = &[73, 68, 65, 84];
+    /// The IEND chunk type.
     pub const IEND: &'static [u8] = &[73, 69, 78, 68];
 }
 
@@ -39,7 +49,7 @@ impl Debug for ChunkType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let label = match self {
             Self::Start => "IHDR".to_string(),
-            Self::Data => "IDAT".to_string(),
+            Self.Data => "IDAT".to_string(),
             Self::End => "IEND".to_string(),
             Self::Other(bytes) => {
                 String::from_utf8(bytes.to_vec()).unwrap_or("Unknown".to_string())

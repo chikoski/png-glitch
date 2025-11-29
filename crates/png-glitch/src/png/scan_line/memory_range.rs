@@ -1,6 +1,7 @@
 use crate::png::scan_line::UsizeRange;
 use crate::png::{ColorType, SharedDecodedData};
 
+/// A struct representing a memory range of a scan line.
 pub struct MemoryRange {
     pub(super) decoded_data: SharedDecodedData,
     pub(super) range: UsizeRange,
@@ -9,6 +10,11 @@ pub struct MemoryRange {
 }
 
 impl MemoryRange {
+    /// The method creates a new memory range.
+    /// The `decoded_data` parameter is the decoded data of the PNG image.
+    /// The `range` parameter is the range of the scan line in the decoded data.
+    /// The `color_type` parameter is the color type of the PNG image.
+    /// The `bit_depth` parameter is the bit depth of the PNG image.
     pub fn new(decoded_data: SharedDecodedData, range: UsizeRange, color_type: ColorType, bit_depth: u8) -> MemoryRange {
         MemoryRange {
             decoded_data,

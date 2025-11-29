@@ -9,7 +9,9 @@ use meta_data::MetaData;
 mod color_type;
 mod meta_data;
 
+/// A struct representing the IHDR chunk of a PNG file.
 pub struct Header {
+    #[doc(hidden)]
     pub(crate) inner: Chunk, // for test
     metadata: MetaData,
     scanline_width: usize,
@@ -22,22 +24,27 @@ impl Header {
         Header { inner, metadata, scanline_width }
     }
 
+    /// The method returns the width of the PNG image.
     pub fn width(&self) -> u32 {
         self.metadata.width
     }
 
+    /// The method returns the height of the PNG image.
     pub fn height(&self) -> u32 {
         self.metadata.height
     }
 
+    /// The method returns the width of a scan line in bytes.
     pub fn scan_line_width(&self) -> usize {
         self.scanline_width
     }
 
+    /// The method returns the color type of the PNG image.
     pub fn color_type(&self) -> ColorType {
         self.metadata.color_type
     }
 
+    /// The method returns the bit depth of the PNG image.
     pub fn bit_depth(&self) -> u8 {
         self.metadata.bit_depth
     }
