@@ -237,7 +237,7 @@ impl PngGlitch {
     /// png_glitch.save("./etc/removed-all.png").expect("The PNG file should be successfully saved")
     /// ```
     pub fn remove_filter(&mut self) {
-        self.remove_filter_from(0, self.height());
+        self.png.remove_filter();
     }
 
     /// The method removes filter from the scan lines in specified region
@@ -251,20 +251,7 @@ impl PngGlitch {
     /// png_glitch.save("./etc/removed-partial.png").expect("The PNG file should be successfully saved")
     /// ```
     pub fn remove_filter_from(&mut self, from: u32, lines: u32) {
-        let index = if from > 0 { from - 1 } else { 0 };
-        let mut lines = self.scan_lines_from(index, lines);
-        lines.reverse();
-
-        let mut previous = if from > 0 {
-            lines.pop()
-        } else {
-            None
-        };
-        while !lines.is_empty() {
-            let last_index = lines.len() - 1;
-            lines[last_index].remove_filter(previous.as_ref());
-            previous = lines.pop()
-        }
+        self.png.remove_filter_from(from, lines);
     }
 
     /// The method removes filter from all scan lines.
@@ -278,7 +265,7 @@ impl PngGlitch {
     /// png_glitch.save("./etc/filter-all.png").expect("The PNG file should be successfully saved")
     /// ```
     pub fn apply_filter(&mut self, filter: FilterType) {
-        self.apply_filter_from(filter, 0, self.height());
+        self.png.apply_filter(filter);
     }
 
     /// The method removes filter from scan lines in specified region
@@ -292,15 +279,7 @@ impl PngGlitch {
     /// png_glitch.save("./etc/filter-partial.png").expect("The PNG file should be successfully saved")
     /// ```
     pub fn apply_filter_from(&mut self, filter_type: FilterType, from: u32, lines: u32) {
-        let mut lines = self.scan_lines_from(from, lines);
-        let mut previous = lines.pop();
-
-        while !lines.is_empty() {
-            if let Some(mut line) = previous {
-                previous = lines.pop();
-                line.apply_filter(filter_type, previous.as_ref());
-            }
-        }
+        self.png.apply_filter_from(filter_type, from, lines);
     }
 
 }
