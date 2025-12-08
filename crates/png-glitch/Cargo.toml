@@ -1,6 +1,6 @@
 [package]
 name = "png-glitch"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 authors = ["N.Shimizu <chikoski@gmail.com>"]
 description = "A library to glitch PNG images."
@@ -9,7 +9,7 @@ readme = "README.md"
 repository = "https://github.com/chikoski/png-glitch"
 
 [dependencies]
-anyhow = "1.0.86"
+anyhow = "1.0.95"
 crc32fast = "1.4.2"
-fdeflate = "0.3.4"
+fdeflate = "0.3.7"
 thiserror = "2.0.9"
