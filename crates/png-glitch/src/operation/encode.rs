@@ -1,7 +1,5 @@
 use std::io::Write;
 
-use std::io::Write;
-
 /// The trait provides a method to encode a PNG image.
 pub trait Encode {
     /// The method encodes a PNG image and writes it to a buffer.

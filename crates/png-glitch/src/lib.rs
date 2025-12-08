@@ -72,7 +72,7 @@ impl PngGlitch {
     /// let mut png_glitch = PngGlitch::new(buffer).expect("The data in the buffer should be successfully parsed as PNG");
     /// ```
     pub fn new(buffer: Vec<u8>) -> anyhow::Result<PngGlitch> {
-        let png = Png::try_from(&buffer)?;
+        let png = Png::try_from(&buffer as &[u8])?;
         Ok(PngGlitch { png })
     }
 
@@ -173,7 +173,7 @@ impl PngGlitch {
     /// png_glitch.encode(&mut encoded_data).expect("The glitched PNG data should be written into the encoded_data in PNG format");
     /// ```
     pub fn encode(&self, buffer: &mut Vec<u8>) -> anyhow::Result<()> {
-        let _ = self.png.encode(buffer)?;
+        self.png.encode(buffer)?;
         Ok(())
     }
 
@@ -260,7 +260,7 @@ impl PngGlitch {
         } else {
             None
         };
-        while lines.len() > 0 {
+        while !lines.is_empty() {
             let last_index = lines.len() - 1;
             lines[last_index].remove_filter(previous.as_ref());
             previous = lines.pop()
@@ -295,7 +295,7 @@ impl PngGlitch {
         let mut lines = self.scan_lines_from(from, lines);
         let mut previous = lines.pop();
 
-        while lines.len() > 0 {
+        while !lines.is_empty() {
             if let Some(mut line) = previous {
                 previous = lines.pop();
                 line.apply_filter(filter_type, previous.as_ref());

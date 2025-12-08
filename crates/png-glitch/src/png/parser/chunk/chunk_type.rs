@@ -49,7 +49,7 @@ impl Debug for ChunkType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let label = match self {
             Self::Start => "IHDR".to_string(),
-            Self.Data => "IDAT".to_string(),
+            Self::Data => "IDAT".to_string(),
             Self::End => "IEND".to_string(),
             Self::Other(bytes) => {
                 String::from_utf8(bytes.to_vec()).unwrap_or("Unknown".to_string())

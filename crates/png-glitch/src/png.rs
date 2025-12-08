@@ -41,7 +41,7 @@ impl Png {
     /// The `path` parameter is the path to the file.
     pub fn save(&self, path: impl AsRef<Path>) -> anyhow::Result<()> {
         let mut file = File::create(path)?;
-        let _ = self.encode(&mut file)?;
+        self.encode(&mut file)?;
         Ok(())
     }
 
@@ -107,8 +107,8 @@ impl Transpose for Png {
         let mut data = self.data.borrow_mut();
 
         // .clone() を削除
-        let tmp = data[src_range].to_vec();
-        data.copy_within(dest_range, src_range.start);
+        let tmp = data[src_range.clone()].to_vec();
+        data.copy_within(dest_range.clone(), src_range.start);
         data[dest_range].copy_from_slice(&tmp);
     }
 }
@@ -184,7 +184,7 @@ fn create_idat_chunk(png: &Png) -> anyhow::Result<Vec<Chunk>> {
 }
 
 /// The signature of a PNG file.
-pub const SIGNATURE: &'static [u8] = &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+pub const SIGNATURE: &[u8] = &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 
 #[cfg(test)]
 mod test {
