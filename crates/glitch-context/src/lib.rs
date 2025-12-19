@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use png_glitch::{FilterType, PngGlitch};
+pub use png_glitch::{FilterType, PngGlitch};
 use rand::Rng;
 use std::path::Path;
 
@@ -70,6 +70,26 @@ impl GlitchContext {
     pub fn height(&self) -> u32 {
         self.png.height()
     }
+    /// The method changes the filter type of all scan lines.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use std::env;
+    /// # use std::path::Path;
+    /// # let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap_or(".".to_string());
+    /// # let root = Path::new(&manifest_dir).parent().unwrap();
+    /// # let sample_path = root.join("png-glitch/etc/sample00.png");
+    /// # let output_path = root.join("png-glitch/etc/changed_context.png");
+    ///
+    /// use glitch_context::{FilterType, GlitchContext};
+    /// let mut context = GlitchContext::open(sample_path).expect("The PNG file should be successfully parsed");
+    /// context.change_filter_type(FilterType::Sub);
+    /// context.save(output_path).expect("The PNG file should be successfully saved")
+    /// ```
+    pub fn change_filter_type(&mut self, filter_type: FilterType) {
+        self.png.change_filter_type(filter_type);
+    }
 }
 
 /// Filter that changes the filter type of scanlines.
@@ -95,6 +115,51 @@ impl GlitchFilter for ChangeFilterType {
     }
 }
 
+/// Filter that removes filter from all scan lines.
+pub struct RemoveFilter;
+
+impl GlitchFilter for RemoveFilter {
+    fn apply(&self, png: &mut PngGlitch) {
+        png.change_filter_type(FilterType::None);
+    }
+}
+
+/// Filter that changes the filter type of all scan lines to Sub.
+pub struct SubFilter;
+
+impl GlitchFilter for SubFilter {
+    fn apply(&self, png: &mut PngGlitch) {
+        png.change_filter_type(FilterType::Sub);
+    }
+}
+
+/// Filter that changes the filter type of all scan lines to Up.
+pub struct UpFilter;
+
+impl GlitchFilter for UpFilter {
+    fn apply(&self, png: &mut PngGlitch) {
+        png.change_filter_type(FilterType::Up);
+    }
+}
+
+/// Filter that changes the filter type of all scan lines to Average.
+pub struct AverageFilter;
+
+impl GlitchFilter for AverageFilter {
+    fn apply(&self, png: &mut PngGlitch) {
+        png.change_filter_type(FilterType::Average);
+    }
+}
+
+/// Filter that changes the filter type of all scan lines to Paeth.
+pub struct PaethFilter;
+
+impl GlitchFilter for PaethFilter {
+    fn apply(&self, png: &mut PngGlitch) {
+        png.change_filter_type(FilterType::Paeth);
+    }
+}
+
 /// Filter that replaces pixel data with random noise.
 pub struct Replace {
     pub magnitude: f64,
@@ -104,36 +169,11 @@ impl GlitchFilter for Replace {
     fn apply(&self, png: &mut PngGlitch) {
         let mut rng = rand::thread_rng();
         png.foreach_scanline(|scan_line| {
-            // Note: ScanLine doesn't expose raw byte length easily unless we know it.
-            // But we can iterate indices.
-            // We assume safe upper bound or try until error?
-            // png-glitch doesn't easily expose scanline length in bytes directly via scan_line object,
-            // but we can try updating indices.
-            // Using a heuristic: scan line length approx width * bytes_per_pixel + 1.
-            // But scan_line.index(i) works.
-            // Let's iterate a reasonable range.
-            // Actually, we should probably access the underlying data if possible.
-            // scan_line.index(x) uses byte index.
-            // We don't know the max index easily from scan_line.
-            // But we can just try updating random indices?
-            // "Replaces pixel data"
-            // If we iterate 0..10000 it might be slow or wrong.
-            // Let's look at PngGlitch::width() and infer?
-            // FilterType is at index 0 (conceptually? No, index(0) is first data byte).
-            // Let's assume we can keep accessing until it fails?
-            // scan_line.index() returns Option.
-
-            // To do this efficiently, we might need to know the length.
-            // However, implementing "Replace" for *every* pixel with probability `magnitude`
-            // requires iterating all pixels. Use `while let Some(_) = scan_line.index(i)` loop?
-
-            let mut i = 0;
-            while let Some(_) = scan_line.index(i) {
-                if rng.gen_bool(self.magnitude) {
-                    let val: u8 = rng.gen();
-                    scan_line.update(i, val);
-                }
-                i += 1;
+            if rng.gen_bool(self.magnitude) {
+                let val: u8 = rng.r#gen();
+                let index: usize = rng.r#gen();
+                let index = index % scan_line.size();
+                scan_line.update(index, val);
             }
         });
     }
@@ -148,14 +188,10 @@ impl GlitchFilter for Transpose {
     fn apply(&self, png: &mut PngGlitch) {
         let mut rng = rand::thread_rng();
         let height = png.height();
-        // Magnitude as probability of swapping?
-        // "Magnitude means how frequent transpose happens... probability of swapping."
-        // If we iterate all lines and swap with prob `magnitude`:
         for i in 0..height {
             if rng.gen_bool(self.magnitude) {
                 let target = rng.gen_range(0..height);
                 if i != target {
-                    // src, dest, lines
                     png.transpose(i, target, 1);
                 }
             }
@@ -172,13 +208,76 @@ impl GlitchFilter for SetZero {
     fn apply(&self, png: &mut PngGlitch) {
         let mut rng = rand::thread_rng();
         png.foreach_scanline(|scan_line| {
-            let mut i = 0;
-            while let Some(_) = scan_line.index(i) {
-                if rng.gen_bool(self.magnitude) {
-                    scan_line.update(i, 0);
-                }
-                i += 1;
+            if rng.gen_bool(self.magnitude) {
+                let index: usize = rng.r#gen();
+                let index = index % scan_line.size();
+                scan_line.update(index, 0);
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_filters() -> Result<()> {
+        let bytes = include_bytes!("../../png-glitch/etc/sample00.png");
+
+        // Test SubFilter
+        let mut ctx = GlitchContext::new(bytes)?;
+        ctx.add_filter(SubFilter);
+        ctx.execute();
+        let buffer = ctx.buffer()?;
+        let png = PngGlitch::new(buffer)?;
+        for line in png.scan_lines() {
+            assert_eq!(FilterType::Sub, line.filter_type());
+        }
+
+        // Test UpFilter
+        let mut ctx = GlitchContext::new(bytes)?;
+        ctx.add_filter(UpFilter);
+        ctx.execute();
+        let buffer = ctx.buffer()?;
+        let png = PngGlitch::new(buffer)?;
+        for line in png.scan_lines() {
+            assert_eq!(FilterType::Up, line.filter_type());
+        }
+
+        // Test AverageFilter
+        let mut ctx = GlitchContext::new(bytes)?;
+        ctx.add_filter(AverageFilter);
+        ctx.execute();
+        let buffer = ctx.buffer()?;
+        let png = PngGlitch::new(buffer)?;
+        for line in png.scan_lines() {
+            assert_eq!(FilterType::Average, line.filter_type());
+        }
+
+        // Test PaethFilter
+        let mut ctx = GlitchContext::new(bytes)?;
+        ctx.add_filter(PaethFilter);
+        ctx.execute();
+        let buffer = ctx.buffer()?;
+        let png = PngGlitch::new(buffer)?;
+        for line in png.scan_lines() {
+            assert_eq!(FilterType::Paeth, line.filter_type());
+        }
+
+        // Test RemoveFilter (None)
+        let mut ctx = GlitchContext::new(bytes)?;
+        // First set to Sub
+        ctx.add_filter(SubFilter);
+        // Then Remove
+        ctx.add_filter(RemoveFilter);
+        ctx.execute();
+        let buffer = ctx.buffer()?;
+        let png = PngGlitch::new(buffer)?;
+        for line in png.scan_lines() {
+            assert_eq!(FilterType::None, line.filter_type());
+        }
+
+        Ok(())
     }
 }
