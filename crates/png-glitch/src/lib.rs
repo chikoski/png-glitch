@@ -1,13 +1,13 @@
-use std::fs::File;
-use std::io::Read;
-use std::path::Path;
 pub use crate::operation::Transpose;
 use crate::operation::{Encode, Scan};
 use crate::png::Png;
 pub use crate::png::{FilterType, ScanLine};
+use std::fs::File;
+use std::io::Read;
+use std::path::Path;
 
-mod png;
 mod operation;
+mod png;
 
 /// PngGlitch is a crate to create a glitched PNG image.
 /// Please refer to ["The Art of PNG glitch"](https://ucnv.github.io/pnglitch/) for the description about what glitched PNG is.
@@ -115,7 +115,6 @@ impl PngGlitch {
     pub fn scan_lines_from(&self, from: u32, lines: u32) -> Vec<ScanLine> {
         self.png.scan_lines_from(from as usize, lines as usize)
     }
-
 
     /// The method allows you to manipulate for each [scan line](https://www.w3.org/TR/2003/REC-PNG-20031110/#4Concepts.EncodingScanlineAbs%22).
     /// The modifier function is called with a `ScanLine` object which represents a scan line.
@@ -282,4 +281,72 @@ impl PngGlitch {
         self.png.apply_filter_from(filter_type, from, lines);
     }
 
+    /// The method changes the filter type of all scan lines.
+    /// It first calculates the original pixel value (decodes it),
+    /// and then calculates the scan line data based on the new filter type.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use png_glitch::{FilterType, PngGlitch};
+    /// let mut png_glitch = PngGlitch::open("./etc/sample00.png").expect("The PNG file should be successfully parsed");
+    /// png_glitch.change_filter_type(FilterType::Sub);
+    /// png_glitch.save("./etc/changed-all.png").expect("The PNG file should be successfully saved")
+    /// ```
+    pub fn change_filter_type(&mut self, filter_type: FilterType) {
+        self.png.change_filter_type(filter_type);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_change_filter_type() -> anyhow::Result<()> {
+        let bytes = include_bytes!("../etc/sample00.png");
+
+        // 1. Baseline: Raw (removed filter)
+        let mut png_raw = PngGlitch::new(bytes.to_vec())?;
+        png_raw.remove_filter();
+
+        // 2. Test Subject
+        let mut png_glitch = PngGlitch::new(bytes.to_vec())?;
+
+        // Change to Sub
+        png_glitch.change_filter_type(FilterType::Sub);
+
+        for scan_line in png_glitch.scan_lines() {
+            assert_eq!(FilterType::Sub, scan_line.filter_type());
+        }
+
+        // Change back to None
+        png_glitch.change_filter_type(FilterType::None);
+        for scan_line in png_glitch.scan_lines() {
+            assert_eq!(FilterType::None, scan_line.filter_type());
+        }
+
+        // Compare with Baseline (png_raw)
+        let raw_lines = png_raw.scan_lines();
+        let glitched_lines = png_glitch.scan_lines();
+
+        assert_eq!(glitched_lines.len(), raw_lines.len());
+
+        for (g_line, r_line) in glitched_lines.iter().zip(raw_lines.iter()) {
+            let g_size = g_line.size();
+            let r_size = r_line.size();
+            assert_eq!(g_size, r_size);
+
+            for i in 0..g_size {
+                assert_eq!(
+                    g_line.index(i),
+                    r_line.index(i),
+                    "Pixel mismatch at index {}",
+                    i
+                );
+            }
+        }
+
+        Ok(())
+    }
 }

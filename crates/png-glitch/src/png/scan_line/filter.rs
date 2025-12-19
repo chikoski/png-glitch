@@ -9,13 +9,13 @@ mod average;
 /// The function removes a filter from a scan line.
 /// The `line` parameter is the scan line to remove the filter from.
 /// The `previous` parameter is the previous scan line.
-pub fn remove(line: &ScanLine, previous: Option<&ScanLine>) {
+pub fn remove(line: &ScanLine, previous_line: Option<&ScanLine>) {
     match line.filter_type {
         FilterType::None => {},
         FilterType::Sub => sub::remove(line),
-        FilterType::Up => up::remove(line, previous),
-        FilterType::Average => average::remove(line, previous),
-        FilterType::Paeth => paeth::remove(line, previous),
+        FilterType::Up => up::remove(line, previous_line),
+        FilterType::Average => average::remove(line, previous_line),
+        FilterType::Paeth => paeth::remove(line, previous_line),
     }
 }
 

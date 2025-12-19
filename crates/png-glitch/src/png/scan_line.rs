@@ -1,14 +1,14 @@
+use crate::png::{ColorType, SharedDecodedData};
+pub use filter_type::FilterType;
+pub use memory_range::MemoryRange;
 use std::fmt::Debug;
 use std::io::{Read, Write};
 use std::ops::{Index, IndexMut, Range};
 use thiserror::Error;
-use crate::png::{ColorType, SharedDecodedData};
-pub use filter_type::FilterType;
-pub use memory_range::MemoryRange;
 
+mod filter;
 mod filter_type;
 mod memory_range;
-mod filter;
 
 /// A type alias for a range of `usize`.
 pub type UsizeRange = Range<usize>;
@@ -23,7 +23,13 @@ pub struct ScanLine {
 }
 
 impl ScanLine {
-    fn new(filter_type: FilterType, decoded_data: SharedDecodedData, range: UsizeRange, color_type: ColorType, bit_depth: u8) -> ScanLine {
+    fn new(
+        filter_type: FilterType,
+        decoded_data: SharedDecodedData,
+        range: UsizeRange,
+        color_type: ColorType,
+        bit_depth: u8,
+    ) -> ScanLine {
         ScanLine {
             filter_type,
             decoded_data,
@@ -55,16 +61,26 @@ impl ScanLine {
     /// The method applies a filter to the scan line.
     /// The `filter_type` parameter is the type of the filter to apply.
     /// The `previous` parameter is the previous scan line.
-    pub fn apply_filter(&mut self, filter_type: FilterType, previous: Option<&ScanLine>) {
-        filter::apply(filter_type, self, previous);
+    pub fn apply_filter(&mut self, filter_type: FilterType, previous_line: Option<&ScanLine>) {
+        filter::apply(filter_type, self, previous_line);
         self.set_filter_type(filter_type);
     }
 
-    /// The method removes the filter from the scan line.
-    /// The `other` parameter is the previous scan line.
-    pub fn remove_filter(&mut self, other: Option<&ScanLine>) {
-        filter::remove(self, other);
+    pub fn remove_filter(&mut self, previous_line: Option<&ScanLine>) {
+        filter::remove(self, previous_line);
         self.set_filter_type(FilterType::None);
+    }
+
+    /// The method changes the filter type of the ScanLine.
+    /// It first calculates the original pixel value (decodes it),
+    /// and then calculates the scan line data based on the new filter type.
+    pub fn change_filter_type(
+        &mut self,
+        filter_type: FilterType,
+        previous_line: Option<&ScanLine>,
+    ) {
+        self.remove_filter(previous_line);
+        self.apply_filter(filter_type, previous_line);
     }
 
     /// This method returns the filter method applied to the scan line.
@@ -167,7 +183,13 @@ impl TryFrom<MemoryRange> for ScanLine {
             .ok_or(ScanLineError::InvalidMemoryRange)?;
 
         let filter_type = FilterType::try_from(byte)?;
-         Ok(ScanLine::new(filter_type, value.decoded_data, value.range, value.color_type, value.bit_depth))
+        Ok(ScanLine::new(
+            filter_type,
+            value.decoded_data,
+            value.range,
+            value.color_type,
+            value.bit_depth,
+        ))
     }
 }
 
@@ -199,7 +221,13 @@ mod test {
         }
 
         fn scan_line(&self) -> ScanLine {
-            ScanLine::new(FilterType::None, self.buffer.clone(), self.usize_range(), ColorType::TrueColorAlpha, 8)
+            ScanLine::new(
+                FilterType::None,
+                self.buffer.clone(),
+                self.usize_range(),
+                ColorType::TrueColorAlpha,
+                8,
+            )
         }
     }
 
@@ -271,6 +299,33 @@ mod test {
             assert_eq!(true, result.is_ok());
             assert_eq!(buffer.len(), result.unwrap());
             assert_eq!(&buffer, &scan_line.decoded_data.borrow()[1..]);
+        }
+    }
+
+    mod change_filter_type {
+        use super::*;
+
+        #[test]
+        fn test_change_filter_type() {
+            let buffer = vec![0, 1, 2, 3, 4, 5];
+            let shared_buffer = super::share_decoded_data(buffer);
+            let mut scan_line = ScanLine::new(
+                FilterType::None,
+                shared_buffer.clone(),
+                0..6,
+                ColorType::GrayScale,
+                8,
+            );
+
+            scan_line.change_filter_type(FilterType::Sub, None);
+            assert_eq!(FilterType::Sub, scan_line.filter_type());
+            let encoded_sub = vec![1, 1, 1, 1, 1];
+            assert_eq!(encoded_sub, &scan_line.decoded_data.borrow()[1..]);
+
+            scan_line.change_filter_type(FilterType::None, None);
+            assert_eq!(FilterType::None, scan_line.filter_type());
+            let raw_data = vec![1, 2, 3, 4, 5];
+            assert_eq!(raw_data, &scan_line.decoded_data.borrow()[1..]);
         }
     }
 }

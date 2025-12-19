@@ -114,11 +114,7 @@ impl Png {
         let mut lines = self.scan_lines_from(index as usize, lines as usize);
         lines.reverse();
 
-        let mut previous = if from > 0 {
-            lines.pop()
-        } else {
-            None
-        };
+        let mut previous = if from > 0 { lines.pop() } else { None };
         while !lines.is_empty() {
             let last_index = lines.len() - 1;
             lines[last_index].remove_filter(previous.as_ref());
@@ -160,6 +156,17 @@ impl Png {
                 line.apply_filter(filter_type, previous.as_ref());
             }
         }
+        if let Some(mut line) = previous {
+            line.apply_filter(filter_type, None);
+        }
+    }
+
+    /// The method changes the filter type of all scan lines.
+    /// It first calculates the original pixel value (decodes it),
+    /// and then calculates the scan line data based on the new filter type.
+    pub fn change_filter_type(&mut self, filter_type: FilterType) {
+        self.remove_filter();
+        self.apply_filter(filter_type);
     }
 }
 
