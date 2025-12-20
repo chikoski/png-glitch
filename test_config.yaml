@@ -1,0 +1,5 @@
+filters:
+  - type: ChangeFilterType
+    magnitude: 0.2
+  - type: Replace
+    magnitude: 0.05

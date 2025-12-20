@@ -1,9 +1,9 @@
 **/target
 /etc
 .DS_Store
-/.idea
 PngSuite
 *.png
 .vscode/
 **/*.cwasm
 **/bindings.rs
+**/.idea
