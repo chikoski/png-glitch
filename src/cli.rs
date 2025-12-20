@@ -28,6 +28,26 @@ pub struct Cli {
     /// Path to YAML config file
     #[arg(long)]
     pub config: Option<String>,
+
+    /// Remove filter from all scan lines
+    #[arg(long)]
+    pub remove_filter: bool,
+
+    /// Change filter type of all scan lines to Sub
+    #[arg(long)]
+    pub sub: bool,
+
+    /// Change filter type of all scan lines to Up
+    #[arg(long)]
+    pub up: bool,
+
+    /// Change filter type of all scan lines to Average
+    #[arg(long)]
+    pub average: bool,
+
+    /// Change filter type of all scan lines to Paeth
+    #[arg(long)]
+    pub paeth: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -42,4 +62,9 @@ pub enum FilterConfig {
     Replace { magnitude: f64 },
     Transpose { magnitude: f64 },
     SetZero { magnitude: f64 },
+    RemoveFilter,
+    SubFilter,
+    UpFilter,
+    AverageFilter,
+    PaethFilter,
 }

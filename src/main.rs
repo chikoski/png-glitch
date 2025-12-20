@@ -1,6 +1,9 @@
 use anyhow::Context;
 use clap::Parser;
-use glitch_context::{ChangeFilterType, GlitchContext, Replace, SetZero, Transpose};
+use glitch_context::{
+    AverageFilter, ChangeFilterType, GlitchContext, PaethFilter, RemoveFilter, Replace, SetZero,
+    SubFilter, Transpose, UpFilter,
+};
 use std::fs::File;
 
 mod cli;
@@ -31,6 +34,21 @@ fn main() -> anyhow::Result<()> {
                 FilterConfig::SetZero { magnitude } => {
                     context.add_filter(SetZero { magnitude });
                 }
+                FilterConfig::RemoveFilter => {
+                    context.add_filter(RemoveFilter);
+                }
+                FilterConfig::SubFilter => {
+                    context.add_filter(SubFilter);
+                }
+                FilterConfig::UpFilter => {
+                    context.add_filter(UpFilter);
+                }
+                FilterConfig::AverageFilter => {
+                    context.add_filter(AverageFilter);
+                }
+                FilterConfig::PaethFilter => {
+                    context.add_filter(PaethFilter);
+                }
             }
         }
     }
@@ -47,6 +65,21 @@ fn main() -> anyhow::Result<()> {
     }
     if let Some(magnitude) = args.set_zero {
         context.add_filter(SetZero { magnitude });
+    }
+    if args.remove_filter {
+        context.add_filter(RemoveFilter);
+    }
+    if args.sub {
+        context.add_filter(SubFilter);
+    }
+    if args.up {
+        context.add_filter(UpFilter);
+    }
+    if args.average {
+        context.add_filter(AverageFilter);
+    }
+    if args.paeth {
+        context.add_filter(PaethFilter);
     }
 
     context.execute();
