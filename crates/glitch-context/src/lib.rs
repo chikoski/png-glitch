@@ -99,10 +99,10 @@ pub struct ChangeFilterType {
 
 impl GlitchFilter for ChangeFilterType {
     fn apply(&self, png: &mut PngGlitch) {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         png.foreach_scanline(|scan_line| {
-            if rng.gen_bool(self.magnitude) {
-                let filter_type = match rng.gen_range(0..5) {
+            if rng.random_bool(self.magnitude) {
+                let filter_type = match rng.random_range(0..5) {
                     0 => FilterType::None,
                     1 => FilterType::Sub,
                     2 => FilterType::Up,
@@ -167,12 +167,12 @@ pub struct Replace {
 
 impl GlitchFilter for Replace {
     fn apply(&self, png: &mut PngGlitch) {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         png.foreach_scanline(|scan_line| {
-            if rng.gen_bool(self.magnitude) {
-                let val: u8 = rng.r#gen();
-                let index: usize = rng.r#gen();
-                let index = index % scan_line.size();
+            if rng.random_bool(self.magnitude) {
+                let val: u8 = rng.random();
+                let index: u64 = rng.random();
+                let index = (index as usize) % scan_line.size();
                 scan_line.update(index, val);
             }
         });
@@ -186,11 +186,11 @@ pub struct Transpose {
 
 impl GlitchFilter for Transpose {
     fn apply(&self, png: &mut PngGlitch) {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let height = png.height();
         for i in 0..height {
-            if rng.gen_bool(self.magnitude) {
-                let target = rng.gen_range(0..height);
+            if rng.random_bool(self.magnitude) {
+                let target = rng.random_range(0..height);
                 if i != target {
                     png.transpose(i, target, 1);
                 }
@@ -206,11 +206,11 @@ pub struct SetZero {
 
 impl GlitchFilter for SetZero {
     fn apply(&self, png: &mut PngGlitch) {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         png.foreach_scanline(|scan_line| {
-            if rng.gen_bool(self.magnitude) {
-                let index: usize = rng.r#gen();
-                let index = index % scan_line.size();
+            if rng.random_bool(self.magnitude) {
+                let index: u64 = rng.random();
+                let index = (index as usize) % scan_line.size();
                 scan_line.update(index, 0);
             }
         });

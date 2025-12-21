@@ -1,6 +1,6 @@
 use crate::command::Command;
 use png_glitch::PngGlitch;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use std::io::{Read, Write};
 
 pub struct RandomCopy {
@@ -16,11 +16,11 @@ impl RandomCopy {
 impl Command for RandomCopy {
     fn run(&self, png: &mut PngGlitch) {
         let mut scan_lines = png.scan_lines();
-        let mut rng = thread_rng();
+        let mut rng = rng();
         let index_range = 0..scan_lines.len();
         for _ in 0..self.times {
-            let src = rng.gen_range(index_range.clone());
-            let dest = rng.gen_range(index_range.clone());
+            let src = rng.random_range(index_range.clone());
+            let dest = rng.random_range(index_range.clone());
 
             let src = &mut scan_lines[src];
             let filter_type = src.filter_type();
