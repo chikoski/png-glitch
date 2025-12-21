@@ -19,8 +19,34 @@ Arguments:
   <PNG_FILE>
 
 Options:
-  -o <OUTPUT_FILE>      [default: glitched.png]
-  -h, --help            Print help
+  -o <OUTPUT_FILE>
+          [default: glitched.png]
+      --change-filter-type <CHANGE_FILTER_TYPE>
+          Magnitude for Change Filter Type filter
+      --replace <REPLACE>
+          Magnitude for Replace filter
+      --transpose <TRANSPOSE>
+          Magnitude for Transpose filter
+      --set-zero <SET_ZERO>
+          Magnitude for Set Zero filter
+      --config <CONFIG>
+          Path to YAML config file
+      --remove-filter
+          Remove filter from all scan lines
+      --sub
+          Change filter type of all scan lines to Sub
+      --up
+          Change filter type of all scan lines to Up
+      --average
+          Change filter type of all scan lines to Average
+      --paeth
+          Change filter type of all scan lines to Paeth
+      --pre-process <PRE_PROCESS>
+          Apply a filter before other glitch filters [possible values: remove-filter, sub-filter, up-filter, average-filter, paeth-filter]
+  -h, --help
+          Print help
+  -V, --version
+          Print version
 ```
 
 ## Example
