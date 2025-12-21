@@ -15,6 +15,17 @@ fn main() -> anyhow::Result<()> {
 
     let mut context = GlitchContext::open(&args.png_file).context("Failed to open PNG file")?;
 
+    // Apply pre-process filter first
+    if let Some(pre_process) = args.pre_process {
+        match pre_process {
+            crate::cli::PreProcess::RemoveFilter => context.add_filter(RemoveFilter),
+            crate::cli::PreProcess::SubFilter => context.add_filter(SubFilter),
+            crate::cli::PreProcess::UpFilter => context.add_filter(UpFilter),
+            crate::cli::PreProcess::AverageFilter => context.add_filter(AverageFilter),
+            crate::cli::PreProcess::PaethFilter => context.add_filter(PaethFilter),
+        }
+    }
+
     // Apply config file filters if present
     if let Some(config_path) = args.config {
         let file = File::open(config_path).context("Failed to open config file")?;

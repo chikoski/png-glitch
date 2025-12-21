@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use serde::Deserialize;
 
 #[derive(Parser, Debug)]
@@ -48,6 +48,19 @@ pub struct Cli {
     /// Change filter type of all scan lines to Paeth
     #[arg(long)]
     pub paeth: bool,
+
+    /// Apply a filter before other glitch filters
+    #[arg(long, value_enum)]
+    pub pre_process: Option<PreProcess>,
+}
+
+#[derive(Clone, Debug, ValueEnum)]
+pub enum PreProcess {
+    RemoveFilter,
+    SubFilter,
+    UpFilter,
+    AverageFilter,
+    PaethFilter,
 }
 
 #[derive(Debug, Deserialize)]
