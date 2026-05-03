@@ -47,10 +47,17 @@ impl Parser {
         Ok(())
     }
 
-    fn build(self) -> anyhow::Result<Png> {
+    fn build(mut self) -> anyhow::Result<Png> {
+        if self.header.is_none() {
+            return Err(PngError::NoIHDRFound.into());
+        }
+        if self.terminator.is_none() {
+            return Err(PngError::NOIENDFound.into());
+        }
+
         let data = self.deflate()?;
-        let header = self.header.ok_or(PngError::NoIHDRFound)?;
-        let terminator = self.terminator.ok_or(PngError::NOIENDFound)?;
+        let header = self.header.take().unwrap();
+        let terminator = self.terminator.take().unwrap();
 
         Ok(Png::new(header, terminator, self.misc, data))
     }
@@ -148,3 +155,42 @@ impl Parser {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_invalid_signature() {
+        let data = vec![0; 10];
+        let result = Parser::parse(&data);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().downcast_ref::<PngError>().unwrap().to_string(), "Invalid signature found.");
+    }
+
+    #[test]
+    fn test_missing_ihdr() {
+        let mut data = SIGNATURE.to_vec();
+        // IEND chunk
+        data.extend_from_slice(&[0, 0, 0, 0]);
+        data.extend_from_slice(b"IEND");
+        data.extend_from_slice(&[0xAE, 0x42, 0x60, 0x82]);
+
+        let result = Parser::parse(&data);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().downcast_ref::<PngError>().unwrap().to_string(), "No IHDR chunk found.");
+    }
+
+    #[test]
+    fn test_duplicate_ihdr() {
+        let bytes = include_bytes!("../../etc/sample00.png");
+        let mut data = bytes[0..33].to_vec(); // Signature + IHDR
+        data.extend_from_slice(&bytes[8..33]); // Duplicate IHDR
+        data.extend_from_slice(&bytes[33..]);
+
+        let result = Parser::parse(&data);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().downcast_ref::<PngError>().unwrap().to_string(), "Another IHDR chunk found.");
+    }
+}
+

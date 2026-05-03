@@ -52,3 +52,42 @@ impl Pixel {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pixel_accessors() {
+        let gray = Pixel::Gray(100);
+        assert_eq!(gray.r(), 100);
+        assert_eq!(gray.g(), 0);
+        assert_eq!(gray.b(), 0);
+        assert_eq!(gray.a(), 0xFFFF);
+
+        let gray_alpha = Pixel::GrayAlpha(100, 200);
+        assert_eq!(gray_alpha.r(), 100);
+        assert_eq!(gray_alpha.g(), 0);
+        assert_eq!(gray_alpha.b(), 0);
+        assert_eq!(gray_alpha.a(), 200);
+
+        let rgb = Pixel::RGB(10, 20, 30);
+        assert_eq!(rgb.r(), 10);
+        assert_eq!(rgb.g(), 20);
+        assert_eq!(rgb.b(), 30);
+        assert_eq!(rgb.a(), 0xFFFF);
+
+        let rgba = Pixel::RGBA(10, 20, 30, 40);
+        assert_eq!(rgba.r(), 10);
+        assert_eq!(rgba.g(), 20);
+        assert_eq!(rgba.b(), 30);
+        assert_eq!(rgba.a(), 40);
+
+        let indexed = Pixel::Indexed(50);
+        assert_eq!(indexed.r(), 50);
+        assert_eq!(indexed.g(), 0);
+        assert_eq!(indexed.b(), 0);
+        assert_eq!(indexed.a(), 0xFFFF);
+    }
+}
+

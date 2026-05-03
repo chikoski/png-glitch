@@ -75,3 +75,64 @@ pub fn byte_in_previous_pixel_in_previous_line(line: Option<&ScanLine>, index: u
         byte_in_previous_line(line, index - bpp, offset)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::png::ColorType;
+
+    #[test]
+    fn test_add_without_overflow() {
+        assert_eq!(add_without_overflow(10, 20), 30);
+        assert_eq!(add_without_overflow(250, 10), 4);
+        assert_eq!(add_without_overflow(255, 1), 0);
+    }
+
+    #[test]
+    fn test_sub_without_overflow() {
+        assert_eq!(sub_without_overflow(30, 10), 20);
+        assert_eq!(sub_without_overflow(10, 30), 236);
+        assert_eq!(sub_without_overflow(0, 1), 255);
+    }
+
+    #[test]
+    fn test_byte_in_pixel() {
+        let mut data = vec![0, 1, 2, 3, 4, 5];
+        let line = ScanLine::new(&mut data, ColorType::GrayScale, 8);
+        assert_eq!(byte_in_pixel(&line, 1, 0), 1);
+        assert_eq!(byte_in_pixel(&line, 5, 0), 5);
+        assert_eq!(byte_in_pixel(&line, 6, 0), 0); // Out of bounds
+    }
+
+    #[test]
+    fn test_byte_in_previous_pixel() {
+        let mut data = vec![0, 10, 20, 30, 40, 50]; // filter type (1 byte) + 5 data bytes
+        let line = ScanLine::new(&mut data, ColorType::GrayScale, 8);
+        let bpp = line.bytes_per_pixel(); // 1
+        assert_eq!(byte_in_previous_pixel(&line, 1, 0, bpp), 0); // First pixel has no previous
+        assert_eq!(byte_in_previous_pixel(&line, 2, 0, bpp), 10);
+        assert_eq!(byte_in_previous_pixel(&line, 5, 0, bpp), 40);
+    }
+
+    #[test]
+    fn test_byte_in_previous_line() {
+        let mut data1 = vec![0, 10, 20, 30];
+        let line1 = ScanLine::new(&mut data1, ColorType::GrayScale, 8);
+
+        assert_eq!(byte_in_previous_line(Some(&line1), 0, 0), 10);
+        assert_eq!(byte_in_previous_line(Some(&line1), 1, 0), 20);
+        assert_eq!(byte_in_previous_line(None, 0, 0), 0);
+    }
+
+    #[test]
+    fn test_byte_in_previous_pixel_in_previous_line() {
+        let mut data1 = vec![0, 10, 20, 30];
+        let line1 = ScanLine::new(&mut data1, ColorType::GrayScale, 8);
+        let bpp = 1;
+
+        assert_eq!(byte_in_previous_pixel_in_previous_line(Some(&line1), 0, 0, bpp), 0);
+        assert_eq!(byte_in_previous_pixel_in_previous_line(Some(&line1), 1, 0, bpp), 10);
+        assert_eq!(byte_in_previous_pixel_in_previous_line(Some(&line1), 2, 0, bpp), 20);
+        assert_eq!(byte_in_previous_pixel_in_previous_line(None, 1, 0, bpp), 0);
+    }
+}

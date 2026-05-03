@@ -41,3 +41,27 @@ impl From<FilterType> for u8 {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_try_from_u8() {
+        assert_eq!(FilterType::try_from(0).unwrap(), FilterType::None);
+        assert_eq!(FilterType::try_from(1).unwrap(), FilterType::Sub);
+        assert_eq!(FilterType::try_from(2).unwrap(), FilterType::Up);
+        assert_eq!(FilterType::try_from(3).unwrap(), FilterType::Average);
+        assert_eq!(FilterType::try_from(4).unwrap(), FilterType::Paeth);
+        assert!(FilterType::try_from(5).is_err());
+    }
+
+    #[test]
+    fn test_into_u8() {
+        assert_eq!(u8::from(FilterType::None), 0);
+        assert_eq!(u8::from(FilterType::Sub), 1);
+        assert_eq!(u8::from(FilterType::Up), 2);
+        assert_eq!(u8::from(FilterType::Average), 3);
+        assert_eq!(u8::from(FilterType::Paeth), 4);
+    }
+}

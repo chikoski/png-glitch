@@ -83,3 +83,45 @@ fn predict(a: u8, b: u8, c: u8) -> u8 {
     };
     pr as u8
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::png::ColorType;
+
+    #[test]
+    fn test_predict() {
+        assert_eq!(predict(10, 20, 30), 10); // p = 10+20-30 = 0. pa=10, pb=20, pc=30. a is closest.
+        assert_eq!(predict(100, 100, 100), 100);
+        assert_eq!(predict(0, 0, 0), 0);
+    }
+
+    #[test]
+    fn test_unit() {
+        let mut previous_data = vec![0, 10, 20, 30, 40, 50, 60, 70, 80];
+        let mut current_data = vec![0, 1, 2, 3, 4, 5, 6, 7, 8];
+        let current_copy = current_data.clone();
+
+        let previous_line = ScanLine::new(&mut previous_data, ColorType::TrueColorAlpha, 8);
+        let mut current_line = ScanLine::new(&mut current_data, ColorType::TrueColorAlpha, 8);
+
+        apply(&mut current_line, Some(&previous_line));
+        remove(&mut current_line, Some(&previous_line));
+
+        assert_eq!(current_data, current_copy);
+    }
+
+    #[test]
+    fn test_unit_no_previous() {
+        let mut current_data = vec![0, 1, 2, 3, 4, 5, 6, 7, 8];
+        let current_copy = current_data.clone();
+
+        let mut current_line = ScanLine::new(&mut current_data, ColorType::TrueColorAlpha, 8);
+
+        apply(&mut current_line, None);
+        remove(&mut current_line, None);
+
+        assert_eq!(current_data, current_copy);
+    }
+}
+

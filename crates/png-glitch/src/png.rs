@@ -21,6 +21,7 @@ mod scan_line;
 pub type DecodedData = Vec<u8>;
 
 /// A struct representing a PNG image.
+#[derive(Debug)]
 pub struct Png {
     pub(crate) header: Header,
     pub(crate) terminator: Terminator,
@@ -278,6 +279,26 @@ mod test {
         for i in 0..decoded_data_size {
             assert_eq!(png.data[i], another.data[i]);
         }
+        Ok(())
+    }
+
+    #[test]
+    fn test_transpose() -> anyhow::Result<()> {
+        let bytes = include_bytes!("../etc/sample00.png");
+        let mut png = Png::parse(bytes)?;
+        let original_data = png.data.clone();
+        let height = png.height();
+        
+        if height > 2 {
+            png.transpose(0, 1, 1);
+            // Verify that row 0 and row 1 are swapped
+            let width = png.scan_line_width();
+            assert_eq!(png.data[0..width], original_data[width..2*width]);
+            assert_eq!(png.data[width..2*width], original_data[0..width]);
+            // Verify the rest of the data is unchanged
+            assert_eq!(png.data[2*width..], original_data[2*width..]);
+        }
+        
         Ok(())
     }
 }

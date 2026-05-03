@@ -87,3 +87,36 @@ impl GlitchPreset for Brighten {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::png::ColorType;
+
+    #[test]
+    fn test_invert() {
+        let mut data = vec![0, 10, 20, 30]; // filter type + RGB
+        let mut line = ScanLine::new(&mut data, ColorType::TrueColor, 8);
+        Invert.apply_to_line(&mut line);
+        // !10 as u16 is 0xFFF5, which as u8 is 245.
+        assert_eq!(line.get_pixel(0).unwrap(), Pixel::RGB(245, 235, 225));
+    }
+
+    #[test]
+    fn test_shift_channels() {
+        let mut data = vec![0, 10, 20, 30];
+        let mut line = ScanLine::new(&mut data, ColorType::TrueColor, 8);
+        ShiftChannels { r: 1, g: -1, b: 0 }.apply_to_line(&mut line);
+        assert_eq!(line.get_pixel(0).unwrap(), Pixel::RGB(11, 19, 30));
+    }
+
+    #[test]
+    fn test_brighten() {
+        let mut data = vec![0, 100, 200, 250];
+        let mut line = ScanLine::new(&mut data, ColorType::TrueColor, 8);
+        Brighten { strength: 10 }.apply_to_line(&mut line);
+        // 250 + 10 = 260. 260 as u8 is 4.
+        assert_eq!(line.get_pixel(0).unwrap(), Pixel::RGB(110, 210, 4));
+    }
+}
+

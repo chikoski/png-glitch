@@ -57,3 +57,30 @@ pub enum PngError {
     #[error("Unsupported filter method.")]
     UnsupportedFilterMethod,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_error_messages() {
+        assert_eq!(PngError::InvalidSignature.to_string(), "Invalid signature found.");
+        assert_eq!(PngError::TooShortInput.to_string(), "The input buffer is shorter than expectation.");
+        assert_eq!(PngError::NoIHDRFound.to_string(), "No IHDR chunk found.");
+        assert_eq!(PngError::NOIENDFound.to_string(), "No IEND chunk found.");
+        assert_eq!(PngError::NoIDATFound.to_string(), "No IDAT chunk found.");
+        assert_eq!(PngError::DuplicateIHDRFound.to_string(), "Another IHDR chunk found.");
+        assert_eq!(PngError::DuplicateIENDFound.to_string(), "Another IEND chunk found.");
+        assert_eq!(PngError::InvalidColorType.to_string(), "Invalid color type.");
+        assert_eq!(PngError::InvalidFilterType.to_string(), "Invalid filter type.");
+        assert_eq!(PngError::DeflateFailure.to_string(), "Failed to deflate data.");
+        assert_eq!(
+            PngError::IncompleteDecompression { expected: 100, actual: 50 }.to_string(),
+            "Decompressed data is shorter than expected: got 50 bytes, expected 100 bytes."
+        );
+        assert_eq!(PngError::UnsupportedInterlacing.to_string(), "Interlaced PNG is not supported.");
+        assert_eq!(PngError::UnsupportedCompressionMethod.to_string(), "Unsupported compression method.");
+        assert_eq!(PngError::UnsupportedFilterMethod.to_string(), "Unsupported filter method.");
+    }
+}
+

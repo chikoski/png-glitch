@@ -2,6 +2,7 @@ use crate::operation::Encode;
 use crate::png::parser::chunk::{Chunk, ChunkType};
 
 /// A struct representing the IEND chunk of a PNG file.
+#[derive(Debug)]
 pub struct Terminator {
     /// The inner chunk of the terminator.
     pub inner: Chunk,

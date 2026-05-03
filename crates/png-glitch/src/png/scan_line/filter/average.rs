@@ -59,3 +59,37 @@ fn scan_rev<F>(line: &mut ScanLine, previous: Option<&ScanLine>, callback: F) wh
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::png::ColorType;
+
+    #[test]
+    fn test_unit() {
+        let mut previous_data = vec![0, 10, 20, 30, 40, 50, 60, 70, 80];
+        let mut current_data = vec![0, 1, 2, 3, 4, 5, 6, 7, 8];
+        let current_copy = current_data.clone();
+
+        let previous_line = ScanLine::new(&mut previous_data, ColorType::TrueColorAlpha, 8);
+        let mut current_line = ScanLine::new(&mut current_data, ColorType::TrueColorAlpha, 8);
+
+        apply(&mut current_line, Some(&previous_line));
+        remove(&mut current_line, Some(&previous_line));
+
+        assert_eq!(current_data, current_copy);
+    }
+
+    #[test]
+    fn test_unit_no_previous() {
+        let mut current_data = vec![0, 1, 2, 3, 4, 5, 6, 7, 8];
+        let current_copy = current_data.clone();
+
+        let mut current_line = ScanLine::new(&mut current_data, ColorType::TrueColorAlpha, 8);
+
+        apply(&mut current_line, None);
+        remove(&mut current_line, None);
+
+        assert_eq!(current_data, current_copy);
+    }
+}

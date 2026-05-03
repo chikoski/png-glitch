@@ -32,3 +32,35 @@ pub fn apply(filter_type: FilterType, line: &mut ScanLine, previous: Option<&Sca
         _ => {}
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::png::ColorType;
+
+    #[test]
+    fn test_filter_roundtrip() {
+        let filter_types = [
+            FilterType::None,
+            FilterType::Sub,
+            FilterType::Up,
+            FilterType::Average,
+            FilterType::Paeth,
+        ];
+
+        for &filter_type in &filter_types {
+            let mut previous_data = vec![0, 10, 20, 30, 40, 50, 60, 70, 80];
+            let mut current_data = vec![0, 1, 2, 3, 4, 5, 6, 7, 8];
+            let current_copy = current_data.clone();
+
+            let previous_line = ScanLine::new(&mut previous_data, ColorType::TrueColorAlpha, 8);
+            let mut current_line = ScanLine::new(&mut current_data, ColorType::TrueColorAlpha, 8);
+
+            apply(filter_type, &mut current_line, Some(&previous_line));
+            current_line.data[0] = filter_type.into();
+            remove(&mut current_line, Some(&previous_line));
+
+            assert_eq!(current_line.data[1..], current_copy[1..], "Failed for {:?}", filter_type);
+        }
+    }
+}
