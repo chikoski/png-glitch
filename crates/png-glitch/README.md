@@ -42,23 +42,46 @@ The original image:
 
 # Example usage
 
-The following snippet glitches `./a_png_file.png` by 
+The library now features a **Chainable API**, **Structured Pixel API**, and **Parallel Processing**.
 
-- Changing filter method of all scan lines 
-- Setting `1` to the 4th byte of each scan line 
+The following snippet glitches `./a_png_file.png` by:
+1. Removing existing PNG filters.
+2. Applying an **Invert** preset.
+3. Brightening the image using a **Brighten** preset.
+4. Customizing a specific pixel using the safe **Pixel API**.
 
-The glitched image is emitted to `./glitched.png`.
+The glitched image is saved to `./glitched.png`.
 
 ```Rust
-use png_glitch::{FilterType, PngGlitch};
+use png_glitch::{PngGlitch, Pixel};
+use png_glitch::presets::{Invert, Brighten};
 
-let mut png_glitch = PngGlitch::open("./a_png_file.png")?;
-png_glitch.foreach_scanline(|scan_line|{
-  scan_line.set_filter_type(FilterType::None);
-  scan_line[4] = 1;
-});
-png_glitch.save("./glitched.png")?;
+PngGlitch::open("./a_png_file.png")?
+  .remove_filter()
+  .apply(Invert)
+  .apply(Brighten { strength: 50 })
+  .par_foreach_scanline(|scan_line| {
+    // High-performance parallel pixel manipulation
+    if let Some(Pixel::RGB(r, g, b)) = scan_line.get_pixel(10) {
+        scan_line.set_pixel(10, Pixel::RGB(r, 0, b));
+    }
+  })
+  .save("./glitched.png")?;
 ```
+
+# Available Presets (Recipes)
+
+Built-in glitch recipes available in `png_glitch::presets`:
+
+- **Invert**: Flips color values.
+- **ShiftChannels**: Moves color channels (R, G, B) independently.
+- **Brighten**: Increases or decreases image brightness.
+
+# Key Features
+
+- **Parallelism**: Use `par_foreach_scanline` to glitch large images fast using all CPU cores.
+- **Memory Safety**: 100% safe Rust code with no `unsafe` blocks.
+- **Structured Pixels**: Manipulate images at the pixel level without worrying about raw byte offsets.
 
 # Contribution
 

@@ -13,20 +13,35 @@ pub mod presets;
 /// PngGlitch is a crate to create a glitched PNG image.
 /// Please refer to ["The Art of PNG glitch"](https://ucnv.github.io/pnglitch/) for the description about what glitched PNG is.
 ///
+/// # Available Presets (Recipes)
+///
+/// The library provides several built-in glitch recipes in the [`presets`] module:
+/// - [`presets::Invert`]: Inverts all color channels of each pixel.
+/// - [`presets::ShiftChannels`]: Shifts color channels (R, G, B) by specific amounts.
+/// - [`presets::Brighten`]: Adjusts the overall brightness of the image.
+///
 /// # Examples
 ///
-/// The following snippet shows how you can glitch "./etc/sample00.png" and save the generated image as "./glitched.png".
+/// The following snippet shows how you can glitch "./etc/sample00.png" using a mix of presets and low-level manipulation.
 ///
 /// ```
 /// # use std::env;
 /// # env::set_current_dir(env::var("CARGO_MANIFEST_DIR").unwrap_or(".".to_string())).expect("");
 ///
-/// use png_glitch::{FilterType, PngGlitch};
-/// use png_glitch::presets::Invert;
+/// use png_glitch::{FilterType, PngGlitch, Pixel};
+/// use png_glitch::presets::{Invert, Brighten};
 ///
 /// PngGlitch::open("./etc/sample00.png")
 ///   .expect("The PNG file should be successfully parsed")
+///   .remove_filter()
 ///   .apply(Invert)
+///   .apply(Brighten { strength: 30 })
+///   .par_foreach_scanline(|scan_line| {
+///     // Custom manipulation using the Pixel API
+///     if let Some(Pixel::RGB(r, g, b)) = scan_line.get_pixel(10) {
+///         scan_line.set_pixel(10, Pixel::RGB(r, 0, b));
+///     }
+///   })
 ///   .save("./glitched.png")
 ///   .expect("The glitched file should be saved as a PNG file");
 /// ```
