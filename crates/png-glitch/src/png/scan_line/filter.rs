@@ -9,8 +9,8 @@ mod average;
 /// The function removes a filter from a scan line.
 /// The `line` parameter is the scan line to remove the filter from.
 /// The `previous` parameter is the previous scan line.
-pub fn remove(line: &ScanLine, previous_line: Option<&ScanLine>) {
-    match line.filter_type {
+pub fn remove(line: &mut ScanLine, previous_line: Option<&ScanLine>) {
+    match line.filter_type() {
         FilterType::None => {},
         FilterType::Sub => sub::remove(line),
         FilterType::Up => up::remove(line, previous_line),
@@ -23,7 +23,7 @@ pub fn remove(line: &ScanLine, previous_line: Option<&ScanLine>) {
 /// The `filter_type` parameter is the type of the filter to apply.
 /// The `line` parameter is the scan line to apply the filter to.
 /// The `previous` parameter is the previous scan line.
-pub fn apply(filter_type: FilterType, line: &ScanLine, previous: Option<&ScanLine>) {
+pub fn apply(filter_type: FilterType, line: &mut ScanLine, previous: Option<&ScanLine>) {
     match filter_type {
         FilterType::Sub => sub::apply(line),
         FilterType::Up => up::apply(line, previous),

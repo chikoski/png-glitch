@@ -1,53 +1,43 @@
-use crate::png::{ColorType, SharedDecodedData};
+use crate::png::ColorType;
 pub use filter_type::FilterType;
-pub use memory_range::MemoryRange;
-use std::fmt::Debug;
 use std::io::{Read, Write};
 use std::ops::{Index, IndexMut, Range};
-use thiserror::Error;
 
 mod filter;
 mod filter_type;
-mod memory_range;
 
 /// A type alias for a range of `usize`.
 pub type UsizeRange = Range<usize>;
 
 /// A struct representing a scan line in a PNG image.
-pub struct ScanLine {
-    filter_type: FilterType,
-    range: UsizeRange,
-    decoded_data: SharedDecodedData,
-    color_type: ColorType,
-    bit_depth: u8,
+pub struct ScanLine<'a> {
+    pub(crate) data: &'a mut [u8],
+    pub(crate) color_type: ColorType,
+    pub(crate) bit_depth: u8,
 }
 
-impl ScanLine {
-    fn new(
-        filter_type: FilterType,
-        decoded_data: SharedDecodedData,
-        range: UsizeRange,
+impl<'a> ScanLine<'a> {
+    pub(crate) fn new(
+        data: &'a mut [u8],
         color_type: ColorType,
         bit_depth: u8,
-    ) -> ScanLine {
+    ) -> ScanLine<'a> {
         ScanLine {
-            filter_type,
-            decoded_data,
-            range,
+            data,
             color_type,
             bit_depth,
         }
     }
 
-    fn pixel_data_offset(&self) -> usize {
-        self.range.start + 1
+    pub(crate) fn pixel_data_offset(&self) -> usize {
+        1
     }
 
     fn pixel_data_range(&self) -> UsizeRange {
-        self.pixel_data_offset()..self.range.end
+        self.pixel_data_offset()..self.data.len()
     }
 
-    fn bytes_per_pixel(&self) -> usize {
+    pub(crate) fn bytes_per_pixel(&self) -> usize {
         let bits = self.bit_depth;
         match self.color_type {
             ColorType::GrayScale => std::cmp::max(bits / 8, 1) as usize,
@@ -85,18 +75,17 @@ impl ScanLine {
 
     /// This method returns the filter method applied to the scan line.
     pub fn filter_type(&self) -> FilterType {
-        self.filter_type
+        FilterType::try_from(self.data[0]).unwrap_or(FilterType::None)
     }
 
     /// This method updates the filter method of the scan line with the specified one.
     pub fn set_filter_type(&mut self, filter_type: FilterType) {
-        self.filter_type = filter_type;
-        self.decoded_data.borrow_mut()[self.range.start] = filter_type.into();
+        self.data[0] = filter_type.into();
     }
 
     /// This method returns the byte size of the scan line.
     pub fn size(&self) -> usize {
-        self.range.len() - 1
+        self.data.len() - 1
     }
 
     /// This method returns the color type of the scan line.
@@ -111,120 +100,82 @@ impl ScanLine {
 
     /// The method returns a byte in a pixel_data specified with the index parameter.
     pub fn index(&self, index: usize) -> Option<u8> {
-        let pixel_data_range = self.pixel_data_range();
-        let index = pixel_data_range.start + index;
-        if index < pixel_data_range.end {
-            Some(self.decoded_data.borrow()[index])
+        let pixel_data_offset = self.pixel_data_offset();
+        let index = pixel_data_offset + index;
+        if index < self.data.len() {
+            Some(self.data[index])
         } else {
             None
         }
     }
 
     /// The method updates a value of the pixel specified by the index with the given value.
-    pub fn update(&self, index: usize, value: u8) {
-        let pixel_data_range = self.pixel_data_range();
-        let index = pixel_data_range.start + index;
-        if index < pixel_data_range.end {
-            self.decoded_data.borrow_mut()[index] = value
+    pub fn update(&mut self, index: usize, value: u8) {
+        let pixel_data_offset = self.pixel_data_offset();
+        let index = pixel_data_offset + index;
+        if index < self.data.len() {
+            self.data[index] = value
         }
     }
 }
 
-impl Index<usize> for ScanLine {
+impl<'a> Index<usize> for ScanLine<'a> {
     type Output = u8;
 
     fn index(&self, index: usize) -> &Self::Output {
-        unsafe {
-            let index = index + self.pixel_data_offset();
-            &(&(*self.decoded_data.as_ptr()))[index]
-        }
+        let index = index + self.pixel_data_offset();
+        &self.data[index]
     }
 }
 
-impl IndexMut<usize> for ScanLine {
+impl<'a> IndexMut<usize> for ScanLine<'a> {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        unsafe {
-            let index = index + self.pixel_data_offset();
-            &mut (&mut *self.decoded_data.as_ptr())[index]
-        }
+        let index = index + self.pixel_data_offset();
+        &mut self.data[index]
     }
 }
 
-impl Read for ScanLine {
+impl<'a> Read for ScanLine<'a> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let mut buffer = &self.decoded_data.borrow()[self.pixel_data_range()];
+        let mut buffer = &self.data[self.pixel_data_range()];
         buffer.read(buf)
     }
 
     fn read_to_end(&mut self, buf: &mut Vec<u8>) -> std::io::Result<usize> {
-        let mut buffer = &self.decoded_data.borrow()[self.pixel_data_range()];
+        let mut buffer = &self.data[self.pixel_data_range()];
         buffer.read_to_end(buf)
     }
 }
 
-impl Write for ScanLine {
+impl<'a> Write for ScanLine<'a> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         let pixel_data_range = self.pixel_data_range();
-        let mut buffer = &mut self.decoded_data.borrow_mut()[pixel_data_range];
+        let mut buffer = &mut self.data[pixel_data_range];
         buffer.write(buf)
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-        self.decoded_data.borrow_mut().flush()
+        self.data.flush()
     }
-}
-
-impl TryFrom<MemoryRange> for ScanLine {
-    type Error = anyhow::Error;
-
-    fn try_from(value: MemoryRange) -> Result<Self, Self::Error> {
-        let byte = value
-            .first_byte()
-            .ok_or(ScanLineError::InvalidMemoryRange)?;
-
-        let filter_type = FilterType::try_from(byte)?;
-        Ok(ScanLine::new(
-            filter_type,
-            value.decoded_data,
-            value.range,
-            value.color_type,
-            value.bit_depth,
-        ))
-    }
-}
-
-#[derive(Error, Debug)]
-enum ScanLineError {
-    #[error("Invalid memory range is specified")]
-    InvalidMemoryRange,
 }
 
 #[cfg(test)]
 mod test {
-    use crate::png::share_decoded_data;
-
     use super::*;
 
     struct TestTarget {
-        buffer: SharedDecodedData,
+        buffer: Vec<u8>,
     }
 
-    impl<'a> TestTarget {
+    impl TestTarget {
         fn new() -> Self {
             let buffer = vec![0, 1, 2, 3, 4, 5];
-            let buffer = share_decoded_data(buffer);
             TestTarget { buffer }
         }
 
-        fn usize_range(&self) -> UsizeRange {
-            0..self.buffer.borrow().len()
-        }
-
-        fn scan_line(&self) -> ScanLine {
+        fn scan_line(&mut self) -> ScanLine<'_> {
             ScanLine::new(
-                FilterType::None,
-                self.buffer.clone(),
-                self.usize_range(),
+                &mut self.buffer,
                 ColorType::TrueColorAlpha,
                 8,
             )
@@ -232,24 +183,25 @@ mod test {
     }
 
     mod index {
-        use crate::png::scan_line::test::TestTarget;
+        use super::*;
 
         #[test]
         fn test_index() {
-            let target = TestTarget::new();
+            let mut target = TestTarget::new();
             let scan_line = target.scan_line();
 
-            assert_eq!(scan_line[0], target.buffer.borrow()[1]);
+            assert_eq!(scan_line[0], 1);
         }
 
         #[test]
         fn test_index_mut() {
-            let target = TestTarget::new();
+            let mut target = TestTarget::new();
             let mut scan_line = target.scan_line();
 
             scan_line[0] = 10;
 
-            assert_eq!(scan_line[0], target.buffer.borrow()[1]);
+            assert_eq!(scan_line[0], 10);
+            assert_eq!(target.buffer[1], 10);
         }
     }
 
@@ -260,28 +212,28 @@ mod test {
 
         #[test]
         fn test_read() {
-            let target = TestTarget::new();
+            let mut target = TestTarget::new();
             let mut scan_line = target.scan_line();
 
             let mut buffer = vec![0; scan_line.size()];
 
             let result = scan_line.read(&mut buffer);
-            assert_eq!(true, result.is_ok());
+            assert!(result.is_ok());
             assert_eq!(scan_line.size(), buffer.len());
-            assert_eq!(&scan_line.decoded_data.borrow()[1..], &buffer);
+            assert_eq!(&target.buffer[1..], &buffer);
         }
 
         #[test]
         fn test_read_to_end() {
-            let target = TestTarget::new();
+            let mut target = TestTarget::new();
             let mut scan_line = target.scan_line();
 
             let mut buffer = vec![];
 
             let size = scan_line.size();
             let result = scan_line.read_to_end(&mut buffer);
-            assert_eq!(true, result.is_ok());
-            assert_eq!(&scan_line.decoded_data.borrow()[1..], &buffer[0..size]);
+            assert!(result.is_ok());
+            assert_eq!(&target.buffer[1..], &buffer[0..size]);
         }
     }
 
@@ -290,15 +242,15 @@ mod test {
 
         #[test]
         fn test_write() {
-            let target = TestTarget::new();
+            let mut target = TestTarget::new();
             let mut scan_line = target.scan_line();
             let size = scan_line.size();
 
             let buffer = vec![10; size];
             let result = scan_line.write(&buffer);
-            assert_eq!(true, result.is_ok());
+            assert!(result.is_ok());
             assert_eq!(buffer.len(), result.unwrap());
-            assert_eq!(&buffer, &scan_line.decoded_data.borrow()[1..]);
+            assert_eq!(&buffer, &target.buffer[1..]);
         }
     }
 
@@ -307,25 +259,31 @@ mod test {
 
         #[test]
         fn test_change_filter_type() {
-            let buffer = vec![0, 1, 2, 3, 4, 5];
-            let shared_buffer = super::share_decoded_data(buffer);
-            let mut scan_line = ScanLine::new(
-                FilterType::None,
-                shared_buffer.clone(),
-                0..6,
-                ColorType::GrayScale,
-                8,
-            );
+            let mut buffer = vec![0, 1, 2, 3, 4, 5];
+            {
+                let mut scan_line = ScanLine::new(
+                    &mut buffer,
+                    ColorType::GrayScale,
+                    8,
+                );
 
-            scan_line.change_filter_type(FilterType::Sub, None);
-            assert_eq!(FilterType::Sub, scan_line.filter_type());
+                scan_line.change_filter_type(FilterType::Sub, None);
+                assert_eq!(FilterType::Sub, scan_line.filter_type());
+            }
             let encoded_sub = vec![1, 1, 1, 1, 1];
-            assert_eq!(encoded_sub, &scan_line.decoded_data.borrow()[1..]);
+            assert_eq!(encoded_sub, &buffer[1..]);
 
-            scan_line.change_filter_type(FilterType::None, None);
-            assert_eq!(FilterType::None, scan_line.filter_type());
+            {
+                let mut scan_line = ScanLine::new(
+                    &mut buffer,
+                    ColorType::GrayScale,
+                    8,
+                );
+                scan_line.change_filter_type(FilterType::None, None);
+                assert_eq!(FilterType::None, scan_line.filter_type());
+            }
             let raw_data = vec![1, 2, 3, 4, 5];
-            assert_eq!(raw_data, &scan_line.decoded_data.borrow()[1..]);
+            assert_eq!(raw_data, &buffer[1..]);
         }
     }
 }

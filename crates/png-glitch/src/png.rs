@@ -6,13 +6,11 @@ use crate::png::parser::{Chunk, ChunkType};
 pub use crate::png::scan_line::ScanLine;
 use anyhow::Context;
 pub use parser::ColorType;
+use rayon::prelude::*;
 pub use scan_line::FilterType;
-use scan_line::MemoryRange;
-use std::cell::RefCell;
 use std::fs::File;
 use std::ops::Range;
 use std::path::Path;
-use std::rc::Rc;
 
 mod parser;
 mod png_error;
@@ -20,20 +18,13 @@ mod scan_line;
 
 /// A type alias for a vector of bytes representing decoded PNG data.
 pub type DecodedData = Vec<u8>;
-/// A type alias for a shared, mutable reference to decoded PNG data.
-pub type SharedDecodedData = Rc<RefCell<DecodedData>>;
-
-/// A function to create a shared, mutable reference to decoded PNG data.
-pub fn share_decoded_data(value: DecodedData) -> SharedDecodedData {
-    Rc::new(RefCell::new(value))
-}
 
 /// A struct representing a PNG image.
 pub struct Png {
     header: Header,
     terminator: Terminator,
     misc_chunks: Vec<Chunk>,
-    data: SharedDecodedData,
+    data: DecodedData,
 }
 
 impl Png {
@@ -46,7 +37,6 @@ impl Png {
     }
 
     fn new(header: Header, terminator: Terminator, misc_chunks: Vec<Chunk>, data: Vec<u8>) -> Png {
-        let data = share_decoded_data(data);
         Png {
             header,
             terminator,
@@ -86,84 +76,67 @@ impl Png {
     }
 
     /// The method removes filter from all scan lines.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use png_glitch::PngGlitch;
-    /// let mut png_glitch = PngGlitch::open("./etc/sample00.png").expect("The PNG file should be successfully parsed");
-    /// png_glitch.remove_filter();
-    /// png_glitch.save("./etc/removed-all.png").expect("The PNG file should be successfully saved")
-    /// ```
     pub fn remove_filter(&mut self) {
         self.remove_filter_from(0, self.height());
     }
 
     /// The method removes filter from the scan lines in specified region
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use png_glitch::PngGlitch;
-    /// let mut png_glitch = PngGlitch::open("./etc/sample00.png").expect("The PNG file should be successfully parsed");
-    /// png_glitch.remove_filter_from(5, 10); // Remove filter from the scan line #5 - # 14
-    /// png_glitch.save("./etc/removed-partial.png").expect("The PNG file should be successfully saved")
-    /// ```
     pub fn remove_filter_from(&mut self, from: u32, lines: u32) {
-        let index = if from > 0 { from - 1 } else { 0 };
-        let mut lines = self.scan_lines_from(index as usize, lines as usize);
-        lines.reverse();
-
-        let mut previous = if from > 0 { lines.pop() } else { None };
-        while !lines.is_empty() {
-            let last_index = lines.len() - 1;
-            lines[last_index].remove_filter(previous.as_ref());
-            previous = lines.pop()
+        let end_index = from + lines;
+        let width = self.scan_line_width();
+        let color_type = self.header.color_type();
+        let bit_depth = self.header.bit_depth();
+        
+        // This operation is inherently sequential because each line depends on the previous one.
+        for i in (from..end_index).rev() {
+            let current_start = i as usize * width;
+            let (prev_part, current_part) = self.data.split_at_mut(current_start);
+            let current_line_data = &mut current_part[..width];
+            
+            let mut current_line = ScanLine::new(current_line_data, color_type, bit_depth);
+            
+            if i > 0 {
+                let prev_start = (i as usize - 1) * width;
+                let prev_line_data = &mut prev_part[prev_start..prev_start + width];
+                let prev_line = ScanLine::new(prev_line_data, color_type, bit_depth);
+                current_line.remove_filter(Some(&prev_line));
+            } else {
+                current_line.remove_filter(None);
+            }
         }
     }
 
-    /// The method removes filter from all scan lines.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use png_glitch::{FilterType, PngGlitch};
-    /// let mut png_glitch = PngGlitch::open("./etc/none.png").expect("The PNG file should be successfully parsed");
-    /// png_glitch.apply_filter(FilterType::Sub);
-    /// png_glitch.save("./etc/filter-all.png").expect("The PNG file should be successfully saved")
-    /// ```
+    /// The method applies a filter to all scan lines.
     pub fn apply_filter(&mut self, filter: FilterType) {
         self.apply_filter_from(filter, 0, self.height());
     }
 
-    /// The method removes filter from scan lines in specified region
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use png_glitch::{FilterType, PngGlitch};
-    /// let mut png_glitch = PngGlitch::open("./etc/none.png").expect("The PNG file should be successfully parsed");
-    /// png_glitch.apply_filter_from(FilterType::Sub, 5, 3); // Apply sub filter to the scan line #5, #6, and #7.
-    /// png_glitch.save("./etc/filter-partial.png").expect("The PNG file should be successfully saved")
-    /// ```
+    /// The method applies a filter to scan lines in specified region
     pub fn apply_filter_from(&mut self, filter_type: FilterType, from: u32, lines: u32) {
-        let mut lines = self.scan_lines_from(from as usize, lines as usize);
-        let mut previous = lines.pop();
+        let end_index = from + lines;
+        let width = self.scan_line_width();
+        let color_type = self.header.color_type();
+        let bit_depth = self.header.bit_depth();
 
-        while !lines.is_empty() {
-            if let Some(mut line) = previous {
-                previous = lines.pop();
-                line.apply_filter(filter_type, previous.as_ref());
+        for i in from..end_index {
+            let current_start = i as usize * width;
+            let (prev_part, current_part) = self.data.split_at_mut(current_start);
+            let current_line_data = &mut current_part[..width];
+            
+            let mut current_line = ScanLine::new(current_line_data, color_type, bit_depth);
+            
+            if i > 0 {
+                let prev_start = (i as usize - 1) * width;
+                let prev_line_data = &mut prev_part[prev_start..prev_start + width];
+                let prev_line = ScanLine::new(prev_line_data, color_type, bit_depth);
+                current_line.apply_filter(filter_type, Some(&prev_line));
+            } else {
+                current_line.apply_filter(filter_type, None);
             }
-        }
-        if let Some(mut line) = previous {
-            line.apply_filter(filter_type, None);
         }
     }
 
     /// The method changes the filter type of all scan lines.
-    /// It first calculates the original pixel value (decodes it),
-    /// and then calculates the scan line data based on the new filter type.
     pub fn change_filter_type(&mut self, filter_type: FilterType) {
         self.remove_filter();
         self.apply_filter(filter_type);
@@ -188,24 +161,15 @@ impl Transpose for Png {
             "Source and destination ranges must have the same length for transpose."
         );
 
-        let mut data = self.data.borrow_mut();
-
-        // .clone() を削除
-        let tmp = data[src_range.clone()].to_vec();
-        data.copy_within(dest_range.clone(), src_range.start);
-        data[dest_range].copy_from_slice(&tmp);
+        let mut tmp = vec![0; src_range.len()];
+        tmp.copy_from_slice(&self.data[src_range.clone()]);
+        self.data.copy_within(dest_range.clone(), src_range.start);
+        self.data[dest_range].copy_from_slice(&tmp);
     }
 }
 
 impl Encode for Png {
     fn encode(&self, mut writer: impl std::io::Write) -> anyhow::Result<()> {
-        // Invariant: png-glitch only mutates the IDAT stream. IHDR, ancillary
-        // chunks, and IEND are pure pass-through, so the CRC bytes captured at
-        // parse time remain valid here and are re-emitted as-is. The IDAT
-        // chunks built below get their CRC computed fresh in
-        // `create_idat_chunk` via `Chunk::with_recomputed_crc`. If a future
-        // change ever lets callers mutate misc chunks, those chunks must be
-        // rebuilt through `Chunk::with_recomputed_crc` as well.
         writer.write_all(SIGNATURE)?;
         self.header
             .encode(&mut writer)
@@ -225,11 +189,12 @@ impl Encode for Png {
 }
 
 impl Scan for Png {
-    fn scan_lines(&self) -> Vec<ScanLine> {
-        self.scan_lines_from(0, self.height() as usize)
+    fn scan_lines(&mut self) -> Vec<ScanLine<'_>> {
+        let height = self.height() as usize;
+        self.scan_lines_from(0, height)
     }
 
-    fn foreach_scanline<F>(&self, mut modifier: F)
+    fn foreach_scanline<F>(&mut self, mut modifier: F)
     where
         F: FnMut(&mut ScanLine),
     {
@@ -238,20 +203,30 @@ impl Scan for Png {
         }
     }
 
-    fn scan_lines_from(&self, from: usize, lines: usize) -> Vec<ScanLine> {
+    fn par_foreach_scanline<F>(&mut self, modifier: F)
+    where
+        F: Fn(&mut ScanLine) + Sync + Send,
+    {
+        let width = self.scan_line_width();
         let color_type = self.header.color_type();
         let bit_depth = self.header.bit_depth();
-        (0..lines)
-            .map(|index| {
-                let index = from + index;
-                let range = self.scan_line_range(index, 1);
-                let mem_range = MemoryRange::new(self.data.clone(), range, color_type, bit_depth);
-                // try_from の結果をそのまま返す
-                ScanLine::try_from(mem_range)
-            })
-            // Result::ok を filter_map に渡すことで、Ok(value) は Some(value) に、
-            // Err(_) は None に変換され、無視される。より慣用的で簡潔な書き方。
-            .filter_map(Result::ok)
+        self.data.par_chunks_exact_mut(width).for_each(|chunk| {
+            let mut scan_line = ScanLine::new(chunk, color_type, bit_depth);
+            modifier(&mut scan_line);
+        });
+    }
+
+    fn scan_lines_from(&mut self, from: usize, lines: usize) -> Vec<ScanLine<'_>> {
+        let width = self.scan_line_width();
+        let color_type = self.header.color_type();
+        let bit_depth = self.header.bit_depth();
+        
+        let start = from * width;
+        let end = (from + lines) * width;
+        
+        self.data[start..end]
+            .chunks_exact_mut(width)
+            .map(|chunk| ScanLine::new(chunk, color_type, bit_depth))
             .collect()
     }
 }
@@ -260,11 +235,9 @@ fn create_idat_chunk(png: &Png) -> anyhow::Result<Vec<Chunk>> {
     let mut list = vec![];
 
     let mut encoder = fdeflate::Compressor::new(vec![])?;
-    encoder.write_data(&png.data.borrow())?;
+    encoder.write_data(&png.data)?;
     let buffer = encoder.finish()?;
 
-    // CRC is computed inside `with_recomputed_crc` so the data and CRC cannot
-    // drift out of sync.
     list.push(Chunk::with_recomputed_crc(ChunkType::Data, buffer));
     Ok(list)
 }
@@ -300,11 +273,9 @@ mod test {
         png.encode(&mut buffer)?;
         let another = Png::parse(&buffer)?;
 
-        let decoded_data_size = png.data.borrow().len();
+        let decoded_data_size = png.data.len();
         for i in 0..decoded_data_size {
-            let decoded_data = &png.data.borrow();
-            let another_decoded_data = &another.data.borrow();
-            assert_eq!(decoded_data[i], another_decoded_data[i]);
+            assert_eq!(png.data[i], another.data[i]);
         }
         Ok(())
     }

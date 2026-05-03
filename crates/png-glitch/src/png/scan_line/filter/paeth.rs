@@ -4,14 +4,14 @@ use crate::ScanLine;
 /// The function removes the paeth filter from a scan line.
 /// The `line` parameter is the scan line to remove the filter from.
 /// The `previous` parameter is the previous scan line.
-pub fn remove(line: &ScanLine, previous: Option<&ScanLine>) {
+pub fn remove(line: &mut ScanLine, previous: Option<&ScanLine>) {
     scan(line, previous, recon)
 }
 
 /// The function applies the paeth filter to a scan line.
 /// The `line` parameter is the scan line to apply the filter to.
 /// The `previous` parameter is the previous scan line.
-pub fn apply(line: &ScanLine, previous: Option<&ScanLine>) {
+pub fn apply(line: &mut ScanLine, previous: Option<&ScanLine>) {
     scan_rev(line, previous, filter)
 }
 
@@ -25,9 +25,10 @@ fn filter(current: u8, left: u8, top: u8, top_left: u8) -> u8 {
     sub_without_overflow(current, p)
 }
 
-fn scan<F>(line: &ScanLine, previous: Option<&ScanLine>, callback: F) where F: Fn(u8, u8, u8, u8) -> u8 {
+fn scan<F>(line: &mut ScanLine, previous: Option<&ScanLine>, callback: F) where F: Fn(u8, u8, u8, u8) -> u8 {
     let bpp = line.bytes_per_pixel();
-    let pixels = line.pixel_data_range().step_by(bpp);
+    let range = line.pixel_data_offset()..line.data.len();
+    let pixels = range.step_by(bpp);
 
     for pixel in pixels {
         let pixel_offset = pixel - line.pixel_data_offset();
@@ -38,17 +39,15 @@ fn scan<F>(line: &ScanLine, previous: Option<&ScanLine>, callback: F) where F: F
             let top_left = byte_in_previous_pixel_in_previous_line(previous, pixel_offset, offset, bpp);
 
             let updated = callback(current, left, top, top_left);
-
-            let mut buffer = line.decoded_data.borrow_mut();
-            let index = pixel + offset;
-            buffer[index] = updated;
+            line.data[pixel + offset] = updated;
         }
     }
 }
 
-fn scan_rev<F>(line: &ScanLine, previous: Option<&ScanLine>, callback: F) where F: Fn(u8, u8, u8, u8) -> u8 {
+fn scan_rev<F>(line: &mut ScanLine, previous: Option<&ScanLine>, callback: F) where F: Fn(u8, u8, u8, u8) -> u8 {
     let bpp = line.bytes_per_pixel();
-    let pixels = line.pixel_data_range().rev().step_by(bpp);
+    let range = line.pixel_data_offset()..line.data.len();
+    let pixels = range.rev().step_by(bpp);
     for pixel in pixels {
         for offset in 0..bpp {
             let index = pixel - offset;
@@ -61,9 +60,7 @@ fn scan_rev<F>(line: &ScanLine, previous: Option<&ScanLine>, callback: F) where 
             let top_left = byte_in_previous_pixel_in_previous_line(previous, index_in_previous_line, 0, bpp);
 
             let updated = callback(current, left, top, top_left);
-
-            let mut buffer = line.decoded_data.borrow_mut();
-            buffer[index] = updated;
+            line.data[index] = updated;
         }
     }
 }
