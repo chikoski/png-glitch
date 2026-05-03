@@ -4,6 +4,7 @@ use crate::png::parser::Parser;
 use crate::png::parser::Terminator;
 use crate::png::parser::{Chunk, ChunkType};
 pub use crate::png::scan_line::ScanLine;
+pub use crate::png::scan_line::Pixel;
 use anyhow::Context;
 pub use parser::ColorType;
 use rayon::prelude::*;

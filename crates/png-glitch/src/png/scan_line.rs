@@ -1,10 +1,12 @@
 use crate::png::ColorType;
 pub use filter_type::FilterType;
+pub use pixel::Pixel;
 use std::io::{Read, Write};
 use std::ops::{Index, IndexMut, Range};
 
 mod filter;
 mod filter_type;
+mod pixel;
 
 /// A type alias for a range of `usize`.
 pub type UsizeRange = Range<usize>;
@@ -44,7 +46,101 @@ impl<'a> ScanLine<'a> {
             ColorType::GrayScaleAlpha => std::cmp::max(bits * 2 / 8, 1) as usize,
             ColorType::TrueColor => std::cmp::max(bits * 3 / 8, 1) as usize,
             ColorType::TrueColorAlpha => std::cmp::max(bits * 4 / 8, 1) as usize,
-            ColorType::IndexColor => (bits / 8) as usize,
+            ColorType::IndexColor => std::cmp::max(bits / 8, 1) as usize,
+        }
+    }
+
+    /// The method returns a pixel at the specified index.
+    pub fn get_pixel(&self, x: usize) -> Option<Pixel> {
+        if self.bit_depth < 8 {
+            return None;
+        }
+
+        let bpp = self.bytes_per_pixel();
+        let offset = self.pixel_data_offset() + x * bpp;
+        if offset + bpp > self.data.len() {
+            return None;
+        }
+
+        let slice = &self.data[offset..offset + bpp];
+        match (self.color_type, self.bit_depth) {
+            (ColorType::GrayScale, 8) => Some(Pixel::Gray(slice[0] as u16)),
+            (ColorType::GrayScale, 16) => Some(Pixel::Gray(u16::from_be_bytes([slice[0], slice[1]]))),
+            (ColorType::TrueColor, 8) => Some(Pixel::RGB(slice[0] as u16, slice[1] as u16, slice[2] as u16)),
+            (ColorType::TrueColor, 16) => Some(Pixel::RGB(
+                u16::from_be_bytes([slice[0], slice[1]]),
+                u16::from_be_bytes([slice[2], slice[3]]),
+                u16::from_be_bytes([slice[4], slice[5]]),
+            )),
+            (ColorType::IndexColor, 8) => Some(Pixel::Indexed(slice[0])),
+            (ColorType::GrayScaleAlpha, 8) => Some(Pixel::GrayAlpha(slice[0] as u16, slice[1] as u16)),
+            (ColorType::GrayScaleAlpha, 16) => Some(Pixel::GrayAlpha(
+                u16::from_be_bytes([slice[0], slice[1]]),
+                u16::from_be_bytes([slice[2], slice[3]]),
+            )),
+            (ColorType::TrueColorAlpha, 8) => Some(Pixel::RGBA(slice[0] as u16, slice[1] as u16, slice[2] as u16, slice[3] as u16)),
+            (ColorType::TrueColorAlpha, 16) => Some(Pixel::RGBA(
+                u16::from_be_bytes([slice[0], slice[1]]),
+                u16::from_be_bytes([slice[2], slice[3]]),
+                u16::from_be_bytes([slice[4], slice[5]]),
+                u16::from_be_bytes([slice[6], slice[7]]),
+            )),
+            _ => None,
+        }
+    }
+
+    /// The method sets a pixel at the specified index.
+    pub fn set_pixel(&mut self, x: usize, pixel: Pixel) {
+        if self.bit_depth < 8 {
+            return;
+        }
+
+        let bpp = self.bytes_per_pixel();
+        let offset = self.pixel_data_offset() + x * bpp;
+        if offset + bpp > self.data.len() {
+            return;
+        }
+
+        let slice = &mut self.data[offset..offset + bpp];
+        match (pixel, self.color_type, self.bit_depth) {
+            (Pixel::Gray(v), ColorType::GrayScale, 8) => slice[0] = v as u8,
+            (Pixel::Gray(v), ColorType::GrayScale, 16) => slice.copy_from_slice(&v.to_be_bytes()),
+
+            (Pixel::RGB(r, g, b), ColorType::TrueColor, 8) => {
+                slice[0] = r as u8;
+                slice[1] = g as u8;
+                slice[2] = b as u8;
+            }
+            (Pixel::RGB(r, g, b), ColorType::TrueColor, 16) => {
+                slice[0..2].copy_from_slice(&r.to_be_bytes());
+                slice[2..4].copy_from_slice(&g.to_be_bytes());
+                slice[4..6].copy_from_slice(&b.to_be_bytes());
+            }
+
+            (Pixel::Indexed(v), ColorType::IndexColor, 8) => slice[0] = v,
+
+            (Pixel::GrayAlpha(v, a), ColorType::GrayScaleAlpha, 8) => {
+                slice[0] = v as u8;
+                slice[1] = a as u8;
+            }
+            (Pixel::GrayAlpha(v, a), ColorType::GrayScaleAlpha, 16) => {
+                slice[0..2].copy_from_slice(&v.to_be_bytes());
+                slice[2..4].copy_from_slice(&a.to_be_bytes());
+            }
+
+            (Pixel::RGBA(r, g, b, a), ColorType::TrueColorAlpha, 8) => {
+                slice[0] = r as u8;
+                slice[1] = g as u8;
+                slice[2] = b as u8;
+                slice[3] = a as u8;
+            }
+            (Pixel::RGBA(r, g, b, a), ColorType::TrueColorAlpha, 16) => {
+                slice[0..2].copy_from_slice(&r.to_be_bytes());
+                slice[2..4].copy_from_slice(&g.to_be_bytes());
+                slice[4..6].copy_from_slice(&b.to_be_bytes());
+                slice[6..8].copy_from_slice(&a.to_be_bytes());
+            }
+            _ => {}
         }
     }
 
@@ -284,6 +380,57 @@ mod test {
             }
             let raw_data = vec![1, 2, 3, 4, 5];
             assert_eq!(raw_data, &buffer[1..]);
+        }
+    }
+
+    mod pixel {
+        use super::*;
+
+        #[test]
+        fn test_get_set_pixel_rgba8() {
+            let mut buffer = vec![0, 10, 20, 30, 40, 50, 60, 70, 80];
+            {
+                let mut scan_line = ScanLine::new(
+                    &mut buffer,
+                    ColorType::TrueColorAlpha,
+                    8,
+                );
+
+                let p = scan_line.get_pixel(0).unwrap();
+                assert_eq!(p, Pixel::RGBA(10, 20, 30, 40));
+
+                scan_line.set_pixel(0, Pixel::RGBA(100, 110, 120, 130));
+            }
+            assert_eq!(buffer[1], 100);
+            assert_eq!(buffer[4], 130);
+
+            {
+                let scan_line = ScanLine::new(
+                    &mut buffer,
+                    ColorType::TrueColorAlpha,
+                    8,
+                );
+                let p2 = scan_line.get_pixel(1).unwrap();
+                assert_eq!(p2, Pixel::RGBA(50, 60, 70, 80));
+            }
+        }
+
+        #[test]
+        fn test_get_set_pixel_gray8() {
+            let mut buffer = vec![0, 10, 20, 30];
+            {
+                let mut scan_line = ScanLine::new(
+                    &mut buffer,
+                    ColorType::GrayScale,
+                    8,
+                );
+
+                let p = scan_line.get_pixel(1).unwrap();
+                assert_eq!(p, Pixel::Gray(20));
+
+                scan_line.set_pixel(2, Pixel::Gray(200));
+            }
+            assert_eq!(buffer[3], 200);
         }
     }
 }

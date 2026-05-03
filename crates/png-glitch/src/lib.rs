@@ -1,7 +1,7 @@
 pub use crate::operation::Transpose;
 use crate::operation::{Encode, Scan};
 use crate::png::Png;
-pub use crate::png::{FilterType, ScanLine};
+pub use crate::png::{FilterType, ScanLine, Pixel};
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
