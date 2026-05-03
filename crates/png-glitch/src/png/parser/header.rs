@@ -64,6 +64,33 @@ impl Header {
     fn parse_color_type(chunk: &Chunk) -> anyhow::Result<ColorType> {
         ColorType::try_from(chunk.data[9]).context("Failed to retrieve color type.")
     }
+
+    fn parse_compression_method(chunk: &Chunk) -> anyhow::Result<u8> {
+        let method = chunk.data[10];
+        if method == 0 {
+            Ok(method)
+        } else {
+            Err(crate::png::png_error::PngError::UnsupportedCompressionMethod.into())
+        }
+    }
+
+    fn parse_filter_method(chunk: &Chunk) -> anyhow::Result<u8> {
+        let method = chunk.data[11];
+        if method == 0 {
+            Ok(method)
+        } else {
+            Err(crate::png::png_error::PngError::UnsupportedFilterMethod.into())
+        }
+    }
+
+    fn parse_interlace_method(chunk: &Chunk) -> anyhow::Result<u8> {
+        let method = chunk.data[12];
+        if method == 0 {
+            Ok(method)
+        } else {
+            Err(crate::png::png_error::PngError::UnsupportedInterlacing.into())
+        }
+    }
 }
 
 impl TryFrom<Chunk> for Header {
@@ -71,6 +98,9 @@ impl TryFrom<Chunk> for Header {
 
     fn try_from(chunk: Chunk) -> Result<Self, Self::Error> {
         anyhow::ensure!(chunk.chunk_type == ChunkType::Start);
+        Header::parse_compression_method(&chunk)?;
+        Header::parse_filter_method(&chunk)?;
+        Header::parse_interlace_method(&chunk)?;
         let header = Header::new(
             Header::parse_width(&chunk),
             Header::parse_height(&chunk),
@@ -91,5 +121,43 @@ impl Encode for Header {
 impl Debug for Header {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}, scanline width = {}", self.metadata, self.scan_line_width())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_unsupported_interlacing() {
+        let mut data = vec![0; 13];
+        data[12] = 1; // Interlace method 1 (Adam7)
+        let chunk = Chunk::new(ChunkType::Start, data, [0; 4]);
+        let result = Header::try_from(chunk);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("Interlaced PNG is not supported"));
+    }
+
+    #[test]
+    fn test_unsupported_compression() {
+        let mut data = vec![0; 13];
+        data[10] = 1; // Unsupported compression method
+        let chunk = Chunk::new(ChunkType::Start, data, [0; 4]);
+        let result = Header::try_from(chunk);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("Unsupported compression method"));
+    }
+
+    #[test]
+    fn test_unsupported_filter() {
+        let mut data = vec![0; 13];
+        data[11] = 1; // Unsupported filter method
+        let chunk = Chunk::new(ChunkType::Start, data, [0; 4]);
+        let result = Header::try_from(chunk);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("Unsupported filter method"));
     }
 }

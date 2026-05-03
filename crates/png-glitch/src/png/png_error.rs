@@ -47,4 +47,13 @@ pub enum PngError {
         /// The number of bytes actually written by the decompressor.
         actual: usize,
     },
+    /// Interlaced PNG is not supported.
+    #[error("Interlaced PNG is not supported.")]
+    UnsupportedInterlacing,
+    /// Unsupported compression method.
+    #[error("Unsupported compression method.")]
+    UnsupportedCompressionMethod,
+    /// Unsupported filter method.
+    #[error("Unsupported filter method.")]
+    UnsupportedFilterMethod,
 }
