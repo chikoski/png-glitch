@@ -37,4 +37,14 @@ pub enum PngError {
     /// A deflate failure occurs.
     #[error("Failed to deflate data.")]
     DeflateFailure,
+    /// The decompressor produced fewer bytes than the scan-line buffer expected.
+    /// Without this check, the trailing zeros would be silently re-encoded as
+    /// image data on the next save.
+    #[error("Decompressed data is shorter than expected: got {actual} bytes, expected {expected} bytes.")]
+    IncompleteDecompression {
+        /// The expected scan-line buffer size in bytes.
+        expected: usize,
+        /// The number of bytes actually written by the decompressor.
+        actual: usize,
+    },
 }

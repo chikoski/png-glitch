@@ -43,6 +43,17 @@ impl ChunkType {
     pub const IDAT: &'static [u8] = &[73, 68, 65, 84];
     /// The IEND chunk type.
     pub const IEND: &'static [u8] = &[73, 69, 78, 68];
+
+    /// Returns the 4-byte on-the-wire representation of this chunk type.
+    /// Useful for CRC computation, which is taken over `chunk_type || data`.
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        match self {
+            Self::Start => Self::IHDR,
+            Self::Data => Self::IDAT,
+            Self::End => Self::IEND,
+            Self::Other(bytes) => bytes,
+        }
+    }
 }
 
 impl Debug for ChunkType {

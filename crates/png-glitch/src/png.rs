@@ -199,6 +199,13 @@ impl Transpose for Png {
 
 impl Encode for Png {
     fn encode(&self, mut writer: impl std::io::Write) -> anyhow::Result<()> {
+        // Invariant: png-glitch only mutates the IDAT stream. IHDR, ancillary
+        // chunks, and IEND are pure pass-through, so the CRC bytes captured at
+        // parse time remain valid here and are re-emitted as-is. The IDAT
+        // chunks built below get their CRC computed fresh in
+        // `create_idat_chunk` via `Chunk::with_recomputed_crc`. If a future
+        // change ever lets callers mutate misc chunks, those chunks must be
+        // rebuilt through `Chunk::with_recomputed_crc` as well.
         writer.write_all(SIGNATURE)?;
         self.header
             .encode(&mut writer)
@@ -256,14 +263,9 @@ fn create_idat_chunk(png: &Png) -> anyhow::Result<Vec<Chunk>> {
     encoder.write_data(&png.data.borrow())?;
     let buffer = encoder.finish()?;
 
-    let mut crc = crc32fast::Hasher::new();
-    crc.update(ChunkType::IDAT);
-    crc.update(&buffer);
-    let crc = crc.finalize().to_be_bytes();
-
-    let chunk = Chunk::new(ChunkType::Data, buffer, crc);
-
-    list.push(chunk);
+    // CRC is computed inside `with_recomputed_crc` so the data and CRC cannot
+    // drift out of sync.
+    list.push(Chunk::with_recomputed_crc(ChunkType::Data, buffer));
     Ok(list)
 }
 

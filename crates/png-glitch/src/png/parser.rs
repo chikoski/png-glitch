@@ -125,11 +125,25 @@ impl Parser {
         } else {
             let header = self.header.as_ref().ok_or(PngError::NoIHDRFound)?;
             let mut decompressor = Decompressor::new();
-            let mut buffer = vec![0; header.scan_line_width() * (header.height() as usize)];
-            let _ = decompressor
+            let expected = header.scan_line_width() * (header.height() as usize);
+            let mut buffer = vec![0; expected];
+            // `Decompressor::read` returns (input_consumed, output_written).
+            // The `end_of_input = true` flag asks it to consume the whole IDAT
+            // stream in one shot; if it produces fewer bytes than the scan-line
+            // buffer asked for, the buffer's tail is still zeros from the
+            // initial allocation and would silently be re-encoded as image
+            // data. Reject that explicitly.
+            let (_, written) = decompressor
                 .read(&self.data, &mut buffer, 0, true)
                 .map_err(|_| PngError::DeflateFailure)
                 .context("Deflate failure while parsing consolidated IDAT chunks.")?;
+            if written != expected {
+                return Err(PngError::IncompleteDecompression {
+                    expected,
+                    actual: written,
+                })
+                .context("Decompressed IDAT stream is shorter than the scan-line buffer.");
+            }
             Ok(buffer)
         }
     }

@@ -6,14 +6,27 @@ use anyhow::Context;
 mod chunk_type;
 
 /// A struct representing a PNG chunk.
+///
+/// # Invariant
+///
+/// `png-glitch` only mutates the IDAT stream; ancillary and other critical
+/// chunks (IHDR / PLTE / tRNS / iTXt / IEND ...) are passed through verbatim
+/// from input to output. Because of that, the parsed `crc` for misc chunks
+/// remains valid at encode time and is re-emitted as-is.
+///
+/// To keep that invariant load-bearing rather than incidental, the inner
+/// fields are `pub(crate)`. Code inside the crate that produces a *new*
+/// payload (currently only the rebuilt IDAT) must construct the chunk via
+/// [`Chunk::with_recomputed_crc`], which calculates the CRC from
+/// `chunk_type || data` so a stale CRC cannot be observed externally.
 #[derive(Debug)]
 pub struct Chunk {
     /// The type of the chunk.
-    pub chunk_type: ChunkType,
+    pub(crate) chunk_type: ChunkType,
     /// The data of the chunk.
-    pub data: Vec<u8>,
+    pub(crate) data: Vec<u8>,
     /// The CRC of the chunk.
-    pub crc: [u8; 4],
+    pub(crate) crc: [u8; 4],
 }
 
 impl Chunk {
@@ -31,7 +44,29 @@ impl Chunk {
     /// The `chunk_type` parameter is the type of the chunk.
     /// The `data` parameter is the data of the chunk.
     /// The `crc` parameter is the CRC of the chunk.
-    pub fn new(chunk_type: ChunkType, data: Vec<u8>, crc: [u8; 4]) -> Chunk {
+    ///
+    /// This constructor preserves whatever CRC the caller supplies and is
+    /// intended for the parser, where the CRC bytes come straight from the
+    /// input file. To create a chunk from a freshly produced payload, use
+    /// [`Chunk::with_recomputed_crc`] instead.
+    pub(crate) fn new(chunk_type: ChunkType, data: Vec<u8>, crc: [u8; 4]) -> Chunk {
+        Chunk {
+            chunk_type,
+            data,
+            crc,
+        }
+    }
+
+    /// Creates a new chunk and computes its CRC from `chunk_type || data`,
+    /// per the PNG spec.
+    ///
+    /// Use this any time the chunk's payload is built or modified inside the
+    /// crate so that the CRC cannot drift out of sync with `data`.
+    pub(crate) fn with_recomputed_crc(chunk_type: ChunkType, data: Vec<u8>) -> Chunk {
+        let mut hasher = crc32fast::Hasher::new();
+        hasher.update(chunk_type.as_bytes());
+        hasher.update(&data);
+        let crc = hasher.finalize().to_be_bytes();
         Chunk {
             chunk_type,
             data,
