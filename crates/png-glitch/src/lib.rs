@@ -8,6 +8,7 @@ use std::path::Path;
 
 mod operation;
 mod png;
+pub mod presets;
 
 /// PngGlitch is a crate to create a glitched PNG image.
 /// Please refer to ["The Art of PNG glitch"](https://ucnv.github.io/pnglitch/) for the description about what glitched PNG is.
@@ -21,14 +22,13 @@ mod png;
 /// # env::set_current_dir(env::var("CARGO_MANIFEST_DIR").unwrap_or(".".to_string())).expect("");
 ///
 /// use png_glitch::{FilterType, PngGlitch};
+/// use png_glitch::presets::Invert;
 ///
-/// let mut png_glitch = PngGlitch::open("./etc/sample00.png").expect("The PNG file should be successfully parsed");
-/// png_glitch.foreach_scanline(|scan_line|{
-///   scan_line.set_filter_type(FilterType::None);
-///   let pixel = scan_line.index(4).unwrap_or(0);
-///   scan_line.update(4, pixel / 2);
-/// });
-/// png_glitch.save("./glitched.png").expect("The glitched file should be saved as a PNG file");
+/// PngGlitch::open("./etc/sample00.png")
+///   .expect("The PNG file should be successfully parsed")
+///   .apply(Invert)
+///   .save("./glitched.png")
+///   .expect("The glitched file should be saved as a PNG file");
 /// ```
 ///
 pub struct PngGlitch {
@@ -61,19 +61,21 @@ impl PngGlitch {
     }
 
     /// The method allows you to manipulate for each scan line.
-    pub fn foreach_scanline<F>(&mut self, modifier: F)
+    pub fn foreach_scanline<F>(&mut self, modifier: F) -> &mut Self
     where
         F: FnMut(&mut ScanLine),
     {
-        self.png.foreach_scanline(modifier)
+        self.png.foreach_scanline(modifier);
+        self
     }
 
     /// The method allows you to manipulate for each scan line in parallel.
-    pub fn par_foreach_scanline<F>(&mut self, modifier: F)
+    pub fn par_foreach_scanline<F>(&mut self, modifier: F) -> &mut Self
     where
         F: Fn(&mut ScanLine) + Sync + Send,
     {
-        self.png.par_foreach_scanline(modifier)
+        self.png.par_foreach_scanline(modifier);
+        self
     }
 
     /// The method saves the glitched image as a PNG file to the given path.
@@ -98,33 +100,52 @@ impl PngGlitch {
     }
 
     /// The method copies the lines starting from src to dest
-    pub fn transpose(&mut self, src: u32, dst: u32, lines: u32) {
-        self.png.transpose(src as usize, dst as usize, lines)
+    pub fn transpose(&mut self, src: u32, dst: u32, lines: u32) -> &mut Self {
+        self.png.transpose(src as usize, dst as usize, lines);
+        self
     }
 
     /// The method removes filter from all scan lines.
-    pub fn remove_filter(&mut self) {
+    pub fn remove_filter(&mut self) -> &mut Self {
         self.png.remove_filter();
+        self
     }
 
     /// The method removes filter from the scan lines in specified region
-    pub fn remove_filter_from(&mut self, from: u32, lines: u32) {
+    pub fn remove_filter_from(&mut self, from: u32, lines: u32) -> &mut Self {
         self.png.remove_filter_from(from, lines);
+        self
     }
 
     /// The method applies filter to all scan lines.
-    pub fn apply_filter(&mut self, filter: FilterType) {
+    pub fn apply_filter(&mut self, filter: FilterType) -> &mut Self {
         self.png.apply_filter(filter);
+        self
     }
 
     /// The method applies filter to scan lines in specified region
-    pub fn apply_filter_from(&mut self, filter_type: FilterType, from: u32, lines: u32) {
+    pub fn apply_filter_from(&mut self, filter_type: FilterType, from: u32, lines: u32) -> &mut Self {
         self.png.apply_filter_from(filter_type, from, lines);
+        self
     }
 
     /// The method changes the filter type of all scan lines.
-    pub fn change_filter_type(&mut self, filter_type: FilterType) {
+    pub fn change_filter_type(&mut self, filter_type: FilterType) -> &mut Self {
         self.png.change_filter_type(filter_type);
+        self
+    }
+
+    /// The method applies a glitch preset to all scan lines in parallel.
+    pub fn apply<P: presets::GlitchPreset + Sync + Send>(&mut self, preset: P) -> &mut Self {
+        self.par_foreach_scanline(|line| {
+            preset.apply_to_line(line);
+        });
+        self
+    }
+
+    /// The method returns the raw image data.
+    pub fn data(&self) -> &[u8] {
+        &self.png.data
     }
 }
 
@@ -176,6 +197,21 @@ mod test {
                 );
             }
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_presets() -> anyhow::Result<()> {
+        let bytes = include_bytes!("../etc/sample00.png");
+        let mut png = PngGlitch::new(bytes.to_vec())?;
+        let original_data = png.data().to_vec();
+
+        png.apply(presets::Invert);
+        assert_ne!(png.data(), original_data);
+
+        png.apply(presets::Invert);
+        assert_eq!(png.data(), original_data);
 
         Ok(())
     }

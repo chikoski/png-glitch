@@ -22,10 +22,10 @@ pub type DecodedData = Vec<u8>;
 
 /// A struct representing a PNG image.
 pub struct Png {
-    header: Header,
-    terminator: Terminator,
-    misc_chunks: Vec<Chunk>,
-    data: DecodedData,
+    pub(crate) header: Header,
+    pub(crate) terminator: Terminator,
+    pub(crate) misc_chunks: Vec<Chunk>,
+    pub(crate) data: DecodedData,
 }
 
 impl Png {
