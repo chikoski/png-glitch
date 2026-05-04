@@ -71,8 +71,8 @@ mod tests {
         let mut current_data = vec![0, 1, 2, 3, 4, 5, 6, 7, 8];
         let current_copy = current_data.clone();
 
-        let previous_line = ScanLine::new(&mut previous_data, ColorType::TrueColorAlpha, 8);
-        let mut current_line = ScanLine::new(&mut current_data, ColorType::TrueColorAlpha, 8);
+        let previous_line = ScanLine::new(&mut previous_data, ColorType::TrueColorAlpha, 8, 2);
+        let mut current_line = ScanLine::new(&mut current_data, ColorType::TrueColorAlpha, 8, 2);
 
         apply(&mut current_line, Some(&previous_line));
         remove(&mut current_line, Some(&previous_line));
@@ -85,7 +85,7 @@ mod tests {
         let mut current_data = vec![0, 1, 2, 3, 4, 5, 6, 7, 8];
         let current_copy = current_data.clone();
 
-        let mut current_line = ScanLine::new(&mut current_data, ColorType::TrueColorAlpha, 8);
+        let mut current_line = ScanLine::new(&mut current_data, ColorType::TrueColorAlpha, 8, 2);
 
         apply(&mut current_line, None);
         remove(&mut current_line, None);

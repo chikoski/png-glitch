@@ -98,7 +98,7 @@ mod tests {
     #[test]
     fn test_byte_in_pixel() {
         let mut data = vec![0, 1, 2, 3, 4, 5];
-        let line = ScanLine::new(&mut data, ColorType::GrayScale, 8);
+        let line = ScanLine::new(&mut data, ColorType::GrayScale, 8, 5);
         assert_eq!(byte_in_pixel(&line, 1, 0), 1);
         assert_eq!(byte_in_pixel(&line, 5, 0), 5);
         assert_eq!(byte_in_pixel(&line, 6, 0), 0); // Out of bounds
@@ -107,7 +107,7 @@ mod tests {
     #[test]
     fn test_byte_in_previous_pixel() {
         let mut data = vec![0, 10, 20, 30, 40, 50]; // filter type (1 byte) + 5 data bytes
-        let line = ScanLine::new(&mut data, ColorType::GrayScale, 8);
+        let line = ScanLine::new(&mut data, ColorType::GrayScale, 8, 5);
         let bpp = line.bytes_per_pixel(); // 1
         assert_eq!(byte_in_previous_pixel(&line, 1, 0, bpp), 0); // First pixel has no previous
         assert_eq!(byte_in_previous_pixel(&line, 2, 0, bpp), 10);
@@ -117,7 +117,7 @@ mod tests {
     #[test]
     fn test_byte_in_previous_line() {
         let mut data1 = vec![0, 10, 20, 30];
-        let line1 = ScanLine::new(&mut data1, ColorType::GrayScale, 8);
+        let line1 = ScanLine::new(&mut data1, ColorType::GrayScale, 8, 3);
 
         assert_eq!(byte_in_previous_line(Some(&line1), 0, 0), 10);
         assert_eq!(byte_in_previous_line(Some(&line1), 1, 0), 20);
@@ -127,7 +127,7 @@ mod tests {
     #[test]
     fn test_byte_in_previous_pixel_in_previous_line() {
         let mut data1 = vec![0, 10, 20, 30];
-        let line1 = ScanLine::new(&mut data1, ColorType::GrayScale, 8);
+        let line1 = ScanLine::new(&mut data1, ColorType::GrayScale, 8, 3);
         let bpp = 1;
 
         assert_eq!(byte_in_previous_pixel_in_previous_line(Some(&line1), 0, 0, bpp), 0);

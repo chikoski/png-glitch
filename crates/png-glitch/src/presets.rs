@@ -11,7 +11,7 @@ pub struct Invert;
 
 impl GlitchPreset for Invert {
     fn apply_to_line(&self, line: &mut ScanLine) {
-        for x in 0..line.size() / line.bytes_per_pixel() {
+        for x in 0..line.pixels_count() as usize {
             if let Some(pixel) = line.get_pixel(x) {
                 let inverted = match pixel {
                     Pixel::Gray(v) => Pixel::Gray(!v),
@@ -35,7 +35,7 @@ pub struct ShiftChannels {
 
 impl GlitchPreset for ShiftChannels {
     fn apply_to_line(&self, line: &mut ScanLine) {
-        for x in 0..line.size() / line.bytes_per_pixel() {
+        for x in 0..line.pixels_count() as usize {
             if let Some(pixel) = line.get_pixel(x) {
                 let shifted = match pixel {
                     Pixel::RGB(r, g, b) => Pixel::RGB(
@@ -64,7 +64,7 @@ pub struct Brighten {
 
 impl GlitchPreset for Brighten {
     fn apply_to_line(&self, line: &mut ScanLine) {
-        for x in 0..line.size() / line.bytes_per_pixel() {
+        for x in 0..line.pixels_count() as usize {
             if let Some(pixel) = line.get_pixel(x) {
                 let brightened = match pixel {
                     Pixel::Gray(v) => Pixel::Gray(v.saturating_add(self.strength)),
@@ -96,7 +96,7 @@ mod tests {
     #[test]
     fn test_invert() {
         let mut data = vec![0, 10, 20, 30]; // filter type + RGB
-        let mut line = ScanLine::new(&mut data, ColorType::TrueColor, 8);
+        let mut line = ScanLine::new(&mut data, ColorType::TrueColor, 8, 1);
         Invert.apply_to_line(&mut line);
         // !10 as u16 is 0xFFF5, which as u8 is 245.
         assert_eq!(line.get_pixel(0).unwrap(), Pixel::RGB(245, 235, 225));
@@ -105,7 +105,7 @@ mod tests {
     #[test]
     fn test_shift_channels() {
         let mut data = vec![0, 10, 20, 30];
-        let mut line = ScanLine::new(&mut data, ColorType::TrueColor, 8);
+        let mut line = ScanLine::new(&mut data, ColorType::TrueColor, 8, 1);
         ShiftChannels { r: 1, g: -1, b: 0 }.apply_to_line(&mut line);
         assert_eq!(line.get_pixel(0).unwrap(), Pixel::RGB(11, 19, 30));
     }
@@ -113,7 +113,7 @@ mod tests {
     #[test]
     fn test_brighten() {
         let mut data = vec![0, 100, 200, 250];
-        let mut line = ScanLine::new(&mut data, ColorType::TrueColor, 8);
+        let mut line = ScanLine::new(&mut data, ColorType::TrueColor, 8, 1);
         Brighten { strength: 10 }.apply_to_line(&mut line);
         // 250 + 10 = 260. 260 as u8 is 4.
         assert_eq!(line.get_pixel(0).unwrap(), Pixel::RGB(110, 210, 4));

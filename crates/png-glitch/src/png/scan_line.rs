@@ -16,6 +16,7 @@ pub struct ScanLine<'a> {
     pub(crate) data: &'a mut [u8],
     pub(crate) color_type: ColorType,
     pub(crate) bit_depth: u8,
+    pub(crate) width: u32,
 }
 
 impl<'a> ScanLine<'a> {
@@ -23,12 +24,19 @@ impl<'a> ScanLine<'a> {
         data: &'a mut [u8],
         color_type: ColorType,
         bit_depth: u8,
+        width: u32,
     ) -> ScanLine<'a> {
         ScanLine {
             data,
             color_type,
             bit_depth,
+            width,
         }
+    }
+
+    /// The method returns the number of pixels in the scan line.
+    pub fn pixels_count(&self) -> u32 {
+        self.width
     }
 
     pub(crate) fn pixel_data_offset(&self) -> usize {
@@ -55,7 +63,21 @@ impl<'a> ScanLine<'a> {
     /// The method returns a pixel at the specified index.
     pub fn get_pixel(&self, x: usize) -> Option<Pixel> {
         if self.bit_depth < 8 {
-            return None;
+            let pixels_per_byte = 8 / self.bit_depth as usize;
+            let byte_offset = self.pixel_data_offset() + x / pixels_per_byte;
+            if byte_offset >= self.data.len() {
+                return None;
+            }
+            let byte = self.data[byte_offset];
+            let shift = (pixels_per_byte - 1 - (x % pixels_per_byte)) * self.bit_depth as usize;
+            let mask = (1 << self.bit_depth) - 1;
+            let value = (byte >> shift) & mask;
+
+            return match self.color_type {
+                ColorType::GrayScale => Some(Pixel::Gray(value as u16)),
+                ColorType::IndexColor => Some(Pixel::Indexed(value as u8)),
+                _ => None,
+            };
         }
 
         let bpp = self.bytes_per_pixel();
@@ -94,6 +116,25 @@ impl<'a> ScanLine<'a> {
     /// The method sets a pixel at the specified index.
     pub fn set_pixel(&mut self, x: usize, pixel: Pixel) {
         if self.bit_depth < 8 {
+            let pixels_per_byte = 8 / self.bit_depth as usize;
+            let byte_offset = self.pixel_data_offset() + x / pixels_per_byte;
+            if byte_offset >= self.data.len() {
+                return;
+            }
+
+            let value = match (pixel, self.color_type) {
+                (Pixel::Gray(v), ColorType::GrayScale) => v as u8,
+                (Pixel::Indexed(v), ColorType::IndexColor) => v,
+                _ => return,
+            };
+
+            let shift = (pixels_per_byte - 1 - (x % pixels_per_byte)) * self.bit_depth as usize;
+            let mask = (1 << self.bit_depth) - 1;
+            let value = (value & mask) << shift;
+
+            let current_byte = self.data[byte_offset];
+            let clean_mask = !(mask << shift);
+            self.data[byte_offset] = (current_byte & clean_mask) | value;
             return;
         }
 
@@ -276,6 +317,7 @@ mod test {
                 &mut self.buffer,
                 ColorType::TrueColorAlpha,
                 8,
+                1,
             )
         }
     }
@@ -363,6 +405,7 @@ mod test {
                     &mut buffer,
                     ColorType::GrayScale,
                     8,
+                    5,
                 );
 
                 scan_line.change_filter_type(FilterType::Sub, None);
@@ -376,6 +419,7 @@ mod test {
                     &mut buffer,
                     ColorType::GrayScale,
                     8,
+                    5,
                 );
                 scan_line.change_filter_type(FilterType::None, None);
                 assert_eq!(FilterType::None, scan_line.filter_type());
@@ -396,6 +440,7 @@ mod test {
                     &mut buffer,
                     ColorType::TrueColorAlpha,
                     8,
+                    2,
                 );
 
                 let p = scan_line.get_pixel(0).unwrap();
@@ -411,6 +456,7 @@ mod test {
                     &mut buffer,
                     ColorType::TrueColorAlpha,
                     8,
+                    2,
                 );
                 let p2 = scan_line.get_pixel(1).unwrap();
                 assert_eq!(p2, Pixel::RGBA(50, 60, 70, 80));
@@ -425,6 +471,7 @@ mod test {
                     &mut buffer,
                     ColorType::GrayScale,
                     8,
+                    3,
                 );
 
                 let p = scan_line.get_pixel(1).unwrap();
@@ -433,6 +480,50 @@ mod test {
                 scan_line.set_pixel(2, Pixel::Gray(200));
             }
             assert_eq!(buffer[3], 200);
+        }
+
+        #[test]
+        fn test_get_set_pixel_sub_8bit() {
+            // 1-bit GrayScale
+            let mut buffer = vec![0, 0b10110000]; // filter type + 1 byte (8 pixels)
+            {
+                let mut scan_line = ScanLine::new(&mut buffer, ColorType::GrayScale, 1, 8);
+                assert_eq!(scan_line.get_pixel(0).unwrap(), Pixel::Gray(1));
+                assert_eq!(scan_line.get_pixel(1).unwrap(), Pixel::Gray(0));
+                assert_eq!(scan_line.get_pixel(2).unwrap(), Pixel::Gray(1));
+                assert_eq!(scan_line.get_pixel(3).unwrap(), Pixel::Gray(1));
+                assert_eq!(scan_line.get_pixel(4).unwrap(), Pixel::Gray(0));
+
+                scan_line.set_pixel(4, Pixel::Gray(1));
+                assert_eq!(scan_line.get_pixel(4).unwrap(), Pixel::Gray(1));
+            }
+            assert_eq!(buffer[1], 0b10111000);
+
+            // 2-bit GrayScale
+            let mut buffer = vec![0, 0b11011000]; // 11, 01, 10, 00
+            {
+                let mut scan_line = ScanLine::new(&mut buffer, ColorType::GrayScale, 2, 4);
+                assert_eq!(scan_line.get_pixel(0).unwrap(), Pixel::Gray(3));
+                assert_eq!(scan_line.get_pixel(1).unwrap(), Pixel::Gray(1));
+                assert_eq!(scan_line.get_pixel(2).unwrap(), Pixel::Gray(2));
+                assert_eq!(scan_line.get_pixel(3).unwrap(), Pixel::Gray(0));
+
+                scan_line.set_pixel(3, Pixel::Gray(1));
+                assert_eq!(scan_line.get_pixel(3).unwrap(), Pixel::Gray(1));
+            }
+            assert_eq!(buffer[1], 0b11011001);
+
+            // 4-bit IndexColor
+            let mut buffer = vec![0, 0b10100101]; // 1010, 0101 (10, 5)
+            {
+                let mut scan_line = ScanLine::new(&mut buffer, ColorType::IndexColor, 4, 2);
+                assert_eq!(scan_line.get_pixel(0).unwrap(), Pixel::Indexed(10));
+                assert_eq!(scan_line.get_pixel(1).unwrap(), Pixel::Indexed(5));
+
+                scan_line.set_pixel(1, Pixel::Indexed(15));
+                assert_eq!(scan_line.get_pixel(1).unwrap(), Pixel::Indexed(15));
+            }
+            assert_eq!(buffer[1], 0b10101111);
         }
     }
 }

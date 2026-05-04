@@ -53,8 +53,8 @@ mod tests {
             let mut current_data = vec![0, 1, 2, 3, 4, 5, 6, 7, 8];
             let current_copy = current_data.clone();
 
-            let previous_line = ScanLine::new(&mut previous_data, ColorType::TrueColorAlpha, 8);
-            let mut current_line = ScanLine::new(&mut current_data, ColorType::TrueColorAlpha, 8);
+            let previous_line = ScanLine::new(&mut previous_data, ColorType::TrueColorAlpha, 8, 2);
+            let mut current_line = ScanLine::new(&mut current_data, ColorType::TrueColorAlpha, 8, 2);
 
             apply(filter_type, &mut current_line, Some(&previous_line));
             current_line.data[0] = filter_type.into();

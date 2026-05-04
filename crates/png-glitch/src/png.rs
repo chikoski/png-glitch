@@ -85,22 +85,23 @@ impl Png {
     /// The method removes filter from the scan lines in specified region
     pub fn remove_filter_from(&mut self, from: u32, lines: u32) {
         let end_index = from + lines;
-        let width = self.scan_line_width();
+        let scan_line_width = self.scan_line_width();
         let color_type = self.header.color_type();
         let bit_depth = self.header.bit_depth();
+        let image_width = self.header.width();
         
         // This operation is inherently sequential because each line depends on the previous one.
         for i in (from..end_index).rev() {
-            let current_start = i as usize * width;
+            let current_start = i as usize * scan_line_width;
             let (prev_part, current_part) = self.data.split_at_mut(current_start);
-            let current_line_data = &mut current_part[..width];
+            let current_line_data = &mut current_part[..scan_line_width];
             
-            let mut current_line = ScanLine::new(current_line_data, color_type, bit_depth);
+            let mut current_line = ScanLine::new(current_line_data, color_type, bit_depth, image_width);
             
             if i > 0 {
-                let prev_start = (i as usize - 1) * width;
-                let prev_line_data = &mut prev_part[prev_start..prev_start + width];
-                let prev_line = ScanLine::new(prev_line_data, color_type, bit_depth);
+                let prev_start = (i as usize - 1) * scan_line_width;
+                let prev_line_data = &mut prev_part[prev_start..prev_start + scan_line_width];
+                let prev_line = ScanLine::new(prev_line_data, color_type, bit_depth, image_width);
                 current_line.remove_filter(Some(&prev_line));
             } else {
                 current_line.remove_filter(None);
@@ -116,21 +117,22 @@ impl Png {
     /// The method applies a filter to scan lines in specified region
     pub fn apply_filter_from(&mut self, filter_type: FilterType, from: u32, lines: u32) {
         let end_index = from + lines;
-        let width = self.scan_line_width();
+        let scan_line_width = self.scan_line_width();
         let color_type = self.header.color_type();
         let bit_depth = self.header.bit_depth();
+        let image_width = self.header.width();
 
         for i in from..end_index {
-            let current_start = i as usize * width;
+            let current_start = i as usize * scan_line_width;
             let (prev_part, current_part) = self.data.split_at_mut(current_start);
-            let current_line_data = &mut current_part[..width];
+            let current_line_data = &mut current_part[..scan_line_width];
             
-            let mut current_line = ScanLine::new(current_line_data, color_type, bit_depth);
+            let mut current_line = ScanLine::new(current_line_data, color_type, bit_depth, image_width);
             
             if i > 0 {
-                let prev_start = (i as usize - 1) * width;
-                let prev_line_data = &mut prev_part[prev_start..prev_start + width];
-                let prev_line = ScanLine::new(prev_line_data, color_type, bit_depth);
+                let prev_start = (i as usize - 1) * scan_line_width;
+                let prev_line_data = &mut prev_part[prev_start..prev_start + scan_line_width];
+                let prev_line = ScanLine::new(prev_line_data, color_type, bit_depth, image_width);
                 current_line.apply_filter(filter_type, Some(&prev_line));
             } else {
                 current_line.apply_filter(filter_type, None);
@@ -209,26 +211,28 @@ impl Scan for Png {
     where
         F: Fn(&mut ScanLine) + Sync + Send,
     {
-        let width = self.scan_line_width();
+        let scan_line_width = self.scan_line_width();
         let color_type = self.header.color_type();
         let bit_depth = self.header.bit_depth();
-        self.data.par_chunks_exact_mut(width).for_each(|chunk| {
-            let mut scan_line = ScanLine::new(chunk, color_type, bit_depth);
+        let image_width = self.header.width();
+        self.data.par_chunks_exact_mut(scan_line_width).for_each(|chunk| {
+            let mut scan_line = ScanLine::new(chunk, color_type, bit_depth, image_width);
             modifier(&mut scan_line);
         });
     }
 
     fn scan_lines_from(&mut self, from: usize, lines: usize) -> Vec<ScanLine<'_>> {
-        let width = self.scan_line_width();
+        let scan_line_width = self.scan_line_width();
         let color_type = self.header.color_type();
         let bit_depth = self.header.bit_depth();
+        let image_width = self.header.width();
         
-        let start = from * width;
-        let end = (from + lines) * width;
+        let start = from * scan_line_width;
+        let end = (from + lines) * scan_line_width;
         
         self.data[start..end]
-            .chunks_exact_mut(width)
-            .map(|chunk| ScanLine::new(chunk, color_type, bit_depth))
+            .chunks_exact_mut(scan_line_width)
+            .map(|chunk| ScanLine::new(chunk, color_type, bit_depth, image_width))
             .collect()
     }
 }

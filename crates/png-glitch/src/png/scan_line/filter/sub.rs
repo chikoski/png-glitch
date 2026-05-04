@@ -63,6 +63,7 @@ mod test {
             &mut original,
             ColorType::TrueColorAlpha,
             8,
+            2,
         );
         apply(&mut scanline);
         remove(&mut scanline);
