@@ -35,12 +35,14 @@ impl<'a> ScanLine<'a> {
         1
     }
 
-    fn pixel_data_range(&self) -> UsizeRange {
+    pub(crate) fn pixel_data_range(&self) -> UsizeRange {
         self.pixel_data_offset()..self.data.len()
     }
 
-    pub(crate) fn bytes_per_pixel(&self) -> usize {
+    /// The method returns the number of bytes per pixel.
+    pub fn bytes_per_pixel(&self) -> usize {
         let bits = self.bit_depth;
+
         match self.color_type {
             ColorType::GrayScale => std::cmp::max(bits / 8, 1) as usize,
             ColorType::GrayScaleAlpha => std::cmp::max(bits * 2 / 8, 1) as usize,
