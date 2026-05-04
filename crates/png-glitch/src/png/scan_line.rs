@@ -256,6 +256,133 @@ impl<'a> ScanLine<'a> {
             self.data[index] = value
         }
     }
+
+    /// The method applies a closure to each pixel in the scan line.
+    /// This is more efficient than get_pixel/set_pixel in a loop because it
+    /// can optimize the color type and bit depth checks.
+    pub fn process_pixels<F>(&mut self, mut f: F)
+    where
+        F: FnMut(usize, Pixel) -> Pixel,
+    {
+        let width = self.width as usize;
+        let color_type = self.color_type;
+        let bit_depth = self.bit_depth;
+        let offset = self.pixel_data_offset();
+
+        if bit_depth < 8 {
+            let pixels_per_byte = 8 / bit_depth as usize;
+            let mask = (1 << bit_depth) - 1;
+
+            for x in 0..width {
+                let byte_offset = offset + x / pixels_per_byte;
+                let byte = self.data[byte_offset];
+                let shift = (pixels_per_byte - 1 - (x % pixels_per_byte)) * bit_depth as usize;
+                let value = (byte >> shift) & mask;
+
+                let pixel = match color_type {
+                    ColorType::GrayScale => Pixel::Gray(value as u16),
+                    ColorType::IndexColor => Pixel::Indexed(value as u8),
+                    _ => continue,
+                };
+
+                let updated = f(x, pixel);
+
+                let new_value = match (updated, color_type) {
+                    (Pixel::Gray(v), ColorType::GrayScale) => v as u8,
+                    (Pixel::Indexed(v), ColorType::IndexColor) => v,
+                    _ => continue,
+                };
+
+                let clean_mask = !(mask << shift);
+                let value_to_set = (new_value & mask) << shift;
+                self.data[byte_offset] = (self.data[byte_offset] & clean_mask) | value_to_set;
+            }
+            return;
+        }
+
+        let bpp = self.bytes_per_pixel();
+        for x in 0..width {
+            let pixel_offset = offset + x * bpp;
+            let slice = &self.data[pixel_offset..pixel_offset + bpp];
+
+            let pixel = match (color_type, bit_depth) {
+                (ColorType::GrayScale, 8) => Pixel::Gray(slice[0] as u16),
+                (ColorType::GrayScale, 16) => Pixel::Gray(u16::from_be_bytes([slice[0], slice[1]])),
+                (ColorType::TrueColor, 8) => {
+                    Pixel::RGB(slice[0] as u16, slice[1] as u16, slice[2] as u16)
+                }
+                (ColorType::TrueColor, 16) => Pixel::RGB(
+                    u16::from_be_bytes([slice[0], slice[1]]),
+                    u16::from_be_bytes([slice[2], slice[3]]),
+                    u16::from_be_bytes([slice[4], slice[5]]),
+                ),
+                (ColorType::IndexColor, 8) => Pixel::Indexed(slice[0]),
+                (ColorType::GrayScaleAlpha, 8) => {
+                    Pixel::GrayAlpha(slice[0] as u16, slice[1] as u16)
+                }
+                (ColorType::GrayScaleAlpha, 16) => Pixel::GrayAlpha(
+                    u16::from_be_bytes([slice[0], slice[1]]),
+                    u16::from_be_bytes([slice[2], slice[3]]),
+                ),
+                (ColorType::TrueColorAlpha, 8) => {
+                    Pixel::RGBA(slice[0] as u16, slice[1] as u16, slice[2] as u16, slice[3] as u16)
+                }
+                (ColorType::TrueColorAlpha, 16) => Pixel::RGBA(
+                    u16::from_be_bytes([slice[0], slice[1]]),
+                    u16::from_be_bytes([slice[2], slice[3]]),
+                    u16::from_be_bytes([slice[4], slice[5]]),
+                    u16::from_be_bytes([slice[6], slice[7]]),
+                ),
+                _ => continue,
+            };
+
+            let updated = f(x, pixel);
+
+            let slice_mut = &mut self.data[pixel_offset..pixel_offset + bpp];
+            match (updated, color_type, bit_depth) {
+                (Pixel::Gray(v), ColorType::GrayScale, 8) => slice_mut[0] = v as u8,
+                (Pixel::Gray(v), ColorType::GrayScale, 16) => {
+                    slice_mut.copy_from_slice(&v.to_be_bytes())
+                }
+
+                (Pixel::RGB(r, g, b), ColorType::TrueColor, 8) => {
+                    slice_mut[0] = r as u8;
+                    slice_mut[1] = g as u8;
+                    slice_mut[2] = b as u8;
+                }
+                (Pixel::RGB(r, g, b), ColorType::TrueColor, 16) => {
+                    slice_mut[0..2].copy_from_slice(&r.to_be_bytes());
+                    slice_mut[2..4].copy_from_slice(&g.to_be_bytes());
+                    slice_mut[4..6].copy_from_slice(&b.to_be_bytes());
+                }
+
+                (Pixel::Indexed(v), ColorType::IndexColor, 8) => slice_mut[0] = v,
+
+                (Pixel::GrayAlpha(v, a), ColorType::GrayScaleAlpha, 8) => {
+                    slice_mut[0] = v as u8;
+                    slice_mut[1] = a as u8;
+                }
+                (Pixel::GrayAlpha(v, a), ColorType::GrayScaleAlpha, 16) => {
+                    slice_mut[0..2].copy_from_slice(&v.to_be_bytes());
+                    slice_mut[2..4].copy_from_slice(&a.to_be_bytes());
+                }
+
+                (Pixel::RGBA(r, g, b, a), ColorType::TrueColorAlpha, 8) => {
+                    slice_mut[0] = r as u8;
+                    slice_mut[1] = g as u8;
+                    slice_mut[2] = b as u8;
+                    slice_mut[3] = a as u8;
+                }
+                (Pixel::RGBA(r, g, b, a), ColorType::TrueColorAlpha, 16) => {
+                    slice_mut[0..2].copy_from_slice(&r.to_be_bytes());
+                    slice_mut[2..4].copy_from_slice(&g.to_be_bytes());
+                    slice_mut[4..6].copy_from_slice(&b.to_be_bytes());
+                    slice_mut[6..8].copy_from_slice(&a.to_be_bytes());
+                }
+                _ => {}
+            }
+        }
+    }
 }
 
 impl<'a> Index<usize> for ScanLine<'a> {

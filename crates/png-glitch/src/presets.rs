@@ -11,18 +11,15 @@ pub struct Invert;
 
 impl GlitchPreset for Invert {
     fn apply_to_line(&self, line: &mut ScanLine) {
-        for x in 0..line.pixels_count() as usize {
-            if let Some(pixel) = line.get_pixel(x) {
-                let inverted = match pixel {
-                    Pixel::Gray(v) => Pixel::Gray(!v),
-                    Pixel::GrayAlpha(v, a) => Pixel::GrayAlpha(!v, a),
-                    Pixel::RGB(r, g, b) => Pixel::RGB(!r, !g, !b),
-                    Pixel::RGBA(r, g, b, a) => Pixel::RGBA(!r, !g, !b, a),
-                    Pixel::Indexed(v) => Pixel::Indexed(!v),
-                };
-                line.set_pixel(x, inverted);
+        line.process_pixels(|_, pixel| {
+            match pixel {
+                Pixel::Gray(v) => Pixel::Gray(!v),
+                Pixel::GrayAlpha(v, a) => Pixel::GrayAlpha(!v, a),
+                Pixel::RGB(r, g, b) => Pixel::RGB(!r, !g, !b),
+                Pixel::RGBA(r, g, b, a) => Pixel::RGBA(!r, !g, !b, a),
+                Pixel::Indexed(v) => Pixel::Indexed(!v),
             }
-        }
+        });
     }
 }
 
@@ -35,25 +32,25 @@ pub struct ShiftChannels {
 
 impl GlitchPreset for ShiftChannels {
     fn apply_to_line(&self, line: &mut ScanLine) {
-        for x in 0..line.pixels_count() as usize {
-            if let Some(pixel) = line.get_pixel(x) {
-                let shifted = match pixel {
-                    Pixel::RGB(r, g, b) => Pixel::RGB(
-                        r.wrapping_add_signed(self.r),
-                        g.wrapping_add_signed(self.g),
-                        b.wrapping_add_signed(self.b),
-                    ),
-                    Pixel::RGBA(r, g, b, a) => Pixel::RGBA(
-                        r.wrapping_add_signed(self.r),
-                        g.wrapping_add_signed(self.g),
-                        b.wrapping_add_signed(self.b),
-                        a,
-                    ),
-                    _ => pixel,
-                };
-                line.set_pixel(x, shifted);
+        let r_shift = self.r;
+        let g_shift = self.g;
+        let b_shift = self.b;
+        line.process_pixels(|_, pixel| {
+            match pixel {
+                Pixel::RGB(r, g, b) => Pixel::RGB(
+                    r.wrapping_add_signed(r_shift),
+                    g.wrapping_add_signed(g_shift),
+                    b.wrapping_add_signed(b_shift),
+                ),
+                Pixel::RGBA(r, g, b, a) => Pixel::RGBA(
+                    r.wrapping_add_signed(r_shift),
+                    g.wrapping_add_signed(g_shift),
+                    b.wrapping_add_signed(b_shift),
+                    a,
+                ),
+                _ => pixel,
             }
-        }
+        });
     }
 }
 
@@ -64,27 +61,25 @@ pub struct Brighten {
 
 impl GlitchPreset for Brighten {
     fn apply_to_line(&self, line: &mut ScanLine) {
-        for x in 0..line.pixels_count() as usize {
-            if let Some(pixel) = line.get_pixel(x) {
-                let brightened = match pixel {
-                    Pixel::Gray(v) => Pixel::Gray(v.saturating_add(self.strength)),
-                    Pixel::GrayAlpha(v, a) => Pixel::GrayAlpha(v.saturating_add(self.strength), a),
-                    Pixel::RGB(r, g, b) => Pixel::RGB(
-                        r.saturating_add(self.strength),
-                        g.saturating_add(self.strength),
-                        b.saturating_add(self.strength),
-                    ),
-                    Pixel::RGBA(r, g, b, a) => Pixel::RGBA(
-                        r.saturating_add(self.strength),
-                        g.saturating_add(self.strength),
-                        b.saturating_add(self.strength),
-                        a,
-                    ),
-                    Pixel::Indexed(v) => Pixel::Indexed(v.saturating_add(self.strength as u8)),
-                };
-                line.set_pixel(x, brightened);
+        let strength = self.strength;
+        line.process_pixels(|_, pixel| {
+            match pixel {
+                Pixel::Gray(v) => Pixel::Gray(v.saturating_add(strength)),
+                Pixel::GrayAlpha(v, a) => Pixel::GrayAlpha(v.saturating_add(strength), a),
+                Pixel::RGB(r, g, b) => Pixel::RGB(
+                    r.saturating_add(strength),
+                    g.saturating_add(strength),
+                    b.saturating_add(strength),
+                ),
+                Pixel::RGBA(r, g, b, a) => Pixel::RGBA(
+                    r.saturating_add(strength),
+                    g.saturating_add(strength),
+                    b.saturating_add(strength),
+                    a,
+                ),
+                Pixel::Indexed(v) => Pixel::Indexed(v.saturating_add(strength as u8)),
             }
-        }
+        });
     }
 }
 
