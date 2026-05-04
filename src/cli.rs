@@ -25,6 +25,26 @@ pub struct Cli {
     #[arg(long)]
     pub set_zero: Option<f64>,
 
+    /// Invert colors
+    #[arg(long)]
+    pub invert: bool,
+
+    /// Brighten image (strength)
+    #[arg(long)]
+    pub brighten: Option<u16>,
+
+    /// Shift channels (r,g,b)
+    #[arg(long, value_delimiter = ',')]
+    pub shift_channels: Option<Vec<i16>>,
+
+    /// Random seed
+    #[arg(long)]
+    pub seed: Option<u64>,
+
+    /// Batch process all PNGs in a directory and save to this output directory
+    #[arg(long)]
+    pub batch_output: Option<String>,
+
     /// Path to YAML config file
     #[arg(long)]
     pub config: Option<String>,
@@ -54,7 +74,7 @@ pub struct Cli {
     pub pre_process: Option<PreProcess>,
 }
 
-#[derive(Clone, Debug, ValueEnum)]
+#[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum PreProcess {
     RemoveFilter,
     SubFilter,
@@ -75,6 +95,9 @@ pub enum FilterConfig {
     Replace { magnitude: f64 },
     Transpose { magnitude: f64 },
     SetZero { magnitude: f64 },
+    Invert,
+    Brighten { strength: u16 },
+    ShiftChannels { r: i16, g: i16, b: i16 },
     RemoveFilter,
     SubFilter,
     UpFilter,

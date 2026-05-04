@@ -10,25 +10,35 @@ To install `png-glitch` from source, run the following command:
 
 ## Usage
 
-`png-glitch` glitches given PNG file and emit it to `glitched.png`. The file name for the glitched PNG file can be specified with `-o` option. Please run the command with `--help` option for full option: 
+`png-glitch` glitches given PNG file (or directory) and emits the result. By default, it saves to `glitched.png`.
 
 ```zsh
-Usage: png-glitch [OPTIONS] <PNG_FILE>
+Usage: png-glitch [OPTIONS] <PNG_FILE_OR_DIR>
 
 Arguments:
-  <PNG_FILE>
+  <PNG_FILE_OR_DIR>  Path to a PNG file or a directory for batch processing
 
 Options:
   -o <OUTPUT_FILE>
           [default: glitched.png]
       --change-filter-type <CHANGE_FILTER_TYPE>
-          Magnitude for Change Filter Type filter
+          Magnitude for Change Filter Type filter (0.0 to 1.0)
       --replace <REPLACE>
-          Magnitude for Replace filter
+          Magnitude for Replace filter (0.0 to 1.0)
       --transpose <TRANSPOSE>
-          Magnitude for Transpose filter
+          Magnitude for Transpose filter (0.0 to 1.0)
       --set-zero <SET_ZERO>
-          Magnitude for Set Zero filter
+          Magnitude for Set Zero filter (0.0 to 1.0)
+      --invert
+          Invert colors of each pixel
+      --brighten <BRIGHTEN>
+          Brighten image by specified strength
+      --shift-channels <R,G,B>
+          Shift R, G, and B channels independently (e.g., "10,-5,20")
+      --seed <SEED>
+          Random seed for reproducible glitches
+      --batch-output <BATCH_OUTPUT_DIR>
+          Batch process all PNGs in a directory and save to this output directory
       --config <CONFIG>
           Path to YAML config file
       --remove-filter
@@ -49,6 +59,37 @@ Options:
           Print version
 ```
 
+## Batch Processing
+
+To glitch multiple images at once, provide a directory as the main argument and use the `--batch-output` flag:
+
+```zsh
+% png-glitch ./my_images --batch-output ./glitched_results --invert --seed 12345
+```
+
+The tool will recursively find all `.png` files and process them with a progress bar.
+
+## Configuration File
+
+You can define complex glitch pipelines in a YAML file:
+
+```yaml
+filters:
+  - type: RemoveFilter
+  - type: Invert
+  - type: Brighten
+    strength: 30
+  - type: Transpose
+    magnitude: 0.1
+  - type: ChangeFilterType
+    magnitude: 0.05
+```
+
+Run it with:
+```zsh
+% png-glitch input.png --config my_glitch.yaml
+```
+
 ## Example
 
 The original image:
@@ -62,8 +103,7 @@ This repository consists of the following things:
 
 - png-glitch-cli, a binary crate for a command line interface (CLI) to glitch PNG files.
 - [png-glitch crate](crates/png-glitch), a library to glitch PNG images.
-
-png-glitch-cli is a sort of sample code to show basic usage of png-glitch create, for now.
+- [glitch-context crate](crates/glitch-context), a high-level API to orchestrate glitch filters.
 
 # Licence
 

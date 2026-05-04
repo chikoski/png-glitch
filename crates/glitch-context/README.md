@@ -18,18 +18,16 @@ glitch-context = "0.1.0"
 ### Example
 
 ```rust
-use glitch_context::{GlitchContext, FilterType, SubFilter};
+use glitch_context::{GlitchContext, FilterType, SubFilter, Invert};
 
 fn main() -> anyhow::Result<()> {
-    // Open a PNG file
-    let mut context = GlitchContext::open("input.png")?;
+    // Open a PNG file with an optional seed
+    let mut context = GlitchContext::open("input.png", Some(12345))?;
 
     // Add filters
-    // Change filter type of all scan lines to Sub
     context.add_filter(SubFilter);
+    context.add_filter(Invert);
     
-    // You can add more filters here...
-
     // Execute all added filters
     context.execute();
 
@@ -44,7 +42,13 @@ fn main() -> anyhow::Result<()> {
 
 The crate provides several built-in filters:
 
+- **Library Presets:**
+  - `Invert`: Inverts all color channels.
+  - `Brighten { strength }`: Increases brightness.
+  - `ShiftChannels { r, g, b }`: Shifts color channels by specific amounts.
+
 - **Filter Type Modifiers:**
+...
   - `RemoveFilter`: Changes filter type of all scan lines to `None`.
   - `SubFilter`: Changes filter type of all scan lines to `Sub`.
   - `UpFilter`: Changes filter type of all scan lines to `Up`.

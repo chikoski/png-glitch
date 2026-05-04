@@ -7,7 +7,7 @@ fn main() -> anyhow::Result<()> {
     let output_path = "glitched_output.png";
 
     println!("Opening {}", input_path);
-    let mut context = GlitchContext::open(input_path)?;
+    let mut context = GlitchContext::open(input_path, None)?;
 
     println!("Applying filters...");
     context.add_filter(ChangeFilterType { magnitude: 0.1 });

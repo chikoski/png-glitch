@@ -7,6 +7,7 @@ pub trait GlitchPreset {
 }
 
 /// A preset that inverts the colors of each pixel.
+#[derive(Clone, Copy, Debug)]
 pub struct Invert;
 
 impl GlitchPreset for Invert {
@@ -24,6 +25,7 @@ impl GlitchPreset for Invert {
 }
 
 /// A preset that shifts the color channels of each pixel.
+#[derive(Clone, Copy, Debug)]
 pub struct ShiftChannels {
     pub r: i16,
     pub g: i16,
@@ -55,6 +57,7 @@ impl GlitchPreset for ShiftChannels {
 }
 
 /// A preset that brightens the colors of each pixel.
+#[derive(Clone, Copy, Debug)]
 pub struct Brighten {
     pub strength: u16,
 }
@@ -114,4 +117,3 @@ mod tests {
         assert_eq!(line.get_pixel(0).unwrap(), Pixel::RGB(110, 210, 4));
     }
 }
-
