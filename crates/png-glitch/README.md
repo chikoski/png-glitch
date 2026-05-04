@@ -12,32 +12,37 @@ The original image:
 
 # Data Structures
 
-```
-+-----------------+
-|    PngGlitch    |
-+-----------------+
-        |
-        v
-+-----------------+
-|       Png       |
-+-----------------+
-        |
-        +--------------------+--------------------+--------------------+
-        |                    |                    |                    |
-        v                    v                    v                    v
-+-----------------+  +-----------------+  +-----------------+  +-----------------+
-|     Header      |  |   Terminator    |  |      Chunk      |  |   ScanLine[]    |
-+-----------------+  +-----------------+  +-----------------+  +-----------------+
-        |                    |                    |                    |
-        v                    v                    v                    v
-+-----------------+  +-----------------+  +-----------------+  +-----------------+
-|    MetaData     |  |      Chunk      |  |    ChunkType    |  |   FilterType    |
-+-----------------+  +-----------------+  +-----------------+  +-----------------+
-        |
-        v
-+-----------------+
-|    ColorType    |
-+-----------------+
+```mermaid
+classDiagram
+    class PngGlitch {
+        +Png png
+        +open(path) PngGlitch
+        +save(path)
+        +apply(preset)
+        +remove_filter()
+    }
+    class Png {
+        +MetaData header
+        +Vec~Chunk~ chunks
+        +DecodedData data
+    }
+    class ScanLine {
+        +FilterType filter_type
+        +get_pixel(x) Pixel
+        +set_pixel(x, pixel)
+        +process_pixels(closure)
+    }
+    class Pixel {
+        <<enumeration>>
+        RGB
+        RGBA
+        Gray
+        GrayAlpha
+        Indexed
+    }
+    PngGlitch *-- Png
+    Png *-- ScanLine
+    ScanLine *-- Pixel
 ```
 
 # Example usage

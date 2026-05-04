@@ -12,52 +12,19 @@ To install `png-glitch` from source, run the following command:
 
 `png-glitch` glitches given PNG file (or directory) and emits the result. By default, it saves to `glitched.png`.
 
-```zsh
-Usage: png-glitch [OPTIONS] <PNG_FILE_OR_DIR>
+### Command Line Options
 
-Arguments:
-  <PNG_FILE_OR_DIR>  Path to a PNG file or a directory for batch processing
-
-Options:
-  -o <OUTPUT_FILE>
-          [default: glitched.png]
-      --change-filter-type <CHANGE_FILTER_TYPE>
-          Magnitude for Change Filter Type filter (0.0 to 1.0)
-      --replace <REPLACE>
-          Magnitude for Replace filter (0.0 to 1.0)
-      --transpose <TRANSPOSE>
-          Magnitude for Transpose filter (0.0 to 1.0)
-      --set-zero <SET_ZERO>
-          Magnitude for Set Zero filter (0.0 to 1.0)
-      --invert
-          Invert colors of each pixel
-      --brighten <BRIGHTEN>
-          Brighten image by specified strength
-      --shift-channels <R,G,B>
-          Shift R, G, and B channels independently (e.g., "10,-5,20")
-      --seed <SEED>
-          Random seed for reproducible glitches
-      --batch-output <BATCH_OUTPUT_DIR>
-          Batch process all PNGs in a directory and save to this output directory
-      --config <CONFIG>
-          Path to YAML config file
-      --remove-filter
-          Remove filter from all scan lines
-      --sub
-          Change filter type of all scan lines to Sub
-      --up
-          Change filter type of all scan lines to Up
-      --average
-          Change filter type of all scan lines to Average
-      --paeth
-          Change filter type of all scan lines to Paeth
-      --pre-process <PRE_PROCESS>
-          Apply a filter before other glitch filters [possible values: remove-filter, sub-filter, up-filter, average-filter, paeth-filter]
-  -h, --help
-          Print help
-  -V, --version
-          Print version
-```
+| Option | Description | Visual Impact |
+| :--- | :--- | :--- |
+| `--transpose <N>` | Randomly swaps blocks of scanlines. | Creates horizontal "slicing" and shearing. |
+| `--shift-channels <R,G,B>` | Shifts color channels independently. | Color fringing or radical color shifts. |
+| `--invert` | Inverts all color values. | Classic "negative" look. |
+| `--brighten <N>` | Adjusts brightness (0-255). | Can cause "blown out" or solarized effects. |
+| `--replace <N>` | Replaces pixels with noise (0.0 - 1.0). | Digital "snow" or "static". |
+| `--set-zero <N>` | Sets random pixels to zero (0.0 - 1.0). | Black pixel noise. |
+| `--remove-filter` | Strips all PNG filters before glitching. | Cleans the canvas for more predictable results. |
+| `--sub`, `--up`, `--paeth` | Force a specific PNG filter type. | Dramatic vertical or horizontal streaking. |
+| `--seed <N>` | Set a seed for random operations. | Reproducible glitch patterns. |
 
 ## Batch Processing
 
@@ -89,6 +56,12 @@ Run it with:
 ```zsh
 % png-glitch input.png --config my_glitch.yaml
 ```
+
+## Documentation
+
+- **[Developer & Architecture Guide](DEVELOPER_GUIDE.md)**: Deep dive into the internal design and core concepts.
+- **[Spec: Filter System](crates/png-glitch/specs/FILTER_SYSTEM.md)**: Technical details on PNG filters.
+- **[Spec: Pixel Formats](crates/png-glitch/specs/PIXEL_FORMATS.md)**: How we handle different bit depths and color types.
 
 ## Example
 
