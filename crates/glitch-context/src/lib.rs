@@ -485,6 +485,7 @@ impl GlitchFilter for SetZero {
 
 #[derive(Debug, Clone, Copy, ValueEnum, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy)]
 pub enum SortCriterion {
     Brightness,
     Hue,
@@ -550,6 +551,7 @@ impl PixelSort {
 
 #[derive(Debug, Clone, Copy, ValueEnum, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy)]
 pub enum BitOp {
     And,
     Or,
@@ -584,6 +586,7 @@ impl GlitchFilter for Bitwise {
 
 #[derive(Debug, Clone, Copy, ValueEnum, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy)]
 pub enum SwapTarget {
     Rg,
     Gb,

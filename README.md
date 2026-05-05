@@ -59,6 +59,49 @@ filters:
     r_offset: 3
     b_offset: -3
   - type: Invert
+  - type: Invert
+  - type: PixelSort
+    magnitude: 0.1
+    criterion: hue
+  - type: HorizontalShift
+    magnitude: 0.05
+  - type: Bitwise
+    magnitude: 0.02
+    op: xor
+    value: 255
+```
+
+Run it with:
+```zsh
+% png-glitch input.png --config my_glitch.yaml
+```
+
+## Documentation
+
+- **[Developer & Architecture Guide](DEVELOPER_GUIDE.md)**: Deep dive into the internal design and core concepts.
+- **[Spec: Filter System](crates/png-glitch/specs/FILTER_SYSTEM.md)**: Technical details on PNG filters.
+- **[Spec: Pixel Formats](crates/png-glitch/specs/PIXEL_FORMATS.md)**: How we handle different bit depths and color types.
+
+## Example
+
+The original image:
+![The original PNG file is a photo of a media art placed in a slightly darker space.](crates/png-glitch/etc/sample00.png)
+
+And the glitched one:
+![](crates/png-glitch/etc/sample00-glitched.png)
+
+# In this repository
+This repository consists of the following things:
+
+- png-glitch-cli, a binary crate for a command line interface (CLI) to glitch PNG files.
+- [png-glitch crate](crates/png-glitch), a library to glitch PNG images.
+- [glitch-context crate](crates/glitch-context), a high-level API to orchestrate glitch filters.
+
+# Licence
+
+MIT License. Please refer to [LICENCE](LICENSE) file for details.
+FilterType
+    magnitude: 0.05
 ```
 
 Run it with:
