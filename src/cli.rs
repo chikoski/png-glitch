@@ -25,6 +25,46 @@ pub struct Cli {
     #[arg(long)]
     pub set_zero: Option<f64>,
 
+    /// Number of times for Random Copy filter
+    #[arg(long)]
+    pub random_copy: Option<u32>,
+
+    /// Substitute byte at index with value (index:value)
+    #[arg(long)]
+    pub substitute: Option<String>,
+
+    /// Pixel Sort magnitude
+    #[arg(long)]
+    pub pixel_sort: Option<f64>,
+
+    /// Pixel Sort criterion (brightness, hue)
+    #[arg(long, value_enum, default_value_t = SortCriterionCli::Brightness)]
+    pub pixel_sort_criterion: SortCriterionCli,
+
+    /// Bitwise operation magnitude
+    #[arg(long)]
+    pub bitwise: Option<f64>,
+
+    /// Bitwise operation (and, or, xor)
+    #[arg(long, value_enum, default_value_t = BitOpCli::Xor)]
+    pub bitwise_op: BitOpCli,
+
+    /// Bitwise operation value
+    #[arg(long, default_value_t = 0)]
+    pub bitwise_value: u8,
+
+    /// Channel Swap magnitude
+    #[arg(long)]
+    pub channel_swap: Option<f64>,
+
+    /// Channel Swap target (rg, gb, br)
+    #[arg(long, value_enum, default_value_t = SwapTargetCli::Rg)]
+    pub channel_swap_target: SwapTargetCli,
+
+    /// Horizontal Shift magnitude
+    #[arg(long)]
+    pub horizontal_shift: Option<f64>,
+
     /// Invert colors
     #[arg(long)]
     pub invert: bool,
@@ -83,6 +123,29 @@ pub enum PreProcess {
     PaethFilter,
 }
 
+#[derive(Clone, Copy, Debug, ValueEnum, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SortCriterionCli {
+    Brightness,
+    Hue,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BitOpCli {
+    And,
+    Or,
+    Xor,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SwapTargetCli {
+    Rg,
+    Gb,
+    Br,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ConfigFile {
     pub filters: Vec<FilterConfig>,
@@ -95,6 +158,12 @@ pub enum FilterConfig {
     Replace { magnitude: f64 },
     Transpose { magnitude: f64 },
     SetZero { magnitude: f64 },
+    RandomCopy { times: u32 },
+    Substitute { index: usize, value: u8 },
+    PixelSort { magnitude: f64, criterion: Option<SortCriterionCli> },
+    Bitwise { magnitude: f64, op: Option<BitOpCli>, value: Option<u8> },
+    ChannelSwap { magnitude: f64, target: Option<SwapTargetCli> },
+    HorizontalShift { magnitude: f64 },
     Invert,
     Brighten { strength: u16 },
     ShiftChannels { r: i16, g: i16, b: i16 },

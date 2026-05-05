@@ -1,8 +1,9 @@
 use anyhow::{anyhow, Context};
 use clap::Parser;
 use glitch_context::{
-    AverageFilter, Brighten, ChangeFilterType, GlitchContext, Invert, PaethFilter, RemoveFilter,
-    Replace, SetZero, ShiftChannels, SubFilter, Transpose, UpFilter,
+    AverageFilter, BitOp, Bitwise, Brighten, ChangeFilterType, ChannelSwap, GlitchContext, Invert,
+    PaethFilter, PixelSort, RandomCopy, RemoveFilter, Replace, SetZero, ShiftChannels,
+    SortCriterion, SubFilter, Substitute, SwapTarget, Transpose, UpFilter, HorizontalShift,
 };
 use indicatif::{ProgressBar, ProgressStyle};
 use std::fs::{self, File};
@@ -113,6 +114,52 @@ fn apply_filters(args: &Cli, context: &mut GlitchContext) -> anyhow::Result<()> 
                 FilterConfig::SetZero { magnitude } => {
                     context.add_filter(SetZero { magnitude });
                 }
+                FilterConfig::RandomCopy { times } => {
+                    context.add_filter(RandomCopy { times });
+                }
+                FilterConfig::Substitute { index, value } => {
+                    context.add_filter(Substitute { index, value });
+                }
+                FilterConfig::PixelSort {
+                    magnitude,
+                    criterion,
+                } => {
+                    context.add_filter(PixelSort {
+                        magnitude,
+                        criterion: match criterion.unwrap_or(crate::cli::SortCriterionCli::Brightness) {
+                            crate::cli::SortCriterionCli::Brightness => SortCriterion::Brightness,
+                            crate::cli::SortCriterionCli::Hue => SortCriterion::Hue,
+                        },
+                    });
+                }
+                FilterConfig::Bitwise {
+                    magnitude,
+                    op,
+                    value,
+                } => {
+                    context.add_filter(Bitwise {
+                        magnitude,
+                        op: match op.unwrap_or(crate::cli::BitOpCli::Xor) {
+                            crate::cli::BitOpCli::And => BitOp::And,
+                            crate::cli::BitOpCli::Or => BitOp::Or,
+                            crate::cli::BitOpCli::Xor => BitOp::Xor,
+                        },
+                        value: value.unwrap_or(0),
+                    });
+                }
+                FilterConfig::ChannelSwap { magnitude, target } => {
+                    context.add_filter(ChannelSwap {
+                        magnitude,
+                        target: match target.unwrap_or(crate::cli::SwapTargetCli::Rg) {
+                            crate::cli::SwapTargetCli::Rg => SwapTarget::Rg,
+                            crate::cli::SwapTargetCli::Gb => SwapTarget::Gb,
+                            crate::cli::SwapTargetCli::Br => SwapTarget::Br,
+                        },
+                    });
+                }
+                FilterConfig::HorizontalShift { magnitude } => {
+                    context.add_filter(HorizontalShift { magnitude });
+                }
                 FilterConfig::Invert => {
                     context.add_filter(Invert);
                 }
@@ -153,6 +200,50 @@ fn apply_filters(args: &Cli, context: &mut GlitchContext) -> anyhow::Result<()> 
     }
     if let Some(magnitude) = args.set_zero {
         context.add_filter(SetZero { magnitude });
+    }
+    if let Some(times) = args.random_copy {
+        context.add_filter(RandomCopy { times });
+    }
+    if let Some(sub) = &args.substitute {
+        let parts: Vec<&str> = sub.split(':').collect();
+        if parts.len() == 2 {
+            let index = parts[0].parse::<usize>()?;
+            let value = parts[1].parse::<u8>()?;
+            context.add_filter(Substitute { index, value });
+        }
+    }
+    if let Some(magnitude) = args.pixel_sort {
+        context.add_filter(PixelSort {
+            magnitude,
+            criterion: match args.pixel_sort_criterion {
+                crate::cli::SortCriterionCli::Brightness => SortCriterion::Brightness,
+                crate::cli::SortCriterionCli::Hue => SortCriterion::Hue,
+            },
+        });
+    }
+    if let Some(magnitude) = args.bitwise {
+        context.add_filter(Bitwise {
+            magnitude,
+            op: match args.bitwise_op {
+                crate::cli::BitOpCli::And => BitOp::And,
+                crate::cli::BitOpCli::Or => BitOp::Or,
+                crate::cli::BitOpCli::Xor => BitOp::Xor,
+            },
+            value: args.bitwise_value,
+        });
+    }
+    if let Some(magnitude) = args.channel_swap {
+        context.add_filter(ChannelSwap {
+            magnitude,
+            target: match args.channel_swap_target {
+                crate::cli::SwapTargetCli::Rg => SwapTarget::Rg,
+                crate::cli::SwapTargetCli::Gb => SwapTarget::Gb,
+                crate::cli::SwapTargetCli::Br => SwapTarget::Br,
+            },
+        });
+    }
+    if let Some(magnitude) = args.horizontal_shift {
+        context.add_filter(HorizontalShift { magnitude });
     }
     if args.invert {
         context.add_filter(Invert);

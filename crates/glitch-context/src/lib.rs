@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 pub use png_glitch::presets::{Brighten, Invert, ShiftChannels};
-pub use png_glitch::{FilterType, PngGlitch};
+pub use png_glitch::{FilterType, PngGlitch, Pixel};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use std::path::Path;
@@ -194,6 +194,60 @@ impl GlitchFilter for Transpose {
     }
 }
 
+/// Filter that copies scanlines.
+pub struct RandomCopy {
+    pub times: u32,
+}
+
+impl GlitchFilter for RandomCopy {
+    fn apply(&self, png: &mut PngGlitch, rng: &mut ChaCha8Rng) {
+        let height = png.height();
+        if height == 0 {
+            return;
+        }
+        let mut scan_lines = png.scan_lines();
+        let index_range = 0..height as usize;
+        for _ in 0..self.times {
+            let src_idx = rng.random_range(index_range.clone());
+            let dest_idx = rng.random_range(index_range.clone());
+
+            if src_idx == dest_idx {
+                continue;
+            }
+
+            let (filter_type, buffer) = {
+                let src = &mut scan_lines[src_idx];
+                let filter_type = src.filter_type();
+                let mut buffer = vec![0; src.size()];
+                use std::io::Read;
+                src.read_exact(&mut buffer).unwrap();
+                (filter_type, buffer)
+            };
+
+            let dest = &mut scan_lines[dest_idx];
+            use std::io::Write;
+            dest.write_all(&buffer).unwrap();
+            dest.set_filter_type(filter_type);
+        }
+    }
+}
+
+/// Filter that sets a byte at a specific index to a specific value for all scanlines.
+pub struct Substitute {
+    pub index: usize,
+    pub value: u8,
+}
+
+impl GlitchFilter for Substitute {
+    fn apply(&self, png: &mut PngGlitch, _rng: &mut ChaCha8Rng) {
+        png.foreach_scanline(|scanline| {
+            if self.index < scanline.size() {
+                scanline.update(self.index, self.value);
+            }
+        });
+    }
+}
+
 /// Filter that sets pixels to zero.
 pub struct SetZero {
     pub magnitude: f64,
@@ -206,6 +260,162 @@ impl GlitchFilter for SetZero {
                 let index: u64 = rng.random();
                 let index = (index as usize) % scan_line.size();
                 scan_line.update(index, 0);
+            }
+        });
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum SortCriterion {
+    Brightness,
+    Hue,
+}
+
+/// Filter that sorts pixels in each scanline.
+pub struct PixelSort {
+    pub criterion: SortCriterion,
+    pub magnitude: f64,
+}
+
+impl GlitchFilter for PixelSort {
+    fn apply(&self, png: &mut PngGlitch, rng: &mut ChaCha8Rng) {
+        png.foreach_scanline(|scan_line| {
+            if rng.random_bool(self.magnitude) {
+                let mut pixels = Vec::with_capacity(scan_line.pixels_count() as usize);
+                for i in 0..scan_line.pixels_count() as usize {
+                    if let Some(p) = scan_line.get_pixel(i) {
+                        pixels.push(p);
+                    }
+                }
+
+                pixels.sort_by(|a, b| {
+                    let val_a = self.get_value(a);
+                    let val_b = self.get_value(b);
+                    val_a.partial_cmp(&val_b).unwrap_or(std::cmp::Ordering::Equal)
+                });
+
+                for (i, p) in pixels.into_iter().enumerate() {
+                    scan_line.set_pixel(i, p);
+                }
+            }
+        });
+    }
+}
+
+impl PixelSort {
+    fn get_value(&self, p: &Pixel) -> f64 {
+        match self.criterion {
+            SortCriterion::Brightness => {
+                // simple brightness
+                (p.r() as f64 + p.g() as f64 + p.b() as f64) / 3.0
+            }
+            SortCriterion::Hue => {
+                let r = p.r() as f64 / 65535.0;
+                let g = p.g() as f64 / 65535.0;
+                let b = p.b() as f64 / 65535.0;
+                let max = r.max(g).max(b);
+                let min = r.min(g).min(b);
+                if max == min {
+                    0.0
+                } else if max == r {
+                    (60.0 * ((g - b) / (max - min)) + 360.0) % 360.0
+                } else if max == g {
+                    (60.0 * ((b - r) / (max - min)) + 120.0) % 360.0
+                } else {
+                    (60.0 * ((r - g) / (max - min)) + 240.0) % 360.0
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum BitOp {
+    And,
+    Or,
+    Xor,
+}
+
+/// Filter that performs bitwise operations on scanline data.
+pub struct Bitwise {
+    pub op: BitOp,
+    pub value: u8,
+    pub magnitude: f64,
+}
+
+impl GlitchFilter for Bitwise {
+    fn apply(&self, png: &mut PngGlitch, rng: &mut ChaCha8Rng) {
+        png.foreach_scanline(|scan_line| {
+            if rng.random_bool(self.magnitude) {
+                for i in 0..scan_line.size() {
+                    if let Some(b) = scan_line.index(i) {
+                        let new_b = match self.op {
+                            BitOp::And => b & self.value,
+                            BitOp::Or => b | self.value,
+                            BitOp::Xor => b ^ self.value,
+                        };
+                        scan_line.update(i, new_b);
+                    }
+                }
+            }
+        });
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum SwapTarget {
+    Rg,
+    Gb,
+    Br,
+}
+
+/// Filter that swaps color channels.
+pub struct ChannelSwap {
+    pub target: SwapTarget,
+    pub magnitude: f64,
+}
+
+impl GlitchFilter for ChannelSwap {
+    fn apply(&self, png: &mut PngGlitch, rng: &mut ChaCha8Rng) {
+        png.foreach_scanline(|scan_line| {
+            if rng.random_bool(self.magnitude) {
+                scan_line.process_pixels(|_, p| match p {
+                    Pixel::RGB(r, g, b) => match self.target {
+                        SwapTarget::Rg => Pixel::RGB(g, r, b),
+                        SwapTarget::Gb => Pixel::RGB(r, b, g),
+                        SwapTarget::Br => Pixel::RGB(b, g, r),
+                    },
+                    Pixel::RGBA(r, g, b, a) => match self.target {
+                        SwapTarget::Rg => Pixel::RGBA(g, r, b, a),
+                        SwapTarget::Gb => Pixel::RGBA(r, b, g, a),
+                        SwapTarget::Br => Pixel::RGBA(b, g, r, a),
+                    },
+                    _ => p,
+                });
+            }
+        });
+    }
+}
+
+/// Filter that shifts scanlines horizontally.
+pub struct HorizontalShift {
+    pub magnitude: f64,
+}
+
+impl GlitchFilter for HorizontalShift {
+    fn apply(&self, png: &mut PngGlitch, rng: &mut ChaCha8Rng) {
+        png.foreach_scanline(|scan_line| {
+            if rng.random_bool(self.magnitude) {
+                let shift = rng.random_range(0..scan_line.size());
+                let mut buffer = vec![0; scan_line.size()];
+                for i in 0..scan_line.size() {
+                    buffer[i] = scan_line.index(i).unwrap();
+                }
+                
+                for i in 0..scan_line.size() {
+                    let new_idx = (i + shift) % scan_line.size();
+                    scan_line.update(new_idx, buffer[i]);
+                }
             }
         });
     }
@@ -289,6 +499,23 @@ mod test {
         for line in png.scan_lines() {
             assert_eq!(FilterType::None, line.filter_type());
         }
+
+        // Test Substitute
+        let mut ctx = GlitchContext::new(bytes, None)?;
+        ctx.add_filter(Substitute { index: 0, value: 255 });
+        ctx.execute();
+        let buffer = ctx.buffer()?;
+        let mut png = PngGlitch::new(buffer)?;
+        for line in png.scan_lines() {
+            assert_eq!(line.index(0), Some(255));
+        }
+
+        // Test RandomCopy
+        let mut ctx = GlitchContext::new(bytes, Some(12345))?;
+        ctx.add_filter(RandomCopy { times: 10 });
+        ctx.execute();
+        let buffer = ctx.buffer()?;
+        assert!(buffer.len() > 0);
 
         Ok(())
     }
