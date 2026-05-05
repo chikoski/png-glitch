@@ -231,9 +231,11 @@ name = "glitch-context"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "clap",
  "png-glitch",
  "rand",
  "rand_chacha",
+ "serde",
 ]
 
 [[package]]
@@ -353,6 +355,7 @@ dependencies = [
  "log",
  "png-glitch",
  "rand",
+ "rayon",
  "serde",
  "serde_yaml",
  "walkdir",

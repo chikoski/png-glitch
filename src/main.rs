@@ -1,18 +1,19 @@
 use anyhow::{anyhow, Context};
 use clap::Parser;
 use glitch_context::{
-    AverageFilter, BitOp, Bitwise, Brighten, ChangeFilterType, ChannelSwap, GlitchContext, Invert,
+    AverageFilter, Bitwise, Brighten, ChangeFilterType, ChannelSwap, GlitchContext, Invert,
     PaethFilter, PixelSort, RandomCopy, RemoveFilter, Replace, SetZero, ShiftChannels,
-    SortCriterion, SubFilter, Substitute, SwapTarget, Transpose, UpFilter, HorizontalShift,
+    SortCriterion, SubFilter, Substitute, Transpose, UpFilter, HorizontalShift,
 };
 use indicatif::{ProgressBar, ProgressStyle};
+use rayon::prelude::*;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 mod cli;
 
-use crate::cli::{Cli, ConfigFile, FilterConfig, PreProcess};
+use crate::cli::{Cli, ConfigFile, FilterConfig};
 
 fn main() -> anyhow::Result<()> {
     let args = Cli::parse();
@@ -59,25 +60,34 @@ fn batch_process(args: &Cli, output_dir: &str) -> anyhow::Result<()> {
             .progress_chars("#>-"),
     );
 
-    for path in png_files {
+    png_files.par_iter().for_each(|path| {
         let file_name = path
             .file_name()
-            .ok_or_else(|| anyhow!("Failed to get file name"))?;
+            .unwrap_or_default();
         let dest_path = output_path.join(file_name);
 
         pb.set_message(format!("Processing {:?}", file_name));
 
-        let mut context = GlitchContext::open(&path, args.seed)
-            .with_context(|| format!("Failed to open {:?}", path))?;
+        let mut context = match GlitchContext::open(path, args.seed) {
+            Ok(ctx) => ctx,
+            Err(e) => {
+                eprintln!("Failed to open {:?}: {}", path, e);
+                return;
+            }
+        };
 
-        apply_filters(args, &mut context)?;
+        if let Err(e) = apply_filters(args, &mut context) {
+            eprintln!("Failed to apply filters to {:?}: {}", path, e);
+            return;
+        }
+
         context.execute();
-        context
-            .save(&dest_path)
-            .with_context(|| format!("Failed to save {:?}", dest_path))?;
+        if let Err(e) = context.save(&dest_path) {
+            eprintln!("Failed to save {:?}: {}", dest_path, e);
+        }
 
         pb.inc(1);
-    }
+    });
 
     pb.finish_with_message("Batch processing complete");
     Ok(())
@@ -86,13 +96,7 @@ fn batch_process(args: &Cli, output_dir: &str) -> anyhow::Result<()> {
 fn apply_filters(args: &Cli, context: &mut GlitchContext) -> anyhow::Result<()> {
     // Apply pre-process filter first
     if let Some(pre_process) = args.pre_process {
-        match pre_process {
-            PreProcess::RemoveFilter => context.add_filter(RemoveFilter),
-            PreProcess::SubFilter => context.add_filter(SubFilter),
-            PreProcess::UpFilter => context.add_filter(UpFilter),
-            PreProcess::AverageFilter => context.add_filter(AverageFilter),
-            PreProcess::PaethFilter => context.add_filter(PaethFilter),
-        }
+        context.pre_process(pre_process);
     }
 
     // Apply config file filters if present
@@ -126,10 +130,7 @@ fn apply_filters(args: &Cli, context: &mut GlitchContext) -> anyhow::Result<()> 
                 } => {
                     context.add_filter(PixelSort {
                         magnitude,
-                        criterion: match criterion.unwrap_or(crate::cli::SortCriterionCli::Brightness) {
-                            crate::cli::SortCriterionCli::Brightness => SortCriterion::Brightness,
-                            crate::cli::SortCriterionCli::Hue => SortCriterion::Hue,
-                        },
+                        criterion: criterion.unwrap_or(SortCriterion::Brightness),
                     });
                 }
                 FilterConfig::Bitwise {
@@ -139,22 +140,14 @@ fn apply_filters(args: &Cli, context: &mut GlitchContext) -> anyhow::Result<()> 
                 } => {
                     context.add_filter(Bitwise {
                         magnitude,
-                        op: match op.unwrap_or(crate::cli::BitOpCli::Xor) {
-                            crate::cli::BitOpCli::And => BitOp::And,
-                            crate::cli::BitOpCli::Or => BitOp::Or,
-                            crate::cli::BitOpCli::Xor => BitOp::Xor,
-                        },
+                        op: op.unwrap_or(glitch_context::BitOp::Xor),
                         value: value.unwrap_or(0),
                     });
                 }
                 FilterConfig::ChannelSwap { magnitude, target } => {
                     context.add_filter(ChannelSwap {
                         magnitude,
-                        target: match target.unwrap_or(crate::cli::SwapTargetCli::Rg) {
-                            crate::cli::SwapTargetCli::Rg => SwapTarget::Rg,
-                            crate::cli::SwapTargetCli::Gb => SwapTarget::Gb,
-                            crate::cli::SwapTargetCli::Br => SwapTarget::Br,
-                        },
+                        target: target.unwrap_or(glitch_context::SwapTarget::Rg),
                     });
                 }
                 FilterConfig::HorizontalShift { magnitude } => {
@@ -215,31 +208,20 @@ fn apply_filters(args: &Cli, context: &mut GlitchContext) -> anyhow::Result<()> 
     if let Some(magnitude) = args.pixel_sort {
         context.add_filter(PixelSort {
             magnitude,
-            criterion: match args.pixel_sort_criterion {
-                crate::cli::SortCriterionCli::Brightness => SortCriterion::Brightness,
-                crate::cli::SortCriterionCli::Hue => SortCriterion::Hue,
-            },
+            criterion: args.pixel_sort_criterion,
         });
     }
     if let Some(magnitude) = args.bitwise {
         context.add_filter(Bitwise {
             magnitude,
-            op: match args.bitwise_op {
-                crate::cli::BitOpCli::And => BitOp::And,
-                crate::cli::BitOpCli::Or => BitOp::Or,
-                crate::cli::BitOpCli::Xor => BitOp::Xor,
-            },
+            op: args.bitwise_op,
             value: args.bitwise_value,
         });
     }
     if let Some(magnitude) = args.channel_swap {
         context.add_filter(ChannelSwap {
             magnitude,
-            target: match args.channel_swap_target {
-                crate::cli::SwapTargetCli::Rg => SwapTarget::Rg,
-                crate::cli::SwapTargetCli::Gb => SwapTarget::Gb,
-                crate::cli::SwapTargetCli::Br => SwapTarget::Br,
-            },
+            target: args.channel_swap_target,
         });
     }
     if let Some(magnitude) = args.horizontal_shift {

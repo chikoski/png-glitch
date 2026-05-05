@@ -1,8 +1,10 @@
 use anyhow::{Context, Result};
+use clap::ValueEnum;
 pub use png_glitch::presets::{Brighten, Invert, ShiftChannels};
 pub use png_glitch::{FilterType, PngGlitch, Pixel};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
+use serde::Deserialize;
 use std::path::Path;
 
 /// A trait for glitch filters.
@@ -88,6 +90,27 @@ impl GlitchContext {
     pub fn change_filter_type(&mut self, filter_type: FilterType) {
         self.png.change_filter_type(filter_type);
     }
+
+    /// Applies a pre-process filter.
+    pub fn pre_process(&mut self, pre_process: PreProcess) {
+        match pre_process {
+            PreProcess::RemoveFilter => self.add_filter(RemoveFilter),
+            PreProcess::SubFilter => self.add_filter(SubFilter),
+            PreProcess::UpFilter => self.add_filter(UpFilter),
+            PreProcess::AverageFilter => self.add_filter(AverageFilter),
+            PreProcess::PaethFilter => self.add_filter(PaethFilter),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PreProcess {
+    RemoveFilter,
+    SubFilter,
+    UpFilter,
+    AverageFilter,
+    PaethFilter,
 }
 
 /// Filter that changes the filter type of scanlines.
@@ -265,7 +288,8 @@ impl GlitchFilter for SetZero {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, ValueEnum, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum SortCriterion {
     Brightness,
     Hue,
@@ -329,7 +353,8 @@ impl PixelSort {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, ValueEnum, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum BitOp {
     And,
     Or,
@@ -362,7 +387,8 @@ impl GlitchFilter for Bitwise {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, ValueEnum, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum SwapTarget {
     Rg,
     Gb,

@@ -1,4 +1,5 @@
-use clap::{Parser, ValueEnum};
+use clap::Parser;
+use glitch_context::{BitOp, PreProcess, SortCriterion, SwapTarget};
 use serde::Deserialize;
 
 #[derive(Parser, Debug)]
@@ -38,16 +39,16 @@ pub struct Cli {
     pub pixel_sort: Option<f64>,
 
     /// Pixel Sort criterion (brightness, hue)
-    #[arg(long, value_enum, default_value_t = SortCriterionCli::Brightness)]
-    pub pixel_sort_criterion: SortCriterionCli,
+    #[arg(long, value_enum, default_value_t = SortCriterion::Brightness)]
+    pub pixel_sort_criterion: SortCriterion,
 
     /// Bitwise operation magnitude
     #[arg(long)]
     pub bitwise: Option<f64>,
 
     /// Bitwise operation (and, or, xor)
-    #[arg(long, value_enum, default_value_t = BitOpCli::Xor)]
-    pub bitwise_op: BitOpCli,
+    #[arg(long, value_enum, default_value_t = BitOp::Xor)]
+    pub bitwise_op: BitOp,
 
     /// Bitwise operation value
     #[arg(long, default_value_t = 0)]
@@ -58,8 +59,8 @@ pub struct Cli {
     pub channel_swap: Option<f64>,
 
     /// Channel Swap target (rg, gb, br)
-    #[arg(long, value_enum, default_value_t = SwapTargetCli::Rg)]
-    pub channel_swap_target: SwapTargetCli,
+    #[arg(long, value_enum, default_value_t = SwapTarget::Rg)]
+    pub channel_swap_target: SwapTarget,
 
     /// Horizontal Shift magnitude
     #[arg(long)]
@@ -114,38 +115,6 @@ pub struct Cli {
     pub pre_process: Option<PreProcess>,
 }
 
-#[derive(Clone, Copy, Debug, ValueEnum)]
-pub enum PreProcess {
-    RemoveFilter,
-    SubFilter,
-    UpFilter,
-    AverageFilter,
-    PaethFilter,
-}
-
-#[derive(Clone, Copy, Debug, ValueEnum, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum SortCriterionCli {
-    Brightness,
-    Hue,
-}
-
-#[derive(Clone, Copy, Debug, ValueEnum, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum BitOpCli {
-    And,
-    Or,
-    Xor,
-}
-
-#[derive(Clone, Copy, Debug, ValueEnum, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum SwapTargetCli {
-    Rg,
-    Gb,
-    Br,
-}
-
 #[derive(Debug, Deserialize)]
 pub struct ConfigFile {
     pub filters: Vec<FilterConfig>,
@@ -154,19 +123,50 @@ pub struct ConfigFile {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
 pub enum FilterConfig {
-    ChangeFilterType { magnitude: f64 },
-    Replace { magnitude: f64 },
-    Transpose { magnitude: f64 },
-    SetZero { magnitude: f64 },
-    RandomCopy { times: u32 },
-    Substitute { index: usize, value: u8 },
-    PixelSort { magnitude: f64, criterion: Option<SortCriterionCli> },
-    Bitwise { magnitude: f64, op: Option<BitOpCli>, value: Option<u8> },
-    ChannelSwap { magnitude: f64, target: Option<SwapTargetCli> },
-    HorizontalShift { magnitude: f64 },
+    ChangeFilterType {
+        magnitude: f64,
+    },
+    Replace {
+        magnitude: f64,
+    },
+    Transpose {
+        magnitude: f64,
+    },
+    SetZero {
+        magnitude: f64,
+    },
+    RandomCopy {
+        times: u32,
+    },
+    Substitute {
+        index: usize,
+        value: u8,
+    },
+    PixelSort {
+        magnitude: f64,
+        criterion: Option<SortCriterion>,
+    },
+    Bitwise {
+        magnitude: f64,
+        op: Option<BitOp>,
+        value: Option<u8>,
+    },
+    ChannelSwap {
+        magnitude: f64,
+        target: Option<SwapTarget>,
+    },
+    HorizontalShift {
+        magnitude: f64,
+    },
     Invert,
-    Brighten { strength: u16 },
-    ShiftChannels { r: i16, g: i16, b: i16 },
+    Brighten {
+        strength: u16,
+    },
+    ShiftChannels {
+        r: i16,
+        g: i16,
+        b: i16,
+    },
     RemoveFilter,
     SubFilter,
     UpFilter,
