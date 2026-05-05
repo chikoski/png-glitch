@@ -1,112 +1,139 @@
-# png-glitch CLI Usage Guide & Visual Gallery
+# png-glitch CLI Visual Guide
 
-This guide provides a comprehensive overview of the `png-glitch` command-line options and the visual effects they produce.
+This guide showcases every command-line option available in `png-glitch`, using `crates/png-glitch/etc/sample00.png` as the base image for comparison.
 
-## Basic Usage
-
-```zsh
-png-glitch <INPUT_PNG> [OPTIONS]
-```
-
-By default, the glitched image is saved as `glitched.png`. Use `-o <FILE>` to specify a different output path.
-
----
-
-## Glitch Filters & Visual Impact
-
-### 1. Color Manipulation
-
-| Option | Description | Visual Impact |
-| :--- | :--- | :--- |
-| `--invert` | Inverts all color values. | Classic "negative" look. |
-| `--brighten <N>` | Increases brightness (0-65535). | Blown-out highlights or solarized effects. |
-| `--shift-channels <R,G,B>` | Shifts color channels independently. | Color fringing and radical color shifts. |
-| `--color-distortion <MAG>, <STR>` | Adds random noise to pixel values. | Analog-style noise and grain. |
-| `--color-space-glitch <MAG>` | Manipulates colors in HSL space. | Artistic control over hue, saturation, and lightness. |
-| `--chromatic-aberration <MAG>` | Shifts R, G, B channels spatially. | Classic retro "color fringe" effect. |
-
-### 2. Structural Glitches (Scanline Level)
-
-| Option | Description | Visual Impact |
-| :--- | :--- | :--- |
-| `--transpose <MAG>` | Swaps individual scanlines. | Horizontal "slicing" and shearing. |
-| `--horizontal-shift <MAG>` | Shifts scanlines horizontally with wrap-around. | Digital "offset" look. |
-| `--block-scramble <MAG>` | Shuffles grid-based blocks of pixels. | Fractured and mosaic-like corruption (highly optimized). |
-| `--random-copy <N>` | Copies random scanlines to other positions. | Vertical repetition and "smearing". |
-
-### 3. Bit-Level & Noise
-
-| Option | Description | Visual Impact |
-| :--- | :--- | :--- |
-| `--replace <MAG>` | Replaces random bytes with noise. | Extreme digital "snow". |
-| `--set-zero <MAG>` | Sets random bytes to zero. | Black pixel artifacts. |
-| `--bitwise <MAG>, --bitwise-op <OP>, --bitwise-value <V>` | Performs logical operations on bytes. | Harsh mathematical distortion. |
-
-### 4. PNG Filter Abuse (The Core Glitch)
-
-These options manipulate the internal PNG filter types without re-encoding the data, causing decoders to misinterpret the pixels.
-
-| Option | Description | Visual Impact |
-| :--- | :--- | :--- |
-| `--remove-filter` | Strips all filters before glitching. | Clean base for predictable results. |
-| `--sub` / `--up` / `--average` / `--paeth` | Forces a specific filter type repo-wide. | Dramatic vertical/horizontal streaking. |
-| `--change-filter-type <MAG>` | Randomly changes filter types per scanline. | Multi-directional chaotic artifacts. |
-
----
-
-## Visual Gallery
-
-### Original Image
+## Original Image
 ![Original](../crates/png-glitch/etc/sample00.png)
 
-### Example Effects
+---
 
-#### Block Scramble (`--block-scramble 0.1 --block-scramble-size 16`)
-Fractures the image into a grid and shuffles the pieces.
-![Block Scramble](../crates/png-glitch/etc/sample00-glitched.png)
+## 1. Color Manipulation
 
-#### Chromatic Aberration (`--chromatic-aberration 0.2 --r-offset 5 --b-offset -5`)
-Creates color fringes at edges by shifting channels.
-![Chromatic Aberration](../crates/png-glitch/etc/example-glitch.png)
+### Invert
+Inverts all color channels.
+`--invert`
+![Invert](./gallery/invert.png)
 
-#### Transpose (`--transpose 0.1`)
-Creates horizontal shifts by swapping rows.
-![Transpose](../crates/png-glitch/etc/example-transpose.png)
+### Brighten
+Increases brightness.
+`--brighten 20000`
+![Brighten](./gallery/brighten.png)
 
-#### Filter Abuse (`--paeth`)
-Forces the Paeth predictor, creating complex recursive patterns.
-![Paeth](../crates/png-glitch/etc/paeth.png)
+### Color Distortion
+Adds random noise to each color channel.
+`--color-distortion 0.1 --color-distortion-strength 50`
+![Color Distortion](./gallery/color_distortion.png)
+
+### Color Space Glitch (HSL)
+Manipulates Hue, Saturation, and Lightness.
+`--color-space-glitch 0.2 --hue-shift 120 --saturation-mult 1.5`
+![Color Space Glitch](./gallery/color_space_glitch.png)
+
+### Chromatic Aberration
+Spatially shifts color channels to create fringes.
+`--chromatic-aberration 0.3 --r-offset 10 --b-offset 10`
+![Chromatic Aberration](./gallery/chromatic_aberration.png)
+
+### Shift Channels
+Swaps or offsets channel values directly.
+`--shift-channels 10000,20000,-10000`
+![Shift Channels](./gallery/shift_channels.png)
 
 ---
 
-## Batch Processing
+## 2. Structural Glitches
 
-Process an entire directory of PNGs in parallel:
+### Block Scramble
+Shuffles image blocks in a grid.
+`--block-scramble 0.1 --block-scramble-size 32`
+![Block Scramble](./gallery/block_scramble.png)
 
+### Transpose
+Randomly swaps scanlines.
+`--transpose 0.1`
+![Transpose](./gallery/transpose.png)
+
+### Horizontal Shift
+Offsets scanlines horizontally with wrap-around.
+`--horizontal-shift 0.1`
+![Horizontal Shift](./gallery/horizontal_shift.png)
+
+### Random Copy
+Copies random scanlines to other positions.
+`--random-copy 20`
+![Random Copy](./gallery/random_copy.png)
+
+---
+
+## 3. Bit-Level Distortion
+
+### Replace
+Replaces random bytes with noise.
+`--replace 0.05`
+![Replace](./gallery/replace.png)
+
+### Set Zero
+Sets random bytes to zero.
+`--set-zero 0.05`
+![Set Zero](./gallery/set_zero.png)
+
+### Bitwise
+Performs logical operations on raw bytes.
+`--bitwise 0.1 --bitwise-op xor --bitwise-value 128`
+![Bitwise](./gallery/bitwise.png)
+
+---
+
+## 4. PNG Filter Abuse
+
+These options force the PNG decoder to misinterpret pixels by manipulating internal filter types.
+
+### Sub
+`--sub`
+![Sub](./gallery/sub.png)
+
+### Up
+`--up`
+![Up](./gallery/up.png)
+
+### Average
+`--average`
+![Average](./gallery/average.png)
+
+### Paeth
+`--paeth`
+![Paeth](./gallery/paeth.png)
+
+### Change Filter Type
+Randomly assigns different filter types to scanlines.
+`--change-filter-type 0.1`
+![Change Filter Type](./gallery/change_filter_type.png)
+
+---
+
+## 5. Advanced Usage
+
+### Batch Processing
+Process all PNGs in a directory in parallel:
 ```zsh
-png-glitch ./my_photos --batch-output ./distorted_gallery --invert --block-scramble 0.05
+png-glitch ./input_dir --batch-output ./output_dir --invert --block-scramble 0.05
 ```
 
-## Configuration Files (YAML)
+### Reproducible Seeds
+Use `--seed <N>` to get the same result every time.
 
-For complex, repeatable pipelines:
-
+### Configuration Files (YAML)
+Combine multiple filters into a pipeline:
 ```yaml
-# glitch_config.yaml
 filters:
   - type: RemoveFilter
   - type: BlockScramble
     magnitude: 0.1
-    block_size: 32
-  - type: ColorSpaceGlitch
-    magnitude: 0.2
-    hue_shift: 90.0
-    saturation_mult: 1.2
   - type: ChromaticAberration
-    magnitude: 0.15
+    magnitude: 0.2
     r_offset: 5
-    b_offset: -5
-  - type: Invert
+  - type: ColorSpaceGlitch
+    magnitude: 0.1
+    hue_shift: 180.0
 ```
-
-Run with: `png-glitch input.png --config glitch_config.yaml`
+Run with: `png-glitch input.png --config config.yaml`
