@@ -447,6 +447,134 @@ impl GlitchFilter for HorizontalShift {
     }
 }
 
+/// Filter that scrambles blocks of pixels.
+pub struct BlockScramble {
+    pub magnitude: f64,
+    pub block_size: u32,
+}
+
+impl GlitchFilter for BlockScramble {
+    fn apply(&self, png: &mut PngGlitch, rng: &mut ChaCha8Rng) {
+        let width = png.width();
+        let height = png.height();
+        let block_size = self.block_size;
+        
+        if width == 0 || height == 0 || block_size == 0 {
+            return;
+        }
+
+        let num_blocks_x = width / block_size;
+        let num_blocks_y = height / block_size;
+        
+        if num_blocks_x == 0 || num_blocks_y == 0 {
+            return;
+        }
+
+        let total_blocks = (num_blocks_x * num_blocks_y) as usize;
+        let num_scrambles = (total_blocks as f64 * self.magnitude) as usize;
+
+        for _ in 0..num_scrambles {
+            let src_bx = rng.random_range(0..num_blocks_x);
+            let src_by = rng.random_range(0..num_blocks_y);
+            let dst_bx = rng.random_range(0..num_blocks_x);
+            let dst_by = rng.random_range(0..num_blocks_y);
+
+            if src_bx == dst_bx && src_by == dst_by {
+                continue;
+            }
+
+            // Swap blocks line by line
+            for y_off in 0..block_size {
+                let src_y = src_by * block_size + y_off;
+                let dst_y = dst_by * block_size + y_off;
+                
+                if src_y >= height || dst_y >= height {
+                    continue;
+                }
+
+                let mut src_pixels = Vec::with_capacity(block_size as usize);
+                let mut dst_pixels = Vec::with_capacity(block_size as usize);
+
+                // Collect pixels from src block row and dst block row
+                {
+                    let scan_lines = png.scan_lines();
+                    let src_line = &scan_lines[src_y as usize];
+                    for x_off in 0..block_size {
+                        let src_x = src_bx * block_size + x_off;
+                        if src_x < width {
+                            if let Some(p) = src_line.get_pixel(src_x as usize) {
+                                src_pixels.push(p);
+                            }
+                        }
+                    }
+
+                    let dst_line = &scan_lines[dst_y as usize];
+                    for x_off in 0..block_size {
+                        let dst_x = dst_bx * block_size + x_off;
+                        if dst_x < width {
+                            if let Some(p) = dst_line.get_pixel(dst_x as usize) {
+                                dst_pixels.push(p);
+                            }
+                        }
+                    }
+                }
+
+                // Write collected pixels to the other block
+                let mut scan_lines = png.scan_lines();
+                let src_line = &mut scan_lines[src_y as usize];
+                for (x_off, p) in dst_pixels.into_iter().enumerate() {
+                    let src_x = src_bx * block_size + x_off as u32;
+                    src_line.set_pixel(src_x as usize, p);
+                }
+
+                let dst_line = &mut scan_lines[dst_y as usize];
+                for (x_off, p) in src_pixels.into_iter().enumerate() {
+                    let dst_x = dst_bx * block_size + x_off as u32;
+                    dst_line.set_pixel(dst_x as usize, p);
+                }
+            }
+        }
+    }
+}
+
+/// Filter that adds random color distortion.
+pub struct ColorDistortion {
+    pub magnitude: f64,
+    pub strength: i16,
+}
+
+impl GlitchFilter for ColorDistortion {
+    fn apply(&self, png: &mut PngGlitch, rng: &mut ChaCha8Rng) {
+        let strength = self.strength;
+        let magnitude = self.magnitude;
+        png.foreach_scanline(|scan_line| {
+            if rng.random_bool(magnitude) {
+                scan_line.process_pixels(|_, p| {
+                    let r_off = rng.random_range(-strength..=strength);
+                    let g_off = rng.random_range(-strength..=strength);
+                    let b_off = rng.random_range(-strength..=strength);
+                    match p {
+                        Pixel::RGB(r, g, b) => Pixel::RGB(
+                            r.wrapping_add_signed(r_off),
+                            g.wrapping_add_signed(g_off),
+                            b.wrapping_add_signed(b_off),
+                        ),
+                        Pixel::RGBA(r, g, b, a) => Pixel::RGBA(
+                            r.wrapping_add_signed(r_off),
+                            g.wrapping_add_signed(g_off),
+                            b.wrapping_add_signed(b_off),
+                            a,
+                        ),
+                        Pixel::Gray(v) => Pixel::Gray(v.wrapping_add_signed(r_off)),
+                        Pixel::GrayAlpha(v, a) => Pixel::GrayAlpha(v.wrapping_add_signed(r_off), a),
+                        _ => p,
+                    }
+                });
+            }
+        });
+    }
+}
+
 impl GlitchFilter for Invert {
     fn apply(&self, png: &mut PngGlitch, _rng: &mut ChaCha8Rng) {
         png.apply(*self);

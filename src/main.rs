@@ -1,9 +1,9 @@
 use anyhow::{anyhow, Context};
 use clap::Parser;
 use glitch_context::{
-    AverageFilter, Bitwise, Brighten, ChangeFilterType, ChannelSwap, GlitchContext, Invert,
-    PaethFilter, PixelSort, RandomCopy, RemoveFilter, Replace, SetZero, ShiftChannels,
-    SortCriterion, SubFilter, Substitute, Transpose, UpFilter, HorizontalShift,
+    AverageFilter, Bitwise, BlockScramble, Brighten, ChangeFilterType, ChannelSwap, ColorDistortion,
+    GlitchContext, HorizontalShift, Invert, PaethFilter, PixelSort, RandomCopy, RemoveFilter,
+    Replace, SetZero, ShiftChannels, SortCriterion, SubFilter, Substitute, Transpose, UpFilter,
 };
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
@@ -153,6 +153,24 @@ fn apply_filters(args: &Cli, context: &mut GlitchContext) -> anyhow::Result<()> 
                 FilterConfig::HorizontalShift { magnitude } => {
                     context.add_filter(HorizontalShift { magnitude });
                 }
+                FilterConfig::BlockScramble {
+                    magnitude,
+                    block_size,
+                } => {
+                    context.add_filter(BlockScramble {
+                        magnitude,
+                        block_size: block_size.unwrap_or(16),
+                    });
+                }
+                FilterConfig::ColorDistortion {
+                    magnitude,
+                    strength,
+                } => {
+                    context.add_filter(ColorDistortion {
+                        magnitude,
+                        strength: strength.unwrap_or(20),
+                    });
+                }
                 FilterConfig::Invert => {
                     context.add_filter(Invert);
                 }
@@ -226,6 +244,18 @@ fn apply_filters(args: &Cli, context: &mut GlitchContext) -> anyhow::Result<()> 
     }
     if let Some(magnitude) = args.horizontal_shift {
         context.add_filter(HorizontalShift { magnitude });
+    }
+    if let Some(magnitude) = args.block_scramble {
+        context.add_filter(BlockScramble {
+            magnitude,
+            block_size: args.block_scramble_size,
+        });
+    }
+    if let Some(magnitude) = args.color_distortion {
+        context.add_filter(ColorDistortion {
+            magnitude,
+            strength: args.color_distortion_strength,
+        });
     }
     if args.invert {
         context.add_filter(Invert);

@@ -66,6 +66,22 @@ pub struct Cli {
     #[arg(long)]
     pub horizontal_shift: Option<f64>,
 
+    /// Block Scramble magnitude
+    #[arg(long)]
+    pub block_scramble: Option<f64>,
+
+    /// Block Scramble block size
+    #[arg(long, default_value_t = 16)]
+    pub block_scramble_size: u32,
+
+    /// Color Distortion magnitude
+    #[arg(long)]
+    pub color_distortion: Option<f64>,
+
+    /// Color Distortion strength
+    #[arg(long, default_value_t = 20)]
+    pub color_distortion_strength: i16,
+
     /// Invert colors
     #[arg(long)]
     pub invert: bool,
@@ -157,6 +173,14 @@ pub enum FilterConfig {
     },
     HorizontalShift {
         magnitude: f64,
+    },
+    BlockScramble {
+        magnitude: f64,
+        block_size: Option<u32>,
+    },
+    ColorDistortion {
+        magnitude: f64,
+        strength: Option<i16>,
     },
     Invert,
     Brighten {
