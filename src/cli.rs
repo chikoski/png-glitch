@@ -82,6 +82,22 @@ pub struct Cli {
     #[arg(long, default_value_t = 20)]
     pub color_distortion_strength: i16,
 
+    /// Color Space Glitch magnitude (HSL)
+    #[arg(long)]
+    pub color_space_glitch: Option<f64>,
+
+    /// Hue shift (0.0 - 360.0)
+    #[arg(long, default_value_t = 0.0)]
+    pub hue_shift: f64,
+
+    /// Saturation multiplier
+    #[arg(long, default_value_t = 1.0)]
+    pub saturation_mult: f64,
+
+    /// Lightness multiplier
+    #[arg(long, default_value_t = 1.0)]
+    pub lightness_mult: f64,
+
     /// Invert colors
     #[arg(long)]
     pub invert: bool,

@@ -170,6 +170,19 @@ impl GlitchContext {
                     strength: strength.unwrap_or(20),
                 });
             }
+            FilterConfig::ColorSpaceGlitch {
+                magnitude,
+                hue_shift,
+                saturation_mult,
+                lightness_mult,
+            } => {
+                self.add_filter(ColorSpaceGlitch {
+                    magnitude,
+                    hue_shift: hue_shift.unwrap_or(0.0),
+                    saturation_mult: saturation_mult.unwrap_or(1.0),
+                    lightness_mult: lightness_mult.unwrap_or(1.0),
+                });
+            }
             FilterConfig::Invert => {
                 self.add_filter(Invert);
             }
@@ -253,6 +266,12 @@ pub enum FilterConfig {
     ColorDistortion {
         magnitude: f64,
         strength: Option<i16>,
+    },
+    ColorSpaceGlitch {
+        magnitude: f64,
+        hue_shift: Option<f64>,
+        saturation_mult: Option<f64>,
+        lightness_mult: Option<f64>,
     },
     Invert,
     Brighten {
@@ -730,6 +749,97 @@ impl GlitchFilter for ColorDistortion {
             }
         });
     }
+}
+
+/// Filter that manipulates colors in HSL space.
+pub struct ColorSpaceGlitch {
+    pub magnitude: f64,
+    pub hue_shift: f64,        // 0.0 - 360.0
+    pub saturation_mult: f64,  // multiplier
+    pub lightness_mult: f64,   // multiplier
+}
+
+impl GlitchFilter for ColorSpaceGlitch {
+    fn apply(&self, png: &mut PngGlitch, rng: &mut ChaCha8Rng) {
+        png.foreach_scanline(|scan_line| {
+            if rng.random_bool(self.magnitude) {
+                scan_line.process_pixels(|_, p| {
+                    match p {
+                        Pixel::RGB(r, g, b) => {
+                            let (h, s, l) = rgb_to_hsl(r, g, b);
+                            let h = (h + self.hue_shift) % 360.0;
+                            let s = (s * self.saturation_mult).clamp(0.0, 1.0);
+                            let l = (l * self.lightness_mult).clamp(0.0, 1.0);
+                            let (r, g, b) = hsl_to_rgb(h, s, l);
+                            Pixel::RGB(r, g, b)
+                        }
+                        Pixel::RGBA(r, g, b, a) => {
+                            let (h, s, l) = rgb_to_hsl(r, g, b);
+                            let h = (h + self.hue_shift) % 360.0;
+                            let s = (s * self.saturation_mult).clamp(0.0, 1.0);
+                            let l = (l * self.lightness_mult).clamp(0.0, 1.0);
+                            let (r, g, b) = hsl_to_rgb(h, s, l);
+                            Pixel::RGBA(r, g, b, a)
+                        }
+                        _ => p,
+                    }
+                });
+            }
+        });
+    }
+}
+
+fn rgb_to_hsl(r: u16, g: u16, b: u16) -> (f64, f64, f64) {
+    let r = r as f64 / 65535.0;
+    let g = g as f64 / 65535.0;
+    let b = b as f64 / 65535.0;
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let l = (max + min) / 2.0;
+
+    if max == min {
+        (0.0, 0.0, l)
+    } else {
+        let d = max - min;
+        let s = if l > 0.5 { d / (2.0 - max - min) } else { d / (max + min) };
+        let h = if max == r {
+            (g - b) / d + (if g < b { 6.0 } else { 0.0 })
+        } else if max == g {
+            (b - r) / d + 2.0
+        } else {
+            (r - g) / d + 4.0
+        };
+        (h * 60.0, s, l)
+    }
+}
+
+fn hsl_to_rgb(h: f64, s: f64, l: f64) -> (u16, u16, u16) {
+    let h = h / 360.0;
+    let (r, g, b) = if s == 0.0 {
+        (l, l, l)
+    } else {
+        let q = if l < 0.5 { l * (1.0 + s) } else { l + s - l * s };
+        let p = 2.0 * l - q;
+        (
+            hue_to_rgb(p, q, h + 1.0 / 3.0),
+            hue_to_rgb(p, q, h),
+            hue_to_rgb(p, q, h - 1.0 / 3.0),
+        )
+    };
+    (
+        (r * 65535.0) as u16,
+        (g * 65535.0) as u16,
+        (b * 65535.0) as u16,
+    )
+}
+
+fn hue_to_rgb(p: f64, q: f64, mut t: f64) -> f64 {
+    if t < 0.0 { t += 1.0; }
+    if t > 1.0 { t -= 1.0; }
+    if t < 1.0 / 6.0 { return p + (q - p) * 6.0 * t; }
+    if t < 1.0 / 2.0 { return q; }
+    if t < 2.0 / 3.0 { return p + (q - p) * (2.0 / 3.0 - t) * 6.0; }
+    p
 }
 
 impl GlitchFilter for Invert {

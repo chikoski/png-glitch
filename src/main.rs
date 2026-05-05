@@ -2,8 +2,9 @@ use anyhow::{anyhow, Context};
 use clap::Parser;
 use glitch_context::{
     AverageFilter, Bitwise, BlockScramble, Brighten, ChangeFilterType, ChannelSwap, ColorDistortion,
-    FilterConfig, GlitchContext, HorizontalShift, Invert, PaethFilter, PixelSort, RandomCopy,
-    RemoveFilter, Replace, SetZero, ShiftChannels, SubFilter, Substitute, Transpose, UpFilter,
+    ColorSpaceGlitch, FilterConfig, GlitchContext, HorizontalShift, Invert, PaethFilter, PixelSort,
+    RandomCopy, RemoveFilter, Replace, SetZero, ShiftChannels, SubFilter, Substitute, Transpose,
+    UpFilter,
 };
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
@@ -165,6 +166,14 @@ fn apply_filters(args: &Cli, context: &mut GlitchContext) -> anyhow::Result<()> 
         context.add_filter(ColorDistortion {
             magnitude,
             strength: args.color_distortion_strength,
+        });
+    }
+    if let Some(magnitude) = args.color_space_glitch {
+        context.add_filter(ColorSpaceGlitch {
+            magnitude,
+            hue_shift: args.hue_shift,
+            saturation_mult: args.saturation_mult,
+            lightness_mult: args.lightness_mult,
         });
     }
     if args.invert {
