@@ -22,6 +22,8 @@ By default, the glitched image is saved as `glitched.png`. Use `-o <FILE>` to sp
 | `--brighten <N>` | Increases brightness (0-65535). | Blown-out highlights or solarized effects. |
 | `--shift-channels <R,G,B>` | Shifts color channels independently. | Color fringing and radical color shifts. |
 | `--color-distortion <MAG>, <STR>` | Adds random noise to pixel values. | Analog-style noise and grain. |
+| `--color-space-glitch <MAG>` | Manipulates colors in HSL space. | Artistic control over hue, saturation, and lightness. |
+| `--chromatic-aberration <MAG>` | Shifts R, G, B channels spatially. | Classic retro "color fringe" effect. |
 
 ### 2. Structural Glitches (Scanline Level)
 
@@ -29,7 +31,7 @@ By default, the glitched image is saved as `glitched.png`. Use `-o <FILE>` to sp
 | :--- | :--- | :--- |
 | `--transpose <MAG>` | Swaps individual scanlines. | Horizontal "slicing" and shearing. |
 | `--horizontal-shift <MAG>` | Shifts scanlines horizontally with wrap-around. | Digital "offset" look. |
-| `--block-scramble <MAG>, <SIZE>` | Shuffles grid-based blocks of pixels. | Fractured and mosaic-like corruption. |
+| `--block-scramble <MAG>` | Shuffles grid-based blocks of pixels. | Fractured and mosaic-like corruption (highly optimized). |
 | `--random-copy <N>` | Copies random scanlines to other positions. | Vertical repetition and "smearing". |
 
 ### 3. Bit-Level & Noise
@@ -59,6 +61,14 @@ These options manipulate the internal PNG filter types without re-encoding the d
 
 ### Example Effects
 
+#### Block Scramble (`--block-scramble 0.1 --block-scramble-size 16`)
+Fractures the image into a grid and shuffles the pieces.
+![Block Scramble](../crates/png-glitch/etc/sample00-glitched.png)
+
+#### Chromatic Aberration (`--chromatic-aberration 0.2 --r-offset 5 --b-offset -5`)
+Creates color fringes at edges by shifting channels.
+![Chromatic Aberration](../crates/png-glitch/etc/example-glitch.png)
+
 #### Transpose (`--transpose 0.1`)
 Creates horizontal shifts by swapping rows.
 ![Transpose](../crates/png-glitch/etc/example-transpose.png)
@@ -66,10 +76,6 @@ Creates horizontal shifts by swapping rows.
 #### Filter Abuse (`--paeth`)
 Forces the Paeth predictor, creating complex recursive patterns.
 ![Paeth](../crates/png-glitch/etc/paeth.png)
-
-#### Integrated Glitch
-Combining multiple filters for a unique look.
-![Glitched](../crates/png-glitch/etc/sample00-glitched.png)
 
 ---
 
@@ -92,9 +98,14 @@ filters:
   - type: BlockScramble
     magnitude: 0.1
     block_size: 32
-  - type: ColorDistortion
+  - type: ColorSpaceGlitch
     magnitude: 0.2
-    strength: 50
+    hue_shift: 90.0
+    saturation_mult: 1.2
+  - type: ChromaticAberration
+    magnitude: 0.15
+    r_offset: 5
+    b_offset: -5
   - type: Invert
 ```
 

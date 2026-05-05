@@ -41,7 +41,16 @@ To support different bit depths (1, 2, 4, 8, 16) and color types (RGB, Grayscale
 Unlike a standard image library that aims for fidelity, `png-glitch` treats the PNG specification as a playground. We often perform operations that are "illegal" or "undefined" in standard decoders to see what visual artifacts they produce.
 
 ### Performance & Parallelism
-We use the `rayon` crate for parallel scanline processing. Most glitch presets (like `Invert` or `Brighten`) are embarrassingly parallel. However, operations like `transpose` or sequential filter changes must be handled with care to maintain the image's structural integrity.
+We use the `rayon` crate for high-performance processing:
+- **Batch Processing:** The CLI parallelizes processing of multiple images across all available CPU cores.
+- **Scanline Processing:** Most glitch presets (like `Invert` or `Brighten`) are parallelized at the scanline level using `par_foreach_scanline`.
+- **Optimization:** Filters like `BlockScramble` are optimized to minimize memory allocation and redundant scanline pre-fetching.
+
+### High-Level Orchestration
+The `glitch-context` crate provides a unified API for managing complex glitch pipelines.
+- **`GlitchFilter` Trait:** All effects are implemented as modular filters.
+- **`FilterConfig`:** A unified configuration enum that supports YAML serialization and deserialization.
+- **`add_from_config`:** A single method to apply complex effect stacks from external configuration files.
 
 ## Deep Dive Specifications
 
