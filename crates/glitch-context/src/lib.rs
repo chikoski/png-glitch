@@ -101,11 +101,168 @@ impl GlitchContext {
             PreProcess::PaethFilter => self.add_filter(PaethFilter),
         }
     }
+
+    /// Adds a filter from a configuration object.
+    pub fn add_from_config(&mut self, config: FilterConfig) {
+        match config {
+            FilterConfig::ChangeFilterType { magnitude } => {
+                self.add_filter(ChangeFilterType { magnitude });
+            }
+            FilterConfig::Replace { magnitude } => {
+                self.add_filter(Replace { magnitude });
+            }
+            FilterConfig::Transpose { magnitude } => {
+                self.add_filter(Transpose { magnitude });
+            }
+            FilterConfig::SetZero { magnitude } => {
+                self.add_filter(SetZero { magnitude });
+            }
+            FilterConfig::RandomCopy { times } => {
+                self.add_filter(RandomCopy { times });
+            }
+            FilterConfig::Substitute { index, value } => {
+                self.add_filter(Substitute { index, value });
+            }
+            FilterConfig::PixelSort {
+                magnitude,
+                criterion,
+            } => {
+                self.add_filter(PixelSort {
+                    magnitude,
+                    criterion: criterion.unwrap_or(SortCriterion::Brightness),
+                });
+            }
+            FilterConfig::Bitwise {
+                magnitude,
+                op,
+                value,
+            } => {
+                self.add_filter(Bitwise {
+                    magnitude,
+                    op: op.unwrap_or(BitOp::Xor),
+                    value: value.unwrap_or(0),
+                });
+            }
+            FilterConfig::ChannelSwap { magnitude, target } => {
+                self.add_filter(ChannelSwap {
+                    magnitude,
+                    target: target.unwrap_or(SwapTarget::Rg),
+                });
+            }
+            FilterConfig::HorizontalShift { magnitude } => {
+                self.add_filter(HorizontalShift { magnitude });
+            }
+            FilterConfig::BlockScramble {
+                magnitude,
+                block_size,
+            } => {
+                self.add_filter(BlockScramble {
+                    magnitude,
+                    block_size: block_size.unwrap_or(16),
+                });
+            }
+            FilterConfig::ColorDistortion {
+                magnitude,
+                strength,
+            } => {
+                self.add_filter(ColorDistortion {
+                    magnitude,
+                    strength: strength.unwrap_or(20),
+                });
+            }
+            FilterConfig::Invert => {
+                self.add_filter(Invert);
+            }
+            FilterConfig::Brighten { strength } => {
+                self.add_filter(Brighten { strength });
+            }
+            FilterConfig::ShiftChannels { r, g, b } => {
+                self.add_filter(ShiftChannels { r, g, b });
+            }
+            FilterConfig::RemoveFilter => {
+                self.add_filter(RemoveFilter);
+            }
+            FilterConfig::SubFilter => {
+                self.add_filter(SubFilter);
+            }
+            FilterConfig::UpFilter => {
+                self.add_filter(UpFilter);
+            }
+            FilterConfig::AverageFilter => {
+                self.add_filter(AverageFilter);
+            }
+            FilterConfig::PaethFilter => {
+                self.add_filter(PaethFilter);
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PreProcess {
+    RemoveFilter,
+    SubFilter,
+    UpFilter,
+    AverageFilter,
+    PaethFilter,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(tag = "type")]
+pub enum FilterConfig {
+    ChangeFilterType {
+        magnitude: f64,
+    },
+    Replace {
+        magnitude: f64,
+    },
+    Transpose {
+        magnitude: f64,
+    },
+    SetZero {
+        magnitude: f64,
+    },
+    RandomCopy {
+        times: u32,
+    },
+    Substitute {
+        index: usize,
+        value: u8,
+    },
+    PixelSort {
+        magnitude: f64,
+        criterion: Option<SortCriterion>,
+    },
+    Bitwise {
+        magnitude: f64,
+        op: Option<BitOp>,
+        value: Option<u8>,
+    },
+    ChannelSwap {
+        magnitude: f64,
+        target: Option<SwapTarget>,
+    },
+    HorizontalShift {
+        magnitude: f64,
+    },
+    BlockScramble {
+        magnitude: f64,
+        block_size: Option<u32>,
+    },
+    ColorDistortion {
+        magnitude: f64,
+        strength: Option<i16>,
+    },
+    Invert,
+    Brighten {
+        strength: u16,
+    },
+    ShiftChannels {
+        r: i16,
+        g: i16,
+        b: i16,
+    },
     RemoveFilter,
     SubFilter,
     UpFilter,

@@ -1,5 +1,5 @@
 use clap::Parser;
-use glitch_context::{BitOp, PreProcess, SortCriterion, SwapTarget};
+use glitch_context::{BitOp, FilterConfig, PreProcess, SortCriterion, SwapTarget};
 use serde::Deserialize;
 
 #[derive(Parser, Debug)]
@@ -134,66 +134,4 @@ pub struct Cli {
 #[derive(Debug, Deserialize)]
 pub struct ConfigFile {
     pub filters: Vec<FilterConfig>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type")]
-pub enum FilterConfig {
-    ChangeFilterType {
-        magnitude: f64,
-    },
-    Replace {
-        magnitude: f64,
-    },
-    Transpose {
-        magnitude: f64,
-    },
-    SetZero {
-        magnitude: f64,
-    },
-    RandomCopy {
-        times: u32,
-    },
-    Substitute {
-        index: usize,
-        value: u8,
-    },
-    PixelSort {
-        magnitude: f64,
-        criterion: Option<SortCriterion>,
-    },
-    Bitwise {
-        magnitude: f64,
-        op: Option<BitOp>,
-        value: Option<u8>,
-    },
-    ChannelSwap {
-        magnitude: f64,
-        target: Option<SwapTarget>,
-    },
-    HorizontalShift {
-        magnitude: f64,
-    },
-    BlockScramble {
-        magnitude: f64,
-        block_size: Option<u32>,
-    },
-    ColorDistortion {
-        magnitude: f64,
-        strength: Option<i16>,
-    },
-    Invert,
-    Brighten {
-        strength: u16,
-    },
-    ShiftChannels {
-        r: i16,
-        g: i16,
-        b: i16,
-    },
-    RemoveFilter,
-    SubFilter,
-    UpFilter,
-    AverageFilter,
-    PaethFilter,
 }

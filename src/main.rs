@@ -2,8 +2,8 @@ use anyhow::{anyhow, Context};
 use clap::Parser;
 use glitch_context::{
     AverageFilter, Bitwise, BlockScramble, Brighten, ChangeFilterType, ChannelSwap, ColorDistortion,
-    GlitchContext, HorizontalShift, Invert, PaethFilter, PixelSort, RandomCopy, RemoveFilter,
-    Replace, SetZero, ShiftChannels, SortCriterion, SubFilter, Substitute, Transpose, UpFilter,
+    FilterConfig, GlitchContext, HorizontalShift, Invert, PaethFilter, PixelSort, RandomCopy,
+    RemoveFilter, Replace, SetZero, ShiftChannels, SubFilter, Substitute, Transpose, UpFilter,
 };
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
@@ -13,7 +13,7 @@ use walkdir::WalkDir;
 
 mod cli;
 
-use crate::cli::{Cli, ConfigFile, FilterConfig};
+use crate::cli::{Cli, ConfigFile};
 
 fn main() -> anyhow::Result<()> {
     let args = Cli::parse();
@@ -105,97 +105,7 @@ fn apply_filters(args: &Cli, context: &mut GlitchContext) -> anyhow::Result<()> 
         let config: ConfigFile =
             serde_yaml::from_reader(file).context("Failed to parse config file")?;
         for filter in config.filters {
-            match filter {
-                FilterConfig::ChangeFilterType { magnitude } => {
-                    context.add_filter(ChangeFilterType { magnitude });
-                }
-                FilterConfig::Replace { magnitude } => {
-                    context.add_filter(Replace { magnitude });
-                }
-                FilterConfig::Transpose { magnitude } => {
-                    context.add_filter(Transpose { magnitude });
-                }
-                FilterConfig::SetZero { magnitude } => {
-                    context.add_filter(SetZero { magnitude });
-                }
-                FilterConfig::RandomCopy { times } => {
-                    context.add_filter(RandomCopy { times });
-                }
-                FilterConfig::Substitute { index, value } => {
-                    context.add_filter(Substitute { index, value });
-                }
-                FilterConfig::PixelSort {
-                    magnitude,
-                    criterion,
-                } => {
-                    context.add_filter(PixelSort {
-                        magnitude,
-                        criterion: criterion.unwrap_or(SortCriterion::Brightness),
-                    });
-                }
-                FilterConfig::Bitwise {
-                    magnitude,
-                    op,
-                    value,
-                } => {
-                    context.add_filter(Bitwise {
-                        magnitude,
-                        op: op.unwrap_or(glitch_context::BitOp::Xor),
-                        value: value.unwrap_or(0),
-                    });
-                }
-                FilterConfig::ChannelSwap { magnitude, target } => {
-                    context.add_filter(ChannelSwap {
-                        magnitude,
-                        target: target.unwrap_or(glitch_context::SwapTarget::Rg),
-                    });
-                }
-                FilterConfig::HorizontalShift { magnitude } => {
-                    context.add_filter(HorizontalShift { magnitude });
-                }
-                FilterConfig::BlockScramble {
-                    magnitude,
-                    block_size,
-                } => {
-                    context.add_filter(BlockScramble {
-                        magnitude,
-                        block_size: block_size.unwrap_or(16),
-                    });
-                }
-                FilterConfig::ColorDistortion {
-                    magnitude,
-                    strength,
-                } => {
-                    context.add_filter(ColorDistortion {
-                        magnitude,
-                        strength: strength.unwrap_or(20),
-                    });
-                }
-                FilterConfig::Invert => {
-                    context.add_filter(Invert);
-                }
-                FilterConfig::Brighten { strength } => {
-                    context.add_filter(Brighten { strength });
-                }
-                FilterConfig::ShiftChannels { r, g, b } => {
-                    context.add_filter(ShiftChannels { r, g, b });
-                }
-                FilterConfig::RemoveFilter => {
-                    context.add_filter(RemoveFilter);
-                }
-                FilterConfig::SubFilter => {
-                    context.add_filter(SubFilter);
-                }
-                FilterConfig::UpFilter => {
-                    context.add_filter(UpFilter);
-                }
-                FilterConfig::AverageFilter => {
-                    context.add_filter(AverageFilter);
-                }
-                FilterConfig::PaethFilter => {
-                    context.add_filter(PaethFilter);
-                }
-            }
+            context.add_from_config(filter);
         }
     }
 
