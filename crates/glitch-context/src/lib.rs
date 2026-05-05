@@ -668,6 +668,8 @@ impl GlitchFilter for BlockScramble {
         let total_blocks = (num_blocks_x * num_blocks_y) as usize;
         let num_scrambles = (total_blocks as f64 * self.magnitude) as usize;
 
+        let mut scan_lines = png.scan_lines();
+
         for _ in 0..num_scrambles {
             let src_bx = rng.random_range(0..num_blocks_x);
             let src_by = rng.random_range(0..num_blocks_y);
@@ -687,45 +689,41 @@ impl GlitchFilter for BlockScramble {
                     continue;
                 }
 
-                let mut src_pixels = Vec::with_capacity(block_size as usize);
-                let mut dst_pixels = Vec::with_capacity(block_size as usize);
-
-                // Collect pixels from src block row and dst block row
-                {
-                    let scan_lines = png.scan_lines();
-                    let src_line = &scan_lines[src_y as usize];
+                if src_y == dst_y {
+                    let line = &mut scan_lines[src_y as usize];
                     for x_off in 0..block_size {
                         let src_x = src_bx * block_size + x_off;
-                        if src_x < width {
-                            if let Some(p) = src_line.get_pixel(src_x as usize) {
-                                src_pixels.push(p);
-                            }
-                        }
-                    }
-
-                    let dst_line = &scan_lines[dst_y as usize];
-                    for x_off in 0..block_size {
                         let dst_x = dst_bx * block_size + x_off;
-                        if dst_x < width {
-                            if let Some(p) = dst_line.get_pixel(dst_x as usize) {
-                                dst_pixels.push(p);
+                        if src_x < width && dst_x < width {
+                            let p_src = line.get_pixel(src_x as usize);
+                            let p_dst = line.get_pixel(dst_x as usize);
+                            if let (Some(ps), Some(pd)) = (p_src, p_dst) {
+                                line.set_pixel(src_x as usize, pd);
+                                line.set_pixel(dst_x as usize, ps);
                             }
                         }
                     }
-                }
+                } else {
+                    let (src_line, dst_line) = if src_y < dst_y {
+                        let (left, right) = scan_lines.split_at_mut(dst_y as usize);
+                        (&mut left[src_y as usize], &mut right[0])
+                    } else {
+                        let (left, right) = scan_lines.split_at_mut(src_y as usize);
+                        (&mut right[0], &mut left[dst_y as usize])
+                    };
 
-                // Write collected pixels to the other block
-                let mut scan_lines = png.scan_lines();
-                let src_line = &mut scan_lines[src_y as usize];
-                for (x_off, p) in dst_pixels.into_iter().enumerate() {
-                    let src_x = src_bx * block_size + x_off as u32;
-                    src_line.set_pixel(src_x as usize, p);
-                }
-
-                let dst_line = &mut scan_lines[dst_y as usize];
-                for (x_off, p) in src_pixels.into_iter().enumerate() {
-                    let dst_x = dst_bx * block_size + x_off as u32;
-                    dst_line.set_pixel(dst_x as usize, p);
+                    for x_off in 0..block_size {
+                        let src_x = src_bx * block_size + x_off;
+                        let dst_x = dst_bx * block_size + x_off;
+                        if src_x < width && dst_x < width {
+                            let p_src = src_line.get_pixel(src_x as usize);
+                            let p_dst = dst_line.get_pixel(dst_x as usize);
+                            if let (Some(ps), Some(pd)) = (p_src, p_dst) {
+                                src_line.set_pixel(src_x as usize, pd);
+                                dst_line.set_pixel(dst_x as usize, ps);
+                            }
+                        }
+                    }
                 }
             }
         }
