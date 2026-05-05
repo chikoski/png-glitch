@@ -62,6 +62,7 @@ Run it with:
 
 ## Documentation
 
+- **[CLI Usage & Visual Gallery](docs/CLI_GUIDE.md)**: A comprehensive guide to glitching with the CLI.
 - **[Developer & Architecture Guide](DEVELOPER_GUIDE.md)**: Deep dive into the internal design and core concepts.
 - **[Spec: Filter System](crates/png-glitch/specs/FILTER_SYSTEM.md)**: Technical details on PNG filters.
 - **[Spec: Pixel Formats](crates/png-glitch/specs/PIXEL_FORMATS.md)**: How we handle different bit depths and color types.
@@ -95,6 +96,7 @@ Run it with:
 
 ## Documentation
 
+- **[CLI Usage & Visual Gallery](docs/CLI_GUIDE.md)**: A comprehensive guide to glitching with the CLI.
 - **[Developer & Architecture Guide](DEVELOPER_GUIDE.md)**: Deep dive into the internal design and core concepts.
 - **[Spec: Filter System](crates/png-glitch/specs/FILTER_SYSTEM.md)**: Technical details on PNG filters.
 - **[Spec: Pixel Formats](crates/png-glitch/specs/PIXEL_FORMATS.md)**: How we handle different bit depths and color types.
