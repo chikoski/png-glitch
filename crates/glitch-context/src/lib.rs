@@ -183,6 +183,19 @@ impl GlitchContext {
                     lightness_mult: lightness_mult.unwrap_or(1.0),
                 });
             }
+            FilterConfig::ChromaticAberration {
+                magnitude,
+                r_offset,
+                g_offset,
+                b_offset,
+            } => {
+                self.add_filter(ChromaticAberration {
+                    magnitude,
+                    r_offset: r_offset.unwrap_or(2),
+                    g_offset: g_offset.unwrap_or(0),
+                    b_offset: b_offset.unwrap_or(-2),
+                });
+            }
             FilterConfig::Invert => {
                 self.add_filter(Invert);
             }
@@ -272,6 +285,12 @@ pub enum FilterConfig {
         hue_shift: Option<f64>,
         saturation_mult: Option<f64>,
         lightness_mult: Option<f64>,
+    },
+    ChromaticAberration {
+        magnitude: f64,
+        r_offset: Option<i32>,
+        g_offset: Option<i32>,
+        b_offset: Option<i32>,
     },
     Invert,
     Brighten {
@@ -840,6 +859,59 @@ fn hue_to_rgb(p: f64, q: f64, mut t: f64) -> f64 {
     if t < 1.0 / 2.0 { return q; }
     if t < 2.0 / 3.0 { return p + (q - p) * (2.0 / 3.0 - t) * 6.0; }
     p
+}
+
+/// Filter that creates chromatic aberration by shifting channels.
+pub struct ChromaticAberration {
+    pub magnitude: f64,
+    pub r_offset: i32,
+    pub g_offset: i32,
+    pub b_offset: i32,
+}
+
+impl GlitchFilter for ChromaticAberration {
+    fn apply(&self, png: &mut PngGlitch, rng: &mut ChaCha8Rng) {
+        let width = png.width() as usize;
+        png.foreach_scanline(|scan_line| {
+            if rng.random_bool(self.magnitude) {
+                let mut r_channel = Vec::with_capacity(width);
+                let mut g_channel = Vec::with_capacity(width);
+                let mut b_channel = Vec::with_capacity(width);
+                let mut alpha = Vec::with_capacity(width);
+
+                for x in 0..width {
+                    if let Some(p) = scan_line.get_pixel(x) {
+                        r_channel.push(p.r());
+                        g_channel.push(p.g());
+                        b_channel.push(p.b());
+                        alpha.push(p.a());
+                    }
+                }
+
+                scan_line.process_pixels(|x, p| {
+                    let get_val = |chan: &Vec<u16>, offset: i32| {
+                        let nx = (x as i32 + offset).rem_euclid(width as i32) as usize;
+                        chan[nx]
+                    };
+
+                    match p {
+                        Pixel::RGB(_, _, _) => Pixel::RGB(
+                            get_val(&r_channel, self.r_offset),
+                            get_val(&g_channel, self.g_offset),
+                            get_val(&b_channel, self.b_offset),
+                        ),
+                        Pixel::RGBA(_, _, _, _) => Pixel::RGBA(
+                            get_val(&r_channel, self.r_offset),
+                            get_val(&g_channel, self.g_offset),
+                            get_val(&b_channel, self.b_offset),
+                            alpha[x],
+                        ),
+                        _ => p,
+                    }
+                });
+            }
+        });
+    }
 }
 
 impl GlitchFilter for Invert {

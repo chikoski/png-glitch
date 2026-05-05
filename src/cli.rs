@@ -98,6 +98,22 @@ pub struct Cli {
     #[arg(long, default_value_t = 1.0)]
     pub lightness_mult: f64,
 
+    /// Chromatic Aberration magnitude
+    #[arg(long)]
+    pub chromatic_aberration: Option<f64>,
+
+    /// Red channel offset
+    #[arg(long, default_value_t = 2)]
+    pub r_offset: i32,
+
+    /// Green channel offset
+    #[arg(long, default_value_t = 0)]
+    pub g_offset: i32,
+
+    /// Blue channel offset
+    #[arg(long, default_value_t = -2)]
+    pub b_offset: i32,
+
     /// Invert colors
     #[arg(long)]
     pub invert: bool,
