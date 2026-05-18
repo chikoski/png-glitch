@@ -161,6 +161,19 @@ pub struct Cli {
     /// Apply a filter before other glitch filters
     #[arg(long, value_enum)]
     pub pre_process: Option<PreProcess>,
+
+    // WebP 専用オプション
+    /// Macroblock glitch magnitude (WebP only)
+    #[arg(long)]
+    pub macroblock_glitch: Option<f64>,
+
+    /// Alpha channel glitch strategy: invert, randomize, zero, one (WebP only)
+    #[arg(long)]
+    pub alpha_glitch: Option<String>,
+
+    /// Re-encode quality for lossy artifact effect, 0.0-100.0 (WebP only)
+    #[arg(long)]
+    pub lossy_quality: Option<f32>,
 }
 
 #[derive(Debug, Deserialize)]

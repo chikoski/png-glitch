@@ -1011,3 +1011,419 @@ mod test {
         Ok(())
     }
 }
+
+// ============================================================
+// WebP フィルター実装
+// ============================================================
+
+pub use webp_glitch::WebpGlitchFilter;
+pub use webp_glitch::{WebpGlitch, WebpPixel};
+
+/// WebP 画像に対するグリッチコンテキスト。
+pub struct WebpGlitchContext {
+    webp: WebpGlitch,
+    filters: Vec<Box<dyn WebpGlitchFilter>>,
+    rng: ChaCha8Rng,
+}
+
+impl WebpGlitchContext {
+    pub fn open(path: impl AsRef<std::path::Path>, seed: Option<u64>) -> anyhow::Result<Self> {
+        let webp = WebpGlitch::open(path)?;
+        let rng = match seed {
+            Some(s) => ChaCha8Rng::seed_from_u64(s),
+            None => ChaCha8Rng::from_os_rng(),
+        };
+        Ok(Self { webp, filters: Vec::new(), rng })
+    }
+
+    pub fn new(data: &[u8], seed: Option<u64>) -> anyhow::Result<Self> {
+        let webp = WebpGlitch::new(data.to_vec())?;
+        let rng = match seed {
+            Some(s) => ChaCha8Rng::seed_from_u64(s),
+            None => ChaCha8Rng::from_os_rng(),
+        };
+        Ok(Self { webp, filters: Vec::new(), rng })
+    }
+
+    pub fn add_filter(&mut self, filter: impl WebpGlitchFilter + 'static) {
+        self.filters.push(Box::new(filter));
+    }
+
+    pub fn execute(&mut self) {
+        for filter in &self.filters {
+            filter.apply(&mut self.webp, &mut self.rng);
+        }
+    }
+
+    pub fn buffer(&self) -> anyhow::Result<Vec<u8>> {
+        Ok(self.webp.encode()?)
+    }
+
+    pub fn save(&self, path: impl AsRef<std::path::Path>) -> anyhow::Result<()> {
+        let data = self.buffer()?;
+        std::fs::write(path, data)?;
+        Ok(())
+    }
+
+    pub fn width(&self) -> u32 { self.webp.width() }
+    pub fn height(&self) -> u32 { self.webp.height() }
+}
+
+/// WebP 版 Invert フィルター。
+pub struct WebpInvert;
+
+impl WebpGlitchFilter for WebpInvert {
+    fn apply(&self, webp: &mut WebpGlitch, _rng: &mut ChaCha8Rng) {
+        webp.foreach_scanline(|line| {
+            line.process_pixels(|_, p| match p {
+                WebpPixel::RGB(r, g, b) => WebpPixel::RGB(255 - r, 255 - g, 255 - b),
+                WebpPixel::RGBA(r, g, b, a) => WebpPixel::RGBA(255 - r, 255 - g, 255 - b, a),
+            });
+        });
+    }
+}
+
+/// WebP 版 Brighten フィルター。
+pub struct WebpBrighten {
+    pub strength: u8,
+}
+
+impl WebpGlitchFilter for WebpBrighten {
+    fn apply(&self, webp: &mut WebpGlitch, _rng: &mut ChaCha8Rng) {
+        let s = self.strength;
+        webp.foreach_scanline(|line| {
+            line.process_pixels(|_, p| match p {
+                WebpPixel::RGB(r, g, b) => WebpPixel::RGB(
+                    r.saturating_add(s),
+                    g.saturating_add(s),
+                    b.saturating_add(s),
+                ),
+                WebpPixel::RGBA(r, g, b, a) => WebpPixel::RGBA(
+                    r.saturating_add(s),
+                    g.saturating_add(s),
+                    b.saturating_add(s),
+                    a,
+                ),
+            });
+        });
+    }
+}
+
+/// WebP 版 ShiftChannels フィルター。
+pub struct WebpShiftChannels {
+    pub r: i16,
+    pub g: i16,
+    pub b: i16,
+}
+
+impl WebpGlitchFilter for WebpShiftChannels {
+    fn apply(&self, webp: &mut WebpGlitch, _rng: &mut ChaCha8Rng) {
+        let r_off = self.r;
+        let g_off = self.g;
+        let b_off = self.b;
+        webp.foreach_scanline(|line| {
+            line.process_pixels(|_, p| {
+                let shift = |v: u8, off: i16| (v as i16 + off).clamp(0, 255) as u8;
+                match p {
+                    WebpPixel::RGB(r, g, b) => {
+                        WebpPixel::RGB(shift(r, r_off), shift(g, g_off), shift(b, b_off))
+                    }
+                    WebpPixel::RGBA(r, g, b, a) => {
+                        WebpPixel::RGBA(shift(r, r_off), shift(g, g_off), shift(b, b_off), a)
+                    }
+                }
+            });
+        });
+    }
+}
+
+impl WebpGlitchFilter for PixelSort {
+    fn apply(&self, webp: &mut WebpGlitch, rng: &mut ChaCha8Rng) {
+        webp.foreach_scanline(|line| {
+            if rng.random_bool(self.magnitude) {
+                let count = line.pixels_count() as usize;
+                let mut pixels: Vec<WebpPixel> = (0..count)
+                    .filter_map(|x| line.get_pixel(x))
+                    .collect();
+                pixels.sort_by(|a, b| {
+                    let val = |p: &WebpPixel| match self.criterion {
+                        SortCriterion::Brightness => {
+                            (p.r() as f64 + p.g() as f64 + p.b() as f64) / 3.0
+                        }
+                        SortCriterion::Hue => {
+                            let r = p.r() as f64 / 255.0;
+                            let g = p.g() as f64 / 255.0;
+                            let b = p.b() as f64 / 255.0;
+                            let max = r.max(g).max(b);
+                            let min = r.min(g).min(b);
+                            if max == min {
+                                0.0
+                            } else if max == r {
+                                (60.0 * ((g - b) / (max - min)) + 360.0) % 360.0
+                            } else if max == g {
+                                60.0 * ((b - r) / (max - min)) + 120.0
+                            } else {
+                                60.0 * ((r - g) / (max - min)) + 240.0
+                            }
+                        }
+                    };
+                    val(a)
+                        .partial_cmp(&val(b))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+                for (x, p) in pixels.into_iter().enumerate() {
+                    line.set_pixel(x, p);
+                }
+            }
+        });
+    }
+}
+
+impl WebpGlitchFilter for Bitwise {
+    fn apply(&self, webp: &mut WebpGlitch, rng: &mut ChaCha8Rng) {
+        webp.foreach_scanline(|line| {
+            if rng.random_bool(self.magnitude) {
+                for i in 0..line.size() {
+                    if let Some(b) = line.index(i) {
+                        let new_b = match self.op {
+                            BitOp::And => b & self.value,
+                            BitOp::Or => b | self.value,
+                            BitOp::Xor => b ^ self.value,
+                        };
+                        line.update(i, new_b);
+                    }
+                }
+            }
+        });
+    }
+}
+
+impl WebpGlitchFilter for ChannelSwap {
+    fn apply(&self, webp: &mut WebpGlitch, rng: &mut ChaCha8Rng) {
+        webp.foreach_scanline(|line| {
+            if rng.random_bool(self.magnitude) {
+                line.process_pixels(|_, p| match p {
+                    WebpPixel::RGB(r, g, b) => match self.target {
+                        SwapTarget::Rg => WebpPixel::RGB(g, r, b),
+                        SwapTarget::Gb => WebpPixel::RGB(r, b, g),
+                        SwapTarget::Br => WebpPixel::RGB(b, g, r),
+                    },
+                    WebpPixel::RGBA(r, g, b, a) => match self.target {
+                        SwapTarget::Rg => WebpPixel::RGBA(g, r, b, a),
+                        SwapTarget::Gb => WebpPixel::RGBA(r, b, g, a),
+                        SwapTarget::Br => WebpPixel::RGBA(b, g, r, a),
+                    },
+                });
+            }
+        });
+    }
+}
+
+impl WebpGlitchFilter for HorizontalShift {
+    fn apply(&self, webp: &mut WebpGlitch, rng: &mut ChaCha8Rng) {
+        webp.foreach_scanline(|line| {
+            if rng.random_bool(self.magnitude) {
+                let size = line.size();
+                if size == 0 {
+                    return;
+                }
+                let shift = rng.random_range(0..size);
+                let mut buf: Vec<u8> = (0..size).filter_map(|i| line.index(i)).collect();
+                buf.rotate_left(shift);
+                for (i, b) in buf.into_iter().enumerate() {
+                    line.update(i, b);
+                }
+            }
+        });
+    }
+}
+
+impl WebpGlitchFilter for ColorDistortion {
+    fn apply(&self, webp: &mut WebpGlitch, rng: &mut ChaCha8Rng) {
+        let strength = self.strength.min(255) as i16;
+        let magnitude = self.magnitude;
+        webp.foreach_scanline(|line| {
+            if rng.random_bool(magnitude) {
+                line.process_pixels(|_, p| {
+                    let r_off = rng.random_range(-strength..=strength);
+                    let g_off = rng.random_range(-strength..=strength);
+                    let b_off = rng.random_range(-strength..=strength);
+                    let shift = |v: u8, off: i16| (v as i16 + off).clamp(0, 255) as u8;
+                    match p {
+                        WebpPixel::RGB(r, g, b) => {
+                            WebpPixel::RGB(shift(r, r_off), shift(g, g_off), shift(b, b_off))
+                        }
+                        WebpPixel::RGBA(r, g, b, a) => WebpPixel::RGBA(
+                            shift(r, r_off),
+                            shift(g, g_off),
+                            shift(b, b_off),
+                            a,
+                        ),
+                    }
+                });
+            }
+        });
+    }
+}
+
+impl WebpGlitchFilter for ChromaticAberration {
+    fn apply(&self, webp: &mut WebpGlitch, rng: &mut ChaCha8Rng) {
+        let width = webp.width() as usize;
+        webp.foreach_scanline(|line| {
+            if rng.random_bool(self.magnitude) {
+                let mut r_ch = Vec::with_capacity(width);
+                let mut g_ch = Vec::with_capacity(width);
+                let mut b_ch = Vec::with_capacity(width);
+                let mut a_ch = Vec::with_capacity(width);
+                for x in 0..width {
+                    if let Some(p) = line.get_pixel(x) {
+                        r_ch.push(p.r());
+                        g_ch.push(p.g());
+                        b_ch.push(p.b());
+                        a_ch.push(p.a());
+                    }
+                }
+                let get = |ch: &Vec<u8>, off: i32, x: usize| {
+                    let nx = (x as i32 + off).rem_euclid(width as i32) as usize;
+                    ch[nx]
+                };
+                line.process_pixels(|x, p| {
+                    let r = get(&r_ch, self.r_offset, x);
+                    let g = get(&g_ch, self.g_offset, x);
+                    let b = get(&b_ch, self.b_offset, x);
+                    match p {
+                        WebpPixel::RGB(_, _, _) => WebpPixel::RGB(r, g, b),
+                        WebpPixel::RGBA(_, _, _, _) => WebpPixel::RGBA(r, g, b, a_ch[x]),
+                    }
+                });
+            }
+        });
+    }
+}
+
+// ============================================================
+// WebP 固有フィルター
+// ============================================================
+
+/// VP8 マクロブロック (16×16 px) 境界に沿ってブロックを入れ替える。
+pub struct MacroblockGlitch {
+    pub magnitude: f64,
+}
+
+impl WebpGlitchFilter for MacroblockGlitch {
+    fn apply(&self, webp: &mut WebpGlitch, rng: &mut ChaCha8Rng) {
+        const MB: u32 = 16;
+        let width = webp.width();
+        let height = webp.height();
+        let num_x = width / MB;
+        let num_y = height / MB;
+        if num_x == 0 || num_y == 0 {
+            return;
+        }
+        let total = (num_x * num_y) as usize;
+        let swaps = (total as f64 * self.magnitude) as usize;
+        let mut lines = webp.scan_lines();
+
+        for _ in 0..swaps {
+            let sx = rng.random_range(0..num_x);
+            let sy = rng.random_range(0..num_y);
+            let dx = rng.random_range(0..num_x);
+            let dy = rng.random_range(0..num_y);
+            if sx == dx && sy == dy {
+                continue;
+            }
+            for row_off in 0..MB {
+                let src_y = sy * MB + row_off;
+                let dst_y = dy * MB + row_off;
+                if src_y >= height || dst_y >= height {
+                    continue;
+                }
+                if src_y == dst_y {
+                    let line = &mut lines[src_y as usize];
+                    for col_off in 0..MB {
+                        let src_x = (sx * MB + col_off) as usize;
+                        let dst_x = (dx * MB + col_off) as usize;
+                        if src_x < width as usize && dst_x < width as usize {
+                            if let (Some(ps), Some(pd)) =
+                                (line.get_pixel(src_x), line.get_pixel(dst_x))
+                            {
+                                line.set_pixel(src_x, pd);
+                                line.set_pixel(dst_x, ps);
+                            }
+                        }
+                    }
+                } else {
+                    let (src_line, dst_line) = if src_y < dst_y {
+                        let (left, right) = lines.split_at_mut(dst_y as usize);
+                        (&mut left[src_y as usize], &mut right[0])
+                    } else {
+                        let (left, right) = lines.split_at_mut(src_y as usize);
+                        (&mut right[0], &mut left[dst_y as usize])
+                    };
+                    for col_off in 0..MB {
+                        let src_x = (sx * MB + col_off) as usize;
+                        let dst_x = (dx * MB + col_off) as usize;
+                        if src_x < width as usize && dst_x < width as usize {
+                            if let (Some(ps), Some(pd)) =
+                                (src_line.get_pixel(src_x), dst_line.get_pixel(dst_x))
+                            {
+                                src_line.set_pixel(src_x, pd);
+                                dst_line.set_pixel(dst_x, ps);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum AlphaGlitchStrategy {
+    Invert,
+    Randomize,
+    Zero,
+    One,
+}
+
+/// アルファチャンネルのみを選択的に破壊する。
+pub struct AlphaGlitch {
+    pub magnitude: f64,
+    pub strategy: AlphaGlitchStrategy,
+}
+
+impl WebpGlitchFilter for AlphaGlitch {
+    fn apply(&self, webp: &mut WebpGlitch, rng: &mut ChaCha8Rng) {
+        if !webp.has_alpha() {
+            return;
+        }
+        webp.foreach_scanline(|line| {
+            if rng.random_bool(self.magnitude) {
+                line.process_pixels(|_, p| match p {
+                    WebpPixel::RGBA(r, g, b, a) => {
+                        let new_a = match self.strategy {
+                            AlphaGlitchStrategy::Invert => 255 - a,
+                            AlphaGlitchStrategy::Randomize => rng.random(),
+                            AlphaGlitchStrategy::Zero => 0,
+                            AlphaGlitchStrategy::One => 255,
+                        };
+                        WebpPixel::RGBA(r, g, b, new_a)
+                    }
+                    other => other,
+                });
+            }
+        });
+    }
+}
+
+/// 再エンコード品質を意図的に下げて JPEG 的アーティファクトを加える。
+/// `WebpGlitchContext::execute()` 後の encode 時に quality を上書きする。
+pub struct LossyArtifact {
+    pub quality: f32,
+}
+
+impl WebpGlitchFilter for LossyArtifact {
+    fn apply(&self, webp: &mut WebpGlitch, _rng: &mut ChaCha8Rng) {
+        webp.set_quality(self.quality);
+    }
+}

@@ -17,6 +17,7 @@ anyhow = { version = "1.0.89", features = [] }
 clap = { version = "4.5.18", features = ["derive"] }
 png-glitch = { path = "crates/png-glitch", version = "0.6.0" }
 glitch-context = { path = "crates/glitch-context", version = "0.1.0" }
+webp-glitch = { path = "crates/webp-glitch", version = "0.1.0" }
 rand = "0.9.2"
 log = "0.4.22"
 serde = { version = "1.0", features = ["derive"] }
