@@ -28,7 +28,20 @@ glitch.remove_filter()
       .save("output.png")?;
 ```
 
-## 3. High-Performance Pixel Processing
+## 3. Advanced Glitch Filters (glitch-context)
+
+The `glitch-context` crate provides more complex filters that leverage the low-level `PngGlitch` APIs.
+
+| Filter | Description | Algorithm |
+| :--- | :--- | :--- |
+| `PixelSort` | Sorts pixels within a scanline. | Uses Brightness or Hue as sorting criteria. |
+| `Bitwise` | Applies logical operations. | Per-byte `AND`, `OR`, or `XOR` with a constant value. |
+| `ChannelSwap` | Exchanges color channels. | Swaps R↔G, G↔B, or B↔R channels using the Pixel API. |
+| `HorizontalShift`| Shifts scanline data. | Rotates scanline bytes horizontally with wrap-around. |
+| `RandomCopy` | Duplicates scanlines. | Randomly picks source and destination lines to copy. |
+| `Substitute` | Replaces bytes at fixed index. | Sets a specific byte in all scanlines to a fixed value. |
+
+## 4. High-Performance Pixel Processing
 
 For custom glitch effects, the `process_pixels` API on `ScanLine` is the most efficient choice.
 

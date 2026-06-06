@@ -1,17 +1,30 @@
 use anyhow::{anyhow, Context};
 use clap::Parser;
 use glitch_context::{
-    AverageFilter, Brighten, ChangeFilterType, GlitchContext, Invert, PaethFilter, RemoveFilter,
-    Replace, SetZero, ShiftChannels, SubFilter, Transpose, UpFilter,
+    AlphaGlitch, AlphaGlitchStrategy, AverageFilter, Bitwise, BlockScramble, Brighten,
+    ChangeFilterType, ChannelSwap, ChromaticAberration, ColorDistortion, ColorSpaceGlitch,
+    FilterConfig, GlitchContext, HorizontalShift, Invert, LossyArtifact, MacroblockGlitch,
+    PaethFilter, PixelSort, RandomCopy, RemoveFilter, Replace, SetZero, ShiftChannels, SubFilter,
+    Substitute, Transpose, UpFilter, WebpBrighten, WebpGlitchContext, WebpInvert,
+    WebpShiftChannels,
 };
 use indicatif::{ProgressBar, ProgressStyle};
+use rayon::prelude::*;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 mod cli;
 
-use crate::cli::{Cli, ConfigFile, FilterConfig, PreProcess};
+use crate::cli::{Cli, ConfigFile};
+
+fn is_webp(path: &str) -> bool {
+    Path::new(path)
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|s| s.eq_ignore_ascii_case("webp"))
+        .unwrap_or(false)
+}
 
 fn main() -> anyhow::Result<()> {
     let args = Cli::parse();
@@ -24,13 +37,23 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn single_process(args: &Cli) -> anyhow::Result<()> {
-    let mut context =
-        GlitchContext::open(&args.png_file, args.seed).context("Failed to open PNG file")?;
-    apply_filters(args, &mut context)?;
-    context.execute();
-    context
-        .save(&args.output_file)
-        .context("Failed to save output file")?;
+    if is_webp(&args.png_file) {
+        let mut context = WebpGlitchContext::open(&args.png_file, args.seed)
+            .context("Failed to open WebP file")?;
+        apply_webp_filters(args, &mut context)?;
+        context.execute();
+        context
+            .save(&args.output_file)
+            .context("Failed to save output file")?;
+    } else {
+        let mut context =
+            GlitchContext::open(&args.png_file, args.seed).context("Failed to open PNG file")?;
+        apply_filters(args, &mut context)?;
+        context.execute();
+        context
+            .save(&args.output_file)
+            .context("Failed to save output file")?;
+    }
     Ok(())
 }
 
@@ -43,7 +66,12 @@ fn batch_process(args: &Cli, output_dir: &str) -> anyhow::Result<()> {
     let png_files: Vec<PathBuf> = WalkDir::new(&args.png_file)
         .into_iter()
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("png"))
+        .filter(|e| {
+            matches!(
+                e.path().extension().and_then(|s| s.to_str()),
+                Some("png") | Some("webp")
+            )
+        })
         .map(|e| e.path().to_path_buf())
         .collect();
 
@@ -58,25 +86,43 @@ fn batch_process(args: &Cli, output_dir: &str) -> anyhow::Result<()> {
             .progress_chars("#>-"),
     );
 
-    for path in png_files {
+    png_files.par_iter().for_each(|path| {
         let file_name = path
             .file_name()
-            .ok_or_else(|| anyhow!("Failed to get file name"))?;
+            .unwrap_or_default();
         let dest_path = output_path.join(file_name);
 
         pb.set_message(format!("Processing {:?}", file_name));
 
-        let mut context = GlitchContext::open(&path, args.seed)
-            .with_context(|| format!("Failed to open {:?}", path))?;
-
-        apply_filters(args, &mut context)?;
-        context.execute();
-        context
-            .save(&dest_path)
-            .with_context(|| format!("Failed to save {:?}", dest_path))?;
+        let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+        if ext.eq_ignore_ascii_case("webp") {
+            let mut context = match WebpGlitchContext::open(path, args.seed) {
+                Ok(ctx) => ctx,
+                Err(e) => { eprintln!("Failed to open {:?}: {}", path, e); return; }
+            };
+            if let Err(e) = apply_webp_filters(args, &mut context) {
+                eprintln!("Failed to apply filters to {:?}: {}", path, e); return;
+            }
+            context.execute();
+            if let Err(e) = context.save(&dest_path) {
+                eprintln!("Failed to save {:?}: {}", dest_path, e);
+            }
+        } else {
+            let mut context = match GlitchContext::open(path, args.seed) {
+                Ok(ctx) => ctx,
+                Err(e) => { eprintln!("Failed to open {:?}: {}", path, e); return; }
+            };
+            if let Err(e) = apply_filters(args, &mut context) {
+                eprintln!("Failed to apply filters to {:?}: {}", path, e); return;
+            }
+            context.execute();
+            if let Err(e) = context.save(&dest_path) {
+                eprintln!("Failed to save {:?}: {}", dest_path, e);
+            }
+        }
 
         pb.inc(1);
-    }
+    });
 
     pb.finish_with_message("Batch processing complete");
     Ok(())
@@ -85,13 +131,7 @@ fn batch_process(args: &Cli, output_dir: &str) -> anyhow::Result<()> {
 fn apply_filters(args: &Cli, context: &mut GlitchContext) -> anyhow::Result<()> {
     // Apply pre-process filter first
     if let Some(pre_process) = args.pre_process {
-        match pre_process {
-            PreProcess::RemoveFilter => context.add_filter(RemoveFilter),
-            PreProcess::SubFilter => context.add_filter(SubFilter),
-            PreProcess::UpFilter => context.add_filter(UpFilter),
-            PreProcess::AverageFilter => context.add_filter(AverageFilter),
-            PreProcess::PaethFilter => context.add_filter(PaethFilter),
-        }
+        context.pre_process(pre_process);
     }
 
     // Apply config file filters if present
@@ -100,44 +140,7 @@ fn apply_filters(args: &Cli, context: &mut GlitchContext) -> anyhow::Result<()> 
         let config: ConfigFile =
             serde_yaml::from_reader(file).context("Failed to parse config file")?;
         for filter in config.filters {
-            match filter {
-                FilterConfig::ChangeFilterType { magnitude } => {
-                    context.add_filter(ChangeFilterType { magnitude });
-                }
-                FilterConfig::Replace { magnitude } => {
-                    context.add_filter(Replace { magnitude });
-                }
-                FilterConfig::Transpose { magnitude } => {
-                    context.add_filter(Transpose { magnitude });
-                }
-                FilterConfig::SetZero { magnitude } => {
-                    context.add_filter(SetZero { magnitude });
-                }
-                FilterConfig::Invert => {
-                    context.add_filter(Invert);
-                }
-                FilterConfig::Brighten { strength } => {
-                    context.add_filter(Brighten { strength });
-                }
-                FilterConfig::ShiftChannels { r, g, b } => {
-                    context.add_filter(ShiftChannels { r, g, b });
-                }
-                FilterConfig::RemoveFilter => {
-                    context.add_filter(RemoveFilter);
-                }
-                FilterConfig::SubFilter => {
-                    context.add_filter(SubFilter);
-                }
-                FilterConfig::UpFilter => {
-                    context.add_filter(UpFilter);
-                }
-                FilterConfig::AverageFilter => {
-                    context.add_filter(AverageFilter);
-                }
-                FilterConfig::PaethFilter => {
-                    context.add_filter(PaethFilter);
-                }
-            }
+            context.add_from_config(filter);
         }
     }
 
@@ -153,6 +156,67 @@ fn apply_filters(args: &Cli, context: &mut GlitchContext) -> anyhow::Result<()> 
     }
     if let Some(magnitude) = args.set_zero {
         context.add_filter(SetZero { magnitude });
+    }
+    if let Some(times) = args.random_copy {
+        context.add_filter(RandomCopy { times });
+    }
+    if let Some(sub) = &args.substitute {
+        let parts: Vec<&str> = sub.split(':').collect();
+        if parts.len() == 2 {
+            let index = parts[0].parse::<usize>()?;
+            let value = parts[1].parse::<u8>()?;
+            context.add_filter(Substitute { index, value });
+        }
+    }
+    if let Some(magnitude) = args.pixel_sort {
+        context.add_filter(PixelSort {
+            magnitude,
+            criterion: args.pixel_sort_criterion,
+        });
+    }
+    if let Some(magnitude) = args.bitwise {
+        context.add_filter(Bitwise {
+            magnitude,
+            op: args.bitwise_op,
+            value: args.bitwise_value,
+        });
+    }
+    if let Some(magnitude) = args.channel_swap {
+        context.add_filter(ChannelSwap {
+            magnitude,
+            target: args.channel_swap_target,
+        });
+    }
+    if let Some(magnitude) = args.horizontal_shift {
+        context.add_filter(HorizontalShift { magnitude });
+    }
+    if let Some(magnitude) = args.block_scramble {
+        context.add_filter(BlockScramble {
+            magnitude,
+            block_size: args.block_scramble_size,
+        });
+    }
+    if let Some(magnitude) = args.color_distortion {
+        context.add_filter(ColorDistortion {
+            magnitude,
+            strength: args.color_distortion_strength,
+        });
+    }
+    if let Some(magnitude) = args.color_space_glitch {
+        context.add_filter(ColorSpaceGlitch {
+            magnitude,
+            hue_shift: args.hue_shift,
+            saturation_mult: args.saturation_mult,
+            lightness_mult: args.lightness_mult,
+        });
+    }
+    if let Some(magnitude) = args.chromatic_aberration {
+        context.add_filter(ChromaticAberration {
+            magnitude,
+            r_offset: args.r_offset,
+            g_offset: args.g_offset,
+            b_offset: args.b_offset,
+        });
     }
     if args.invert {
         context.add_filter(Invert);
@@ -185,5 +249,110 @@ fn apply_filters(args: &Cli, context: &mut GlitchContext) -> anyhow::Result<()> 
         context.add_filter(PaethFilter);
     }
 
+    Ok(())
+}
+
+fn apply_webp_filters(args: &Cli, context: &mut WebpGlitchContext) -> anyhow::Result<()> {
+    if let Some(config_path) = &args.config {
+        let file = File::open(config_path).context("Failed to open config file")?;
+        let config: ConfigFile =
+            serde_yaml::from_reader(file).context("Failed to parse config file")?;
+        for filter_cfg in config.filters {
+            match filter_cfg {
+                FilterConfig::Invert => context.add_filter(WebpInvert),
+                FilterConfig::Brighten { strength } => {
+                    context.add_filter(WebpBrighten { strength: strength.min(255) as u8 })
+                }
+                FilterConfig::ShiftChannels { r, g, b } => {
+                    context.add_filter(WebpShiftChannels { r, g, b })
+                }
+                FilterConfig::PixelSort { magnitude, criterion } => {
+                    context.add_filter(PixelSort {
+                        magnitude,
+                        criterion: criterion.unwrap_or(glitch_context::SortCriterion::Brightness),
+                    })
+                }
+                FilterConfig::Bitwise { magnitude, op, value } => {
+                    context.add_filter(Bitwise {
+                        magnitude,
+                        op: op.unwrap_or(glitch_context::BitOp::Xor),
+                        value: value.unwrap_or(0),
+                    })
+                }
+                FilterConfig::ChannelSwap { magnitude, target } => {
+                    context.add_filter(ChannelSwap {
+                        magnitude,
+                        target: target.unwrap_or(glitch_context::SwapTarget::Rg),
+                    })
+                }
+                FilterConfig::HorizontalShift { magnitude } => {
+                    context.add_filter(HorizontalShift { magnitude })
+                }
+                FilterConfig::ColorDistortion { magnitude, strength } => {
+                    context.add_filter(ColorDistortion {
+                        magnitude,
+                        strength: strength.unwrap_or(20),
+                    })
+                }
+                FilterConfig::ChromaticAberration { magnitude, r_offset, g_offset, b_offset } => {
+                    context.add_filter(ChromaticAberration {
+                        magnitude,
+                        r_offset: r_offset.unwrap_or(2),
+                        g_offset: g_offset.unwrap_or(0),
+                        b_offset: b_offset.unwrap_or(-2),
+                    })
+                }
+                _ => {}
+            }
+        }
+    }
+
+    if args.invert { context.add_filter(WebpInvert); }
+    if let Some(strength) = args.brighten {
+        context.add_filter(WebpBrighten { strength: strength.min(255) as u8 });
+    }
+    if let Some(channels) = &args.shift_channels {
+        if channels.len() == 3 {
+            context.add_filter(WebpShiftChannels { r: channels[0], g: channels[1], b: channels[2] });
+        }
+    }
+    if let Some(magnitude) = args.pixel_sort {
+        context.add_filter(PixelSort { magnitude, criterion: args.pixel_sort_criterion });
+    }
+    if let Some(magnitude) = args.bitwise {
+        context.add_filter(Bitwise { magnitude, op: args.bitwise_op, value: args.bitwise_value });
+    }
+    if let Some(magnitude) = args.channel_swap {
+        context.add_filter(ChannelSwap { magnitude, target: args.channel_swap_target });
+    }
+    if let Some(magnitude) = args.horizontal_shift {
+        context.add_filter(HorizontalShift { magnitude });
+    }
+    if let Some(magnitude) = args.color_distortion {
+        context.add_filter(ColorDistortion { magnitude, strength: args.color_distortion_strength });
+    }
+    if let Some(magnitude) = args.chromatic_aberration {
+        context.add_filter(ChromaticAberration {
+            magnitude,
+            r_offset: args.r_offset,
+            g_offset: args.g_offset,
+            b_offset: args.b_offset,
+        });
+    }
+    if let Some(magnitude) = args.macroblock_glitch {
+        context.add_filter(MacroblockGlitch { magnitude });
+    }
+    if let Some(quality) = args.lossy_quality {
+        context.add_filter(LossyArtifact { quality });
+    }
+    if let Some(strategy_str) = &args.alpha_glitch {
+        let strategy = match strategy_str.as_str() {
+            "invert" => AlphaGlitchStrategy::Invert,
+            "zero"   => AlphaGlitchStrategy::Zero,
+            "one"    => AlphaGlitchStrategy::One,
+            _        => AlphaGlitchStrategy::Randomize,
+        };
+        context.add_filter(AlphaGlitch { magnitude: 1.0, strategy });
+    }
     Ok(())
 }

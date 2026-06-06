@@ -7,3 +7,4 @@ PngSuite
 **/*.cwasm
 **/bindings.rs
 **/.idea
+.claude
