@@ -65,21 +65,16 @@ pub struct Brighten {
 impl GlitchPreset for Brighten {
     fn apply_to_line(&self, line: &mut ScanLine) {
         let strength = self.strength;
+        let max_val = ((1u32 << line.bit_depth() as u32).saturating_sub(1)) as u16;
         line.process_pixels(|_, pixel| {
+            let brighten = |v: u16| v.saturating_add(strength).min(max_val);
             match pixel {
-                Pixel::Gray(v) => Pixel::Gray(v.saturating_add(strength)),
-                Pixel::GrayAlpha(v, a) => Pixel::GrayAlpha(v.saturating_add(strength), a),
-                Pixel::RGB(r, g, b) => Pixel::RGB(
-                    r.saturating_add(strength),
-                    g.saturating_add(strength),
-                    b.saturating_add(strength),
-                ),
-                Pixel::RGBA(r, g, b, a) => Pixel::RGBA(
-                    r.saturating_add(strength),
-                    g.saturating_add(strength),
-                    b.saturating_add(strength),
-                    a,
-                ),
+                Pixel::Gray(v) => Pixel::Gray(brighten(v)),
+                Pixel::GrayAlpha(v, a) => Pixel::GrayAlpha(brighten(v), a),
+                Pixel::RGB(r, g, b) => Pixel::RGB(brighten(r), brighten(g), brighten(b)),
+                Pixel::RGBA(r, g, b, a) => {
+                    Pixel::RGBA(brighten(r), brighten(g), brighten(b), a)
+                }
                 Pixel::Indexed(v) => Pixel::Indexed(v.saturating_add(strength as u8)),
             }
         });
@@ -113,7 +108,6 @@ mod tests {
         let mut data = vec![0, 100, 200, 250];
         let mut line = ScanLine::new(&mut data, ColorType::TrueColor, 8, 1);
         Brighten { strength: 10 }.apply_to_line(&mut line);
-        // 250 + 10 = 260. 260 as u8 is 4.
-        assert_eq!(line.get_pixel(0).unwrap(), Pixel::RGB(110, 210, 4));
+        assert_eq!(line.get_pixel(0).unwrap(), Pixel::RGB(110, 210, 255));
     }
 }

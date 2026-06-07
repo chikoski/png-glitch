@@ -87,9 +87,7 @@ fn batch_process(args: &Cli, output_dir: &str) -> anyhow::Result<()> {
     );
 
     png_files.par_iter().for_each(|path| {
-        let file_name = path
-            .file_name()
-            .unwrap_or_default();
+        let file_name = path.file_name().unwrap_or_default();
         let dest_path = output_path.join(file_name);
 
         pb.set_message(format!("Processing {:?}", file_name));
@@ -129,22 +127,19 @@ fn batch_process(args: &Cli, output_dir: &str) -> anyhow::Result<()> {
 }
 
 fn apply_filters(args: &Cli, context: &mut GlitchContext) -> anyhow::Result<()> {
-    // Apply pre-process filter first
     if let Some(pre_process) = args.pre_process {
         context.pre_process(pre_process);
     }
 
-    // Apply config file filters if present
     if let Some(config_path) = &args.config {
         let file = File::open(config_path).context("Failed to open config file")?;
         let config: ConfigFile =
-            serde_yaml::from_reader(file).context("Failed to parse config file")?;
+            serde_yml::from_reader(file).context("Failed to parse config file")?;
         for filter in config.filters {
             context.add_from_config(filter);
         }
     }
 
-    // Apply CLI flags
     if let Some(magnitude) = args.change_filter_type {
         context.add_filter(ChangeFilterType { magnitude });
     }
@@ -256,7 +251,7 @@ fn apply_webp_filters(args: &Cli, context: &mut WebpGlitchContext) -> anyhow::Re
     if let Some(config_path) = &args.config {
         let file = File::open(config_path).context("Failed to open config file")?;
         let config: ConfigFile =
-            serde_yaml::from_reader(file).context("Failed to parse config file")?;
+            serde_yml::from_reader(file).context("Failed to parse config file")?;
         for filter_cfg in config.filters {
             match filter_cfg {
                 FilterConfig::Invert => context.add_filter(WebpInvert),
