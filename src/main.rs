@@ -5,8 +5,7 @@ use glitch_context::{
     ChangeFilterType, ChannelSwap, ChromaticAberration, ColorDistortion, ColorSpaceGlitch,
     FilterConfig, GlitchContext, HorizontalShift, Invert, LossyArtifact, MacroblockGlitch,
     PaethFilter, PixelSort, RandomCopy, RemoveFilter, Replace, SetZero, ShiftChannels, SubFilter,
-    Substitute, Transpose, UpFilter, WebpBrighten, WebpGlitchContext, WebpInvert,
-    WebpShiftChannels,
+    Substitute, Transpose, UpFilter, WebpGlitchContext, PixelFilterAdapter,
 };
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
@@ -254,12 +253,12 @@ fn apply_webp_filters(args: &Cli, context: &mut WebpGlitchContext) -> anyhow::Re
             serde_yml::from_reader(file).context("Failed to parse config file")?;
         for filter_cfg in config.filters {
             match filter_cfg {
-                FilterConfig::Invert => context.add_filter(WebpInvert),
+                FilterConfig::Invert => context.add_filter(PixelFilterAdapter(Invert)),
                 FilterConfig::Brighten { strength } => {
-                    context.add_filter(WebpBrighten { strength: strength.min(255) as u8 })
+                    context.add_filter(PixelFilterAdapter(Brighten { strength: strength as u16 }))
                 }
                 FilterConfig::ShiftChannels { r, g, b } => {
-                    context.add_filter(WebpShiftChannels { r, g, b })
+                    context.add_filter(PixelFilterAdapter(ShiftChannels { r, g, b }))
                 }
                 FilterConfig::PixelSort { magnitude, criterion } => {
                     context.add_filter(PixelSort {
@@ -302,13 +301,13 @@ fn apply_webp_filters(args: &Cli, context: &mut WebpGlitchContext) -> anyhow::Re
         }
     }
 
-    if args.invert { context.add_filter(WebpInvert); }
+    if args.invert { context.add_filter(PixelFilterAdapter(Invert)); }
     if let Some(strength) = args.brighten {
-        context.add_filter(WebpBrighten { strength: strength.min(255) as u8 });
+        context.add_filter(PixelFilterAdapter(Brighten { strength: strength as u16 }));
     }
     if let Some(channels) = &args.shift_channels {
         if channels.len() == 3 {
-            context.add_filter(WebpShiftChannels { r: channels[0], g: channels[1], b: channels[2] });
+            context.add_filter(PixelFilterAdapter(ShiftChannels { r: channels[0], g: channels[1], b: channels[2] }));
         }
     }
     if let Some(magnitude) = args.pixel_sort {

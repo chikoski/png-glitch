@@ -13,6 +13,18 @@ pub trait GlitchFilter {
     fn apply(&self, png: &mut PngGlitch, rng: &mut ChaCha8Rng);
 }
 
+/// A pixel-level filter that operates on normalized RGBA u8 values.
+///
+/// Implement this trait to create a filter that works on both PNG and WebP images.
+/// Use [`PixelFilterAdapter`] to apply it to either format.
+pub trait PixelFilter: Send + Sync {
+    fn apply_pixel(&self, r: u8, g: u8, b: u8, a: u8) -> (u8, u8, u8, u8);
+}
+
+/// Wraps a [`PixelFilter`] so it can be used as either a [`GlitchFilter`] (PNG)
+/// or a [`WebpGlitchFilter`] (WebP).
+pub struct PixelFilterAdapter<F: PixelFilter>(pub F);
+
 /// A struct that manages the glitch context.
 pub struct GlitchContext {
     png: PngGlitch,
@@ -930,6 +942,67 @@ impl GlitchFilter for ShiftChannels {
     }
 }
 
+// PixelFilter implementations for the shared presets
+
+impl PixelFilter for Invert {
+    fn apply_pixel(&self, r: u8, g: u8, b: u8, a: u8) -> (u8, u8, u8, u8) {
+        (255 - r, 255 - g, 255 - b, a)
+    }
+}
+
+impl PixelFilter for Brighten {
+    fn apply_pixel(&self, r: u8, g: u8, b: u8, a: u8) -> (u8, u8, u8, u8) {
+        let s = self.strength.min(255) as u8;
+        (r.saturating_add(s), g.saturating_add(s), b.saturating_add(s), a)
+    }
+}
+
+impl PixelFilter for ShiftChannels {
+    fn apply_pixel(&self, r: u8, g: u8, b: u8, a: u8) -> (u8, u8, u8, u8) {
+        let shift = |v: u8, off: i16| (v as i16 + off).clamp(0, 255) as u8;
+        (shift(r, self.r), shift(g, self.g), shift(b, self.b), a)
+    }
+}
+
+// PixelFilterAdapter: applies a PixelFilter to PNG images
+
+impl<F: PixelFilter> GlitchFilter for PixelFilterAdapter<F> {
+    fn apply(&self, png: &mut PngGlitch, _rng: &mut ChaCha8Rng) {
+        png.foreach_scanline(|line| {
+            let max_val = ((1u32 << line.bit_depth() as u32) - 1) as u16;
+            line.process_pixels(|_, pixel| {
+                let scale_down = |v: u16| -> u8 {
+                    if max_val == 255 { v as u8 } else { (v as u32 * 255 / max_val as u32) as u8 }
+                };
+                let scale_up = |v: u8| -> u16 {
+                    if max_val == 255 { v as u16 } else { (v as u32 * max_val as u32 / 255) as u16 }
+                };
+                match pixel {
+                    Pixel::RGB(r, g, b) => {
+                        let (nr, ng, nb, _) = self.0.apply_pixel(scale_down(r), scale_down(g), scale_down(b), 255);
+                        Pixel::RGB(scale_up(nr), scale_up(ng), scale_up(nb))
+                    }
+                    Pixel::RGBA(r, g, b, a) => {
+                        let (nr, ng, nb, na) = self.0.apply_pixel(scale_down(r), scale_down(g), scale_down(b), scale_down(a));
+                        Pixel::RGBA(scale_up(nr), scale_up(ng), scale_up(nb), scale_up(na))
+                    }
+                    Pixel::Gray(v) => {
+                        let gv = scale_down(v);
+                        let (nr, _, _, _) = self.0.apply_pixel(gv, gv, gv, 255);
+                        Pixel::Gray(scale_up(nr))
+                    }
+                    Pixel::GrayAlpha(v, a) => {
+                        let gv = scale_down(v);
+                        let (nr, _, _, na) = self.0.apply_pixel(gv, gv, gv, scale_down(a));
+                        Pixel::GrayAlpha(scale_up(nr), scale_up(na))
+                    }
+                    other => other,
+                }
+            });
+        });
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -1010,6 +1083,25 @@ mod test {
 
         Ok(())
     }
+
+    #[test]
+    fn test_pixel_filter_adapter_on_png() -> Result<()> {
+        let bytes = include_bytes!("../../png-glitch/etc/sample00.png");
+
+        let mut ctx = GlitchContext::new(bytes, None)?;
+        ctx.add_filter(PixelFilterAdapter(Invert));
+        ctx.execute();
+        let buffer = ctx.buffer()?;
+        assert!(buffer.len() > 0, "PixelFilterAdapter(Invert) should produce output");
+
+        let mut ctx2 = GlitchContext::new(bytes, None)?;
+        ctx2.add_filter(PixelFilterAdapter(Brighten { strength: 20 }));
+        ctx2.execute();
+        let buffer2 = ctx2.buffer()?;
+        assert!(buffer2.len() > 0, "PixelFilterAdapter(Brighten) should produce output");
+
+        Ok(())
+    }
 }
 
 // ============================================================
@@ -1069,9 +1161,32 @@ impl WebpGlitchContext {
     pub fn height(&self) -> u32 { self.webp.height() }
 }
 
+// PixelFilterAdapter: applies a PixelFilter to WebP images
+
+impl<F: PixelFilter> WebpGlitchFilter for PixelFilterAdapter<F> {
+    fn apply(&self, webp: &mut WebpGlitch, _rng: &mut ChaCha8Rng) {
+        webp.foreach_scanline(|line| {
+            line.process_pixels(|_, p| {
+                match p {
+                    WebpPixel::RGB(r, g, b) => {
+                        let (nr, ng, nb, _) = self.0.apply_pixel(r, g, b, 255);
+                        WebpPixel::RGB(nr, ng, nb)
+                    }
+                    WebpPixel::RGBA(r, g, b, a) => {
+                        let (nr, ng, nb, na) = self.0.apply_pixel(r, g, b, a);
+                        WebpPixel::RGBA(nr, ng, nb, na)
+                    }
+                }
+            });
+        });
+    }
+}
+
 /// WebP 版 Invert フィルター。
+#[deprecated(note = "Use `PixelFilterAdapter(Invert)` instead, which works on both PNG and WebP.")]
 pub struct WebpInvert;
 
+#[allow(deprecated)]
 impl WebpGlitchFilter for WebpInvert {
     fn apply(&self, webp: &mut WebpGlitch, _rng: &mut ChaCha8Rng) {
         webp.foreach_scanline(|line| {
@@ -1084,10 +1199,12 @@ impl WebpGlitchFilter for WebpInvert {
 }
 
 /// WebP 版 Brighten フィルター。
+#[deprecated(note = "Use `PixelFilterAdapter(Brighten { strength })` instead, which works on both PNG and WebP.")]
 pub struct WebpBrighten {
     pub strength: u8,
 }
 
+#[allow(deprecated)]
 impl WebpGlitchFilter for WebpBrighten {
     fn apply(&self, webp: &mut WebpGlitch, _rng: &mut ChaCha8Rng) {
         let s = self.strength;
@@ -1110,12 +1227,14 @@ impl WebpGlitchFilter for WebpBrighten {
 }
 
 /// WebP 版 ShiftChannels フィルター。
+#[deprecated(note = "Use `PixelFilterAdapter(ShiftChannels { r, g, b })` instead, which works on both PNG and WebP.")]
 pub struct WebpShiftChannels {
     pub r: i16,
     pub g: i16,
     pub b: i16,
 }
 
+#[allow(deprecated)]
 impl WebpGlitchFilter for WebpShiftChannels {
     fn apply(&self, webp: &mut WebpGlitch, _rng: &mut ChaCha8Rng) {
         let r_off = self.r;
