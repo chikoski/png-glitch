@@ -14,24 +14,64 @@ To install `png-glitch` from source, run the following command:
 
 `png-glitch` glitches given PNG file (or directory) and emits the result. By default, it saves to `glitched.png`.
 
-### Command Line Options
+```zsh
+% png-glitch [OPTIONS] <PNG_FILE>
+% png-glitch input.png -o result.png --invert
+% png-glitch input.png --output result.png --block-scramble 0.1
+```
 
-| Category | Option | Description |
-| :--- | :--- | :--- |
-| **Color** | `--invert` | Inverts all color values. |
-| | `--color-space-glitch <MAG>` | Artistic control over HSL (Hue, Saturation, Lightness). |
-| | `--chromatic-aberration <MAG>` | Classic retro "color fringe" effect. |
-| | `--brighten <N>` | Adjusts brightness (0-65535). |
-| | `--shift-channels <R,G,B>` | Shifts color channels independently. |
-| **Structure** | `--block-scramble <MAG>` | Shuffles grid-based blocks (optimized). |
-| | `--transpose <MAG>` | Randomly swaps blocks of scanlines. |
-| | `--horizontal-shift <MAG>` | Shifts scanlines horizontally. |
-| **Noise** | `--replace <MAG>` | Replaces pixels with noise (0.0 - 1.0). |
-| | `--set-zero <MAG>` | Sets random pixels to zero (0.0 - 1.0). |
-| **PNG Logic** | `--remove-filter` | Strips filters for predictable results. |
-| | `--sub`, `--up`, `--paeth` | Forces specific PNG filter types for streaking. |
-| **Utility** | `--batch-output <DIR>` | Processes a directory in parallel. |
-| | `--seed <N>` | Set a seed for reproducible glitch patterns. |
+### Glitch Filters
+
+Multiple filters can be combined and are applied in the order they are specified.
+
+| Option | Description |
+| :--- | :--- |
+| `--invert` | Inverts all color values. |
+| `--color-space-glitch <MAG>` | Artistic control over HSL (Hue, Saturation, Lightness). |
+| `--chromatic-aberration <MAG>` | Classic retro "color fringe" effect. |
+| `--brighten <N>` | Saturating brightness increase (0–65535). Caps at the maximum value for the image's bit depth. |
+| `--shift-channels <R,G,B>` | Shifts color channels independently (wrapping). |
+| `--block-scramble <MAG>` | Shuffles grid-based blocks. |
+| `--transpose <MAG>` | Randomly swaps blocks of scanlines. |
+| `--horizontal-shift <MAG>` | Shifts scanlines horizontally. |
+| `--replace <MAG>` | Replaces pixels with noise (0.0–1.0). |
+| `--set-zero <MAG>` | Sets random pixels to zero (0.0–1.0). |
+| `--random-copy <N>` | Copies random scanlines N times. |
+| `--substitute <INDEX:VALUE>` | Substitutes a single byte by index. |
+| `--pixel-sort <MAG>` | Sorts pixels by brightness or hue within scanlines. |
+| `--bitwise <MAG>` | Applies a bitwise operation (AND/OR/XOR) to pixel data. |
+| `--channel-swap <MAG>` | Swaps two color channels (RG, GB, or BR). |
+| `--color-distortion <MAG>` | Adds per-scanline color noise. |
+| `--change-filter-type <MAG>` | Randomly changes PNG filter types across scanlines. |
+
+### Pre-processing (applied before glitch filters)
+
+`--pre-process` re-encodes the PNG with a specific filter type before glitching. This changes the underlying byte patterns that glitch filters operate on, producing different visual results.
+
+```zsh
+% png-glitch input.png --pre-process sub-filter --replace 0.05
+```
+
+Accepted values: `remove-filter`, `sub-filter`, `up-filter`, `average-filter`, `paeth-filter`
+
+### Filter Type Override (force all scan lines to a fixed filter type)
+
+These flags forcibly set all scanlines to a single PNG filter type. Unlike `--pre-process`, they are applied as a glitch step in the pipeline and are useful in batch processing workflows.
+
+| Option | Filter type applied to all scanlines |
+| :--- | :--- |
+| `--remove-filter` | None |
+| `--sub` | Sub |
+| `--up` | Up |
+| `--average` | Average |
+| `--paeth` | Paeth |
+
+### Output
+
+| Option | Description |
+| :--- | :--- |
+| `-o`, `--output <FILE>` | Output file path (default: `glitched.png`). |
+| `--seed <N>` | Random seed for reproducible results. |
 
 ## Batch Processing
 
