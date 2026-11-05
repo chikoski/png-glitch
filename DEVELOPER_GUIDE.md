@@ -37,6 +37,18 @@ To support different bit depths (1, 2, 4, 8, 16) and color types (RGB, Grayscale
 
 ## Core Concepts for Contributors
 
+### Terminology Glossary
+
+Because `png-glitch` operates at both the PNG container level and the artistic effect level, several terms have specific meanings across crates:
+
+| Term | Crate | Meaning |
+| :--- | :--- | :--- |
+| **PNG Filter** (`FilterType`) | `png-glitch` | One of the 5 PNG scanline prediction algorithms (`None`, `Sub`, `Up`, `Average`, `Paeth`) from the PNG spec. Manipulated via `PngGlitch::reencode_with`, `set_filter_type`, `apply_filter`, and `remove_filter`. |
+| **Preset** (`GlitchPreset`) | `png-glitch::presets` | A deterministic, stateless per-scanline pixel transformation (`Invert`, `Brighten`, `Darken`, `ShiftChannels`) applied via `PngGlitch::apply`. |
+| **Glitch Filter / Effect** (`GlitchFilter` / `Effect`) | `glitch-context` | A high-level glitch effect (possibly randomized with an RNG) queued into a `GlitchContext` via `add_filter`. |
+| **`png_glitch::Transpose`** | `png-glitch` | A deterministic operation trait (`PngGlitch::transpose(src, dst, lines)`) that swaps two contiguous blocks of scanlines. |
+| **`glitch_context::Transpose`** (`RandomTranspose`) | `glitch-context` | A randomized effect that iterates through scanlines and swaps rows with probability `magnitude`. Also exported as `RandomTranspose` to avoid ambiguity with `png_glitch::Transpose`. |
+
 ### The "Glitch" Philosophy
 Unlike a standard image library that aims for fidelity, `png-glitch` treats the PNG specification as a playground. We often perform operations that are "illegal" or "undefined" in standard decoders to see what visual artifacts they produce.
 

@@ -845,7 +845,6 @@ dependencies = [
 name = "png-glitch"
 version = "0.6.0"
 dependencies = [
- "anyhow",
  "crc32fast",
  "fdeflate",
  "rayon",

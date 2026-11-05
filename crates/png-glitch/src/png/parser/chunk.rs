@@ -1,7 +1,6 @@
 use crate::operation::Encode;
 pub use crate::png::parser::chunk::chunk_type::ChunkType;
 use crate::png::png_error::PngError;
-use anyhow::Context;
 
 mod chunk_type;
 
@@ -76,40 +75,46 @@ impl Chunk {
 
     /// The method parses a chunk from a byte array.
     /// The `buffer` parameter is a byte array of a PNG file.
-    pub fn parse(buffer: &[u8]) -> anyhow::Result<Chunk> {
+    pub fn parse(buffer: &[u8]) -> Result<Chunk, PngError> {
         let length = Self::parse_length(buffer)?;
-        let chunk_type = Self::parse_chunk_type(&buffer[4..])?;
-        let data = Self::parse_data(&buffer[8..], length)?;
-        let crc = Self::parse_crc(&buffer[length + 8..])?;
+        let chunk_type = Self::parse_chunk_type(buffer.get(4..).ok_or(PngError::TooShortInput)?)?;
+        let data = Self::parse_data(buffer.get(8..).ok_or(PngError::TooShortInput)?, length)?;
+        let crc = Self::parse_crc(buffer.get(length + 8..).ok_or(PngError::TooShortInput)?)?;
 
         Ok(Chunk::new(chunk_type, data, crc))
     }
 
-    fn parse_length(buffer: &[u8]) -> anyhow::Result<usize> {
-        let array = buffer[..4].try_into().context("Failed to retrieve data size of a chunk")?;
+    fn parse_length(buffer: &[u8]) -> Result<usize, PngError> {
+        let array: [u8; 4] = buffer
+            .get(..4)
+            .and_then(|s| s.try_into().ok())
+            .ok_or(PngError::TooShortInput)?;
         let length = u32::from_be_bytes(array);
         Ok(length as usize)
     }
 
-    fn parse_chunk_type(buffer: &[u8]) -> anyhow::Result<ChunkType> {
+    fn parse_chunk_type(buffer: &[u8]) -> Result<ChunkType, PngError> {
         ChunkType::new(buffer)
     }
 
-    fn parse_data(buffer: &[u8], length: usize) -> anyhow::Result<Vec<u8>> {
+    fn parse_data(buffer: &[u8], length: usize) -> Result<Vec<u8>, PngError> {
         if buffer.len() < length {
-            Err(PngError::TooShortInput).context("Failed to parse payload of a chunk")
+            Err(PngError::TooShortInput)
         } else {
             Ok(buffer[..length].to_vec())
         }
     }
 
-    fn parse_crc(buffer: &[u8]) -> anyhow::Result<[u8; 4]> {
-        buffer[..4].try_into().context("Failed to retrieve CRC")
+    fn parse_crc(buffer: &[u8]) -> Result<[u8; 4], PngError> {
+        buffer
+            .get(..4)
+            .and_then(|s| s.try_into().ok())
+            .ok_or(PngError::TooShortInput)
     }
 }
 
 impl Encode for Chunk {
-    fn encode(&self, mut writer: impl std::io::Write) -> anyhow::Result<()> {
+    fn encode(&self, mut writer: impl std::io::Write) -> Result<(), PngError> {
         writer.write_all(&(self.length() as u32).to_be_bytes())?;
         self.chunk_type.encode(&mut writer)?;
         writer.write_all(&self.data)?;

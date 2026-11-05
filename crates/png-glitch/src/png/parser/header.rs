@@ -1,8 +1,8 @@
 use std::fmt::{Debug, Formatter};
-use anyhow::Context;
 
 use crate::operation::Encode;
 use crate::png::parser::chunk::{Chunk, ChunkType};
+use crate::png::png_error::PngError;
 pub use color_type::ColorType;
 use meta_data::MetaData;
 
@@ -61,43 +61,48 @@ impl Header {
         chunk.data[8]
     }
 
-    fn parse_color_type(chunk: &Chunk) -> anyhow::Result<ColorType> {
-        ColorType::try_from(chunk.data[9]).context("Failed to retrieve color type.")
+    fn parse_color_type(chunk: &Chunk) -> Result<ColorType, PngError> {
+        ColorType::try_from(chunk.data[9])
     }
 
-    fn parse_compression_method(chunk: &Chunk) -> anyhow::Result<u8> {
+    fn parse_compression_method(chunk: &Chunk) -> Result<u8, PngError> {
         let method = chunk.data[10];
         if method == 0 {
             Ok(method)
         } else {
-            Err(crate::png::png_error::PngError::UnsupportedCompressionMethod.into())
+            Err(PngError::UnsupportedCompressionMethod)
         }
     }
 
-    fn parse_filter_method(chunk: &Chunk) -> anyhow::Result<u8> {
+    fn parse_filter_method(chunk: &Chunk) -> Result<u8, PngError> {
         let method = chunk.data[11];
         if method == 0 {
             Ok(method)
         } else {
-            Err(crate::png::png_error::PngError::UnsupportedFilterMethod.into())
+            Err(PngError::UnsupportedFilterMethod)
         }
     }
 
-    fn parse_interlace_method(chunk: &Chunk) -> anyhow::Result<u8> {
+    fn parse_interlace_method(chunk: &Chunk) -> Result<u8, PngError> {
         let method = chunk.data[12];
         if method == 0 {
             Ok(method)
         } else {
-            Err(crate::png::png_error::PngError::UnsupportedInterlacing.into())
+            Err(PngError::UnsupportedInterlacing)
         }
     }
 }
 
 impl TryFrom<Chunk> for Header {
-    type Error = anyhow::Error;
+    type Error = PngError;
 
     fn try_from(chunk: Chunk) -> Result<Self, Self::Error> {
-        anyhow::ensure!(chunk.chunk_type == ChunkType::Start);
+        if chunk.chunk_type != ChunkType::Start {
+            return Err(PngError::InvalidChunkType(chunk));
+        }
+        if chunk.data.len() < 13 {
+            return Err(PngError::TooShortInput);
+        }
         Header::parse_compression_method(&chunk)?;
         Header::parse_filter_method(&chunk)?;
         Header::parse_interlace_method(&chunk)?;
@@ -113,7 +118,7 @@ impl TryFrom<Chunk> for Header {
 }
 
 impl Encode for Header {
-    fn encode(&self, writer: impl std::io::Write) -> anyhow::Result<()> {
+    fn encode(&self, writer: impl std::io::Write) -> Result<(), PngError> {
         self.inner.encode(writer)
     }
 }

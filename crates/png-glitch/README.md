@@ -80,7 +80,8 @@ Built-in glitch recipes available in `png_glitch::presets`:
 
 - **Invert**: Flips color values.
 - **ShiftChannels**: Moves color channels (R, G, B) independently.
-- **Brighten**: Increases or decreases image brightness.
+- **Brighten**: Increases image brightness (saturating at the bit-depth maximum).
+- **Darken**: Decreases image brightness (saturating at 0).
 
 # Key Features
 

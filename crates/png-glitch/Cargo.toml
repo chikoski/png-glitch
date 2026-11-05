@@ -10,7 +10,6 @@ readme = "README.md"
 repository.workspace = true
 
 [dependencies]
-anyhow.workspace = true
 crc32fast.workspace = true
 fdeflate.workspace = true
 rayon.workspace = true

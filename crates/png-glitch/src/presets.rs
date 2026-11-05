@@ -56,7 +56,7 @@ impl GlitchPreset for ShiftChannels {
     }
 }
 
-/// A preset that brightens the colors of each pixel.
+/// A preset that increases the brightness of each pixel (saturating at the bit-depth maximum).
 #[derive(Clone, Copy, Debug)]
 pub struct Brighten {
     pub strength: u16,
@@ -76,6 +76,28 @@ impl GlitchPreset for Brighten {
                     Pixel::RGBA(brighten(r), brighten(g), brighten(b), a)
                 }
                 Pixel::Indexed(v) => Pixel::Indexed(v.saturating_add(strength as u8)),
+            }
+        });
+    }
+}
+
+/// A preset that decreases the brightness of each pixel (saturating at 0).
+#[derive(Clone, Copy, Debug)]
+pub struct Darken {
+    pub strength: u16,
+}
+
+impl GlitchPreset for Darken {
+    fn apply_to_line(&self, line: &mut ScanLine) {
+        let strength = self.strength;
+        line.process_pixels(|_, pixel| {
+            let darken = |v: u16| v.saturating_sub(strength);
+            match pixel {
+                Pixel::Gray(v) => Pixel::Gray(darken(v)),
+                Pixel::GrayAlpha(v, a) => Pixel::GrayAlpha(darken(v), a),
+                Pixel::RGB(r, g, b) => Pixel::RGB(darken(r), darken(g), darken(b)),
+                Pixel::RGBA(r, g, b, a) => Pixel::RGBA(darken(r), darken(g), darken(b), a),
+                Pixel::Indexed(v) => Pixel::Indexed(v.saturating_sub(strength as u8)),
             }
         });
     }
@@ -109,5 +131,13 @@ mod tests {
         let mut line = ScanLine::new(&mut data, ColorType::TrueColor, 8, 1);
         Brighten { strength: 10 }.apply_to_line(&mut line);
         assert_eq!(line.get_pixel(0).unwrap(), Pixel::RGB(110, 210, 255));
+    }
+
+    #[test]
+    fn test_darken() {
+        let mut data = vec![0, 100, 200, 5];
+        let mut line = ScanLine::new(&mut data, ColorType::TrueColor, 8, 1);
+        Darken { strength: 10 }.apply_to_line(&mut line);
+        assert_eq!(line.get_pixel(0).unwrap(), Pixel::RGB(90, 190, 0));
     }
 }

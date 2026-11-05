@@ -3,9 +3,9 @@ use crate::png::parser::Header;
 use crate::png::parser::Parser;
 use crate::png::parser::Terminator;
 use crate::png::parser::{Chunk, ChunkType};
-pub use crate::png::scan_line::ScanLine;
+pub use crate::png::png_error::PngError;
 pub use crate::png::scan_line::Pixel;
-use anyhow::Context;
+pub use crate::png::scan_line::ScanLine;
 pub use parser::ColorType;
 use rayon::prelude::*;
 pub use scan_line::FilterType;
@@ -32,7 +32,7 @@ pub struct Png {
 impl Png {
     /// The method saves the PNG image to a file.
     /// The `path` parameter is the path to the file.
-    pub fn save(&self, path: impl AsRef<Path>) -> anyhow::Result<()> {
+    pub fn save(&self, path: impl AsRef<Path>) -> Result<(), PngError> {
         let mut file = File::create(path)?;
         self.encode(&mut file)?;
         Ok(())
@@ -47,7 +47,7 @@ impl Png {
         }
     }
 
-    fn parse(buffer: &[u8]) -> anyhow::Result<Png> {
+    fn parse(buffer: &[u8]) -> Result<Png, PngError> {
         let png = Parser::parse(buffer)?;
         Ok(png)
     }
@@ -148,7 +148,7 @@ impl Png {
 }
 
 impl TryFrom<&[u8]> for Png {
-    type Error = anyhow::Error;
+    type Error = PngError;
 
     fn try_from(buffer: &[u8]) -> Result<Self, Self::Error> {
         Png::parse(buffer)
@@ -173,18 +173,15 @@ impl Transpose for Png {
 }
 
 impl Encode for Png {
-    fn encode(&self, mut writer: impl std::io::Write) -> anyhow::Result<()> {
+    fn encode(&self, mut writer: impl std::io::Write) -> Result<(), PngError> {
         writer.write_all(SIGNATURE)?;
-        self.header
-            .encode(&mut writer)
-            .context("Failed to encode IHDR")?;
+        self.header.encode(&mut writer)?;
         for chunk in self.misc_chunks.iter() {
             chunk.encode(&mut writer)?;
         }
-        let idat_chunk_list =
-            create_idat_chunk(self).context("Failed to create IDAT chunk list")?;
+        let idat_chunk_list = create_idat_chunk(self)?;
         for chunk in idat_chunk_list.iter() {
-            chunk.encode(&mut writer).context("Failed to encode IDAT")?;
+            chunk.encode(&mut writer)?;
         }
         self.terminator.encode(&mut writer)?;
         writer.flush()?;
@@ -237,7 +234,7 @@ impl Scan for Png {
     }
 }
 
-fn create_idat_chunk(png: &Png) -> anyhow::Result<Vec<Chunk>> {
+fn create_idat_chunk(png: &Png) -> Result<Vec<Chunk>, PngError> {
     let mut list = vec![];
 
     let mut encoder = fdeflate::Compressor::new(vec![])?;
@@ -256,7 +253,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_encode_ihdr() -> anyhow::Result<()> {
+    fn test_encode_ihdr() -> Result<(), PngError> {
         let bytes = include_bytes!("../etc/sample00.png");
         let png = Png::parse(bytes)?;
         let mut buffer = vec![];
@@ -272,7 +269,7 @@ mod test {
     }
 
     #[test]
-    fn test_encode() -> anyhow::Result<()> {
+    fn test_encode() -> Result<(), PngError> {
         let bytes = include_bytes!("../etc/sample00.png");
         let png = Png::parse(bytes)?;
         let mut buffer = vec![];
@@ -287,7 +284,7 @@ mod test {
     }
 
     #[test]
-    fn test_transpose() -> anyhow::Result<()> {
+    fn test_transpose() -> Result<(), PngError> {
         let bytes = include_bytes!("../etc/sample00.png");
         let mut png = Png::parse(bytes)?;
         let original_data = png.data.clone();

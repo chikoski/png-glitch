@@ -1,9 +1,9 @@
 pub use crate::operation::Transpose;
 use crate::operation::{Encode, Scan};
 use crate::png::Png;
-pub use crate::png::{FilterType, ScanLine, Pixel};
+pub use crate::png::{FilterType, Pixel, PngError, ScanLine};
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::Path;
 
 mod operation;
@@ -18,7 +18,8 @@ pub mod presets;
 /// The library provides several built-in glitch recipes in the [`presets`] module:
 /// - [`presets::Invert`]: Inverts all color channels of each pixel.
 /// - [`presets::ShiftChannels`]: Shifts color channels (R, G, B) by specific amounts.
-/// - [`presets::Brighten`]: Adjusts the overall brightness of the image.
+/// - [`presets::Brighten`]: Increases image brightness (saturating at the bit-depth maximum).
+/// - [`presets::Darken`]: Decreases image brightness (saturating at 0).
 ///
 /// # Examples
 ///
@@ -31,6 +32,7 @@ pub mod presets;
 /// use png_glitch::{FilterType, PngGlitch, Pixel};
 /// use png_glitch::presets::{Invert, Brighten};
 ///
+/// let out_path = std::env::temp_dir().join("png_glitch_doctest_glitched.png");
 /// PngGlitch::open("./etc/sample00.png")
 ///   .expect("The PNG file should be successfully parsed")
 ///   .remove_filter()
@@ -42,8 +44,9 @@ pub mod presets;
 ///         scan_line.set_pixel(10, Pixel::RGB(r, 0, b));
 ///     }
 ///   })
-///   .save("./glitched.png")
+///   .save(&out_path)
 ///   .expect("The glitched file should be saved as a PNG file");
+/// # let _ = std::fs::remove_file(out_path);
 /// ```
 ///
 pub struct PngGlitch {
@@ -51,31 +54,36 @@ pub struct PngGlitch {
 }
 
 impl PngGlitch {
-    /// The method creates a PngGlitch object to glitch the PNG image loaded from the given file path.
-    pub fn open(path: impl AsRef<Path>) -> anyhow::Result<PngGlitch> {
+    /// Creates a `PngGlitch` object to glitch the PNG image loaded from the given file path.
+    pub fn open(path: impl AsRef<Path>) -> Result<PngGlitch, PngError> {
         let mut file = File::open(path)?;
         let mut buf = vec![];
         file.read_to_end(&mut buf)?;
-        PngGlitch::new(buf)
+        PngGlitch::from_bytes(&buf)
     }
 
-    /// The method creates a PngGlitch object to glitch the PNG image stored in a given `Vec<u8>`.
-    pub fn new(buffer: Vec<u8>) -> anyhow::Result<PngGlitch> {
-        let png = Png::try_from(&buffer as &[u8])?;
+    /// Creates a `PngGlitch` object from any byte slice or buffer containing PNG data.
+    pub fn from_bytes(bytes: impl AsRef<[u8]>) -> Result<PngGlitch, PngError> {
+        let png = Png::try_from(bytes.as_ref())?;
         Ok(PngGlitch { png })
     }
 
-    /// The method returns a list of scan lines in the given PNG file.
+    /// Creates a `PngGlitch` object from a byte buffer (`Vec<u8>` or `&[u8]`).
+    pub fn new(buffer: impl AsRef<[u8]>) -> Result<PngGlitch, PngError> {
+        Self::from_bytes(buffer)
+    }
+
+    /// Returns a list of scan lines in the loaded PNG image.
     pub fn scan_lines(&mut self) -> Vec<ScanLine<'_>> {
         self.png.scan_lines()
     }
 
-    /// The method takes the specified number of ScanLine objects at most.
+    /// Takes the specified number of `ScanLine` objects starting from `from`.
     pub fn scan_lines_from(&mut self, from: u32, lines: u32) -> Vec<ScanLine<'_>> {
         self.png.scan_lines_from(from as usize, lines as usize)
     }
 
-    /// The method allows you to manipulate for each scan line.
+    /// Allows manipulating each scan line sequentially.
     pub fn foreach_scanline<F>(&mut self, modifier: F) -> &mut Self
     where
         F: FnMut(&mut ScanLine),
@@ -84,7 +92,7 @@ impl PngGlitch {
         self
     }
 
-    /// The method allows you to manipulate for each scan line in parallel.
+    /// Allows manipulating each scan line in parallel.
     pub fn par_foreach_scanline<F>(&mut self, modifier: F) -> &mut Self
     where
         F: Fn(&mut ScanLine) + Sync + Send,
@@ -93,64 +101,80 @@ impl PngGlitch {
         self
     }
 
-    /// The method saves the glitched image as a PNG file to the given path.
-    pub fn save(&self, path: impl AsRef<Path>) -> anyhow::Result<()> {
+    /// Saves the glitched image as a PNG file to the given path.
+    pub fn save(&self, path: impl AsRef<Path>) -> Result<(), PngError> {
         self.png.save(path)
     }
 
-    /// The method encodes the glitched image as a PNG data and write the encoded data to the given buffer.
-    pub fn encode(&self, buffer: &mut Vec<u8>) -> anyhow::Result<()> {
-        self.png.encode(buffer)?;
-        Ok(())
+    /// Encodes the glitched image as PNG data and writes it to the given `Write` sink.
+    pub fn encode(&self, writer: impl Write) -> Result<(), PngError> {
+        self.png.encode(writer)
     }
 
-    /// The method returns the width of the loaded PNG file
+    /// Encodes the glitched image and returns the resulting PNG bytes as a `Vec<u8>`.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, PngError> {
+        let mut buffer = Vec::new();
+        self.encode(&mut buffer)?;
+        Ok(buffer)
+    }
+
+    /// Returns the width of the loaded PNG image.
     pub fn width(&self) -> u32 {
         self.png.width()
     }
 
-    /// The method returns the height of the loaded PNG file
+    /// Returns the height of the loaded PNG image.
     pub fn height(&self) -> u32 {
         self.png.height()
     }
 
-    /// The method copies the lines starting from src to dest
+    /// Swaps `lines` scan lines starting from `src` with those at `dst`.
     pub fn transpose(&mut self, src: u32, dst: u32, lines: u32) -> &mut Self {
         self.png.transpose(src as usize, dst as usize, lines);
         self
     }
 
-    /// The method removes filter from all scan lines.
+    /// Reconstructs raw pixel bytes by removing PNG prediction filters from all scan lines.
     pub fn remove_filter(&mut self) -> &mut Self {
         self.png.remove_filter();
         self
     }
 
-    /// The method removes filter from the scan lines in specified region
+    /// Reconstructs raw pixel bytes by removing PNG prediction filters in the specified region.
     pub fn remove_filter_from(&mut self, from: u32, lines: u32) -> &mut Self {
         self.png.remove_filter_from(from, lines);
         self
     }
 
-    /// The method applies filter to all scan lines.
+    /// Applies the specified PNG prediction filter to all scan lines.
     pub fn apply_filter(&mut self, filter: FilterType) -> &mut Self {
         self.png.apply_filter(filter);
         self
     }
 
-    /// The method applies filter to scan lines in specified region
+    /// Applies the specified PNG prediction filter to scan lines in the specified region.
     pub fn apply_filter_from(&mut self, filter_type: FilterType, from: u32, lines: u32) -> &mut Self {
         self.png.apply_filter_from(filter_type, from, lines);
         self
     }
 
-    /// The method changes the filter type of all scan lines.
-    pub fn change_filter_type(&mut self, filter_type: FilterType) -> &mut Self {
+    /// Re-encodes all scan lines with the given PNG filter type (`remove_filter` followed by `apply_filter`).
+    pub fn reencode_with(&mut self, filter_type: FilterType) -> &mut Self {
         self.png.change_filter_type(filter_type);
         self
     }
 
-    /// The method applies a glitch preset to all scan lines in parallel.
+    /// Changes the PNG filter type of all scan lines (alias for [`Self::reencode_with`]).
+    pub fn change_filter_type(&mut self, filter_type: FilterType) -> &mut Self {
+        self.reencode_with(filter_type)
+    }
+
+    /// Overwrites only the PNG filter-type tag byte on every scan line without transforming pixel bytes.
+    pub fn set_filter_type(&mut self, filter_type: FilterType) -> &mut Self {
+        self.foreach_scanline(|line| line.set_filter_type(filter_type))
+    }
+
+    /// Applies a glitch preset (`GlitchPreset`) to all scan lines in parallel.
     pub fn apply<P: presets::GlitchPreset + Sync + Send>(&mut self, preset: P) -> &mut Self {
         self.par_foreach_scanline(|line| {
             preset.apply_to_line(line);
@@ -158,9 +182,17 @@ impl PngGlitch {
         self
     }
 
-    /// The method returns the raw image data.
+    /// Returns the raw decompressed scan-line data.
     pub fn data(&self) -> &[u8] {
         &self.png.data
+    }
+}
+
+impl TryFrom<&[u8]> for PngGlitch {
+    type Error = PngError;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        Self::from_bytes(bytes)
     }
 }
 
@@ -169,18 +201,18 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_change_filter_type() -> anyhow::Result<()> {
+    fn test_change_filter_type() -> Result<(), PngError> {
         let bytes = include_bytes!("../etc/sample00.png");
 
         // 1. Baseline: Raw (removed filter)
-        let mut png_raw = PngGlitch::new(bytes.to_vec())?;
+        let mut png_raw = PngGlitch::from_bytes(bytes)?;
         png_raw.remove_filter();
 
         // 2. Test Subject
-        let mut png_glitch = PngGlitch::new(bytes.to_vec())?;
+        let mut png_glitch = PngGlitch::try_from(bytes as &[u8])?;
 
         // Change to Sub
-        png_glitch.change_filter_type(FilterType::Sub);
+        png_glitch.reencode_with(FilterType::Sub);
 
         for scan_line in png_glitch.scan_lines() {
             assert_eq!(FilterType::Sub, scan_line.filter_type());
@@ -217,9 +249,9 @@ mod test {
     }
 
     #[test]
-    fn test_presets() -> anyhow::Result<()> {
+    fn test_presets_and_to_bytes() -> Result<(), PngError> {
         let bytes = include_bytes!("../etc/sample00.png");
-        let mut png = PngGlitch::new(bytes.to_vec())?;
+        let mut png = PngGlitch::from_bytes(bytes)?;
         let original_data = png.data().to_vec();
 
         png.apply(presets::Invert);
@@ -228,6 +260,18 @@ mod test {
         png.apply(presets::Invert);
         assert_eq!(png.data(), original_data);
 
+        let encoded = png.to_bytes()?;
+        assert!(!encoded.is_empty());
+
         Ok(())
+    }
+
+    #[test]
+    fn test_typed_png_error_matching() {
+        let err = match PngGlitch::from_bytes(b"not a png") {
+            Err(e) => e,
+            Ok(_) => panic!("expected PngError::InvalidSignature"),
+        };
+        assert!(matches!(err, PngError::InvalidSignature));
     }
 }

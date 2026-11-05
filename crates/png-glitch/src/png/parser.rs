@@ -1,4 +1,3 @@
-use anyhow::Context;
 use fdeflate::Decompressor;
 
 use crate::png::png_error::PngError;
@@ -24,17 +23,17 @@ pub struct Parser {
 impl Parser {
     /// The method parses a PNG file and returns a `Png` object.
     /// The `buffer` parameter is a byte array of a PNG file.
-    pub fn parse(buffer: &[u8]) -> anyhow::Result<Png> {
+    pub fn parse(buffer: &[u8]) -> Result<Png, PngError> {
         if buffer.starts_with(SIGNATURE) {
             let mut parser = Self::new();
             parser.parse_chunks(&buffer[8..])?;
             parser.build()
         } else {
-            Err(PngError::InvalidSignature).context("Invalid signature found on parsing png file.")
+            Err(PngError::InvalidSignature)
         }
     }
 
-    fn parse_chunks(&mut self, buffer: &[u8]) -> anyhow::Result<()> {
+    fn parse_chunks(&mut self, buffer: &[u8]) -> Result<(), PngError> {
         let mut index = 0;
         while index < buffer.len() {
             let chunk = Chunk::parse(&buffer[index..])?;
@@ -47,12 +46,12 @@ impl Parser {
         Ok(())
     }
 
-    fn build(mut self) -> anyhow::Result<Png> {
+    fn build(mut self) -> Result<Png, PngError> {
         if self.header.is_none() {
-            return Err(PngError::NoIHDRFound.into());
+            return Err(PngError::NoIHDRFound);
         }
         if self.terminator.is_none() {
-            return Err(PngError::NOIENDFound.into());
+            return Err(PngError::NOIENDFound);
         }
 
         let data = self.deflate()?;
@@ -83,7 +82,7 @@ impl Parser {
         !self.data.is_empty()
     }
 
-    fn found_chunk(&mut self, chunk: Chunk) -> anyhow::Result<()> {
+    fn found_chunk(&mut self, chunk: Chunk) -> Result<(), PngError> {
         match chunk.chunk_type {
             ChunkType::Start => self.found_ihdr(chunk),
             ChunkType::End => self.found_iend(chunk),
@@ -95,27 +94,27 @@ impl Parser {
         }
     }
 
-    fn found_ihdr(&mut self, chunk: Chunk) -> anyhow::Result<()> {
+    fn found_ihdr(&mut self, chunk: Chunk) -> Result<(), PngError> {
         if self.has_ihdr() {
-            Err(PngError::DuplicateIHDRFound).context("IHDR should appear only once.")
+            Err(PngError::DuplicateIHDRFound)
         } else {
             self.header = Some(chunk.try_into()?);
             Ok(())
         }
     }
 
-    fn found_idat(&mut self, mut chunk: Chunk) -> anyhow::Result<()> {
+    fn found_idat(&mut self, mut chunk: Chunk) -> Result<(), PngError> {
         if chunk.chunk_type == ChunkType::Data {
             self.data.append(&mut chunk.data);
             Ok(())
         } else {
-            Err(PngError::InvalidChunkType(chunk)).context("IDAT is expected")
+            Err(PngError::InvalidChunkType(chunk))
         }
     }
 
-    fn found_iend(&mut self, chunk: Chunk) -> anyhow::Result<()> {
+    fn found_iend(&mut self, chunk: Chunk) -> Result<(), PngError> {
         if self.has_iend() {
-            Err(PngError::DuplicateIENDFound).context("IEND should appear only once.")
+            Err(PngError::DuplicateIENDFound)
         } else {
             self.terminator = Some(chunk.try_into()?);
             Ok(())
@@ -126,9 +125,9 @@ impl Parser {
         self.misc.push(chunk)
     }
 
-    fn deflate(&self) -> anyhow::Result<Vec<u8>> {
+    fn deflate(&self) -> Result<Vec<u8>, PngError> {
         if !self.has_idat() {
-            Err(PngError::NoIDATFound).context("Failed on parsing a PNG file.")
+            Err(PngError::NoIDATFound)
         } else {
             let header = self.header.as_ref().ok_or(PngError::NoIHDRFound)?;
             let mut decompressor = Decompressor::new();
@@ -142,14 +141,12 @@ impl Parser {
             // data. Reject that explicitly.
             let (_, written) = decompressor
                 .read(&self.data, &mut buffer, 0, true)
-                .map_err(|_| PngError::DeflateFailure)
-                .context("Deflate failure while parsing consolidated IDAT chunks.")?;
+                .map_err(|_| PngError::DeflateFailure)?;
             if written != expected {
                 return Err(PngError::IncompleteDecompression {
                     expected,
                     actual: written,
-                })
-                .context("Decompressed IDAT stream is shorter than the scan-line buffer.");
+                });
             }
             Ok(buffer)
         }
@@ -164,8 +161,7 @@ mod tests {
     fn test_invalid_signature() {
         let data = vec![0; 10];
         let result = Parser::parse(&data);
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err().downcast_ref::<PngError>().unwrap().to_string(), "Invalid signature found.");
+        assert!(matches!(result, Err(PngError::InvalidSignature)));
     }
 
     #[test]
@@ -177,8 +173,7 @@ mod tests {
         data.extend_from_slice(&[0xAE, 0x42, 0x60, 0x82]);
 
         let result = Parser::parse(&data);
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err().downcast_ref::<PngError>().unwrap().to_string(), "No IHDR chunk found.");
+        assert!(matches!(result, Err(PngError::NoIHDRFound)));
     }
 
     #[test]
@@ -189,8 +184,7 @@ mod tests {
         data.extend_from_slice(&bytes[33..]);
 
         let result = Parser::parse(&data);
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err().downcast_ref::<PngError>().unwrap().to_string(), "Another IHDR chunk found.");
+        assert!(matches!(result, Err(PngError::DuplicateIHDRFound)));
     }
 }
 
