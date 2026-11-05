@@ -35,7 +35,9 @@ pub struct GlitchContext {
 impl GlitchContext {
     /// Creates a new GlitchContext from a file path.
     pub fn open(path: impl AsRef<Path>, seed: Option<u64>) -> Result<Self> {
-        let png = PngGlitch::open(path).context("Failed to open PNG file")?;
+        let path = path.as_ref();
+        let png = PngGlitch::open(path)
+            .with_context(|| format!("failed to open '{}'", path.display()))?;
         let rng = match seed {
             Some(s) => ChaCha8Rng::seed_from_u64(s),
             None => ChaCha8Rng::from_os_rng(),
@@ -84,7 +86,10 @@ impl GlitchContext {
 
     /// Saves the glitched image to a file.
     pub fn save(&self, path: impl AsRef<Path>) -> Result<()> {
-        self.png.save(path).context("Failed to save PNG")?;
+        let path = path.as_ref();
+        self.png
+            .save(path)
+            .with_context(|| format!("failed to save '{}'", path.display()))?;
         Ok(())
     }
 
@@ -1164,7 +1169,9 @@ pub struct WebpGlitchContext {
 
 impl WebpGlitchContext {
     pub fn open(path: impl AsRef<std::path::Path>, seed: Option<u64>) -> anyhow::Result<Self> {
-        let webp = WebpGlitch::open(path)?;
+        let path = path.as_ref();
+        let webp = WebpGlitch::open(path)
+            .with_context(|| format!("failed to open '{}'", path.display()))?;
         let rng = match seed {
             Some(s) => ChaCha8Rng::seed_from_u64(s),
             None => ChaCha8Rng::from_os_rng(),
@@ -1196,8 +1203,10 @@ impl WebpGlitchContext {
     }
 
     pub fn save(&self, path: impl AsRef<std::path::Path>) -> anyhow::Result<()> {
+        let path = path.as_ref();
         let data = self.buffer()?;
-        std::fs::write(path, data)?;
+        std::fs::write(path, data)
+            .with_context(|| format!("failed to save '{}'", path.display()))?;
         Ok(())
     }
 

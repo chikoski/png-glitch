@@ -12,7 +12,7 @@ To install `png-glitch` from crates.io, run the following command:
 
 ## Usage
 
-`png-glitch` glitches given PNG file (or directory) and emits the result. By default, it saves to `glitched.png`.
+`png-glitch` glitches a given PNG or WebP file (or directory) and emits the result. By default, it saves to `<input-stem>-glitched.<ext>` next to the input file and refuses to overwrite an existing file unless `--force` is specified.
 
 ```zsh
 % png-glitch [OPTIONS] <PNG_FILE>
@@ -70,8 +70,9 @@ These flags forcibly set all scanlines to a single PNG filter type. Unlike `--pr
 
 | Option | Description |
 | :--- | :--- |
-| `-o`, `--output <FILE>` | Output file path (default: `glitched.png`). |
-| `--seed <N>` | Random seed for reproducible results. |
+| `-o`, `--output <FILE>` | Output file path (default: `<input-stem>-glitched.<ext>`). |
+| `--force` | Overwrite existing output file(s) without prompting. |
+| `--seed <N>` | Random seed for reproducible results (printed to stderr when omitted). |
 
 ## Batch Processing
 

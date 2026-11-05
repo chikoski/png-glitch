@@ -81,8 +81,13 @@ pub fn parse_shift_channels(s: &str) -> Result<ShiftChannelsArg, String> {
 #[derive(Parser, Debug)]
 #[command(name = "png-glitch", author, version, about, long_about = None)]
 pub struct Cli {
-    #[arg(short, long = "output", default_value = "glitched.png")]
-    pub output_file: String,
+    /// Output file path [default: <input-stem>-glitched.<ext>]
+    #[arg(short, long = "output", conflicts_with = "batch_output")]
+    pub output_file: Option<String>,
+
+    /// Overwrite existing output file(s) without prompting
+    #[arg(long)]
+    pub force: bool,
 
     pub png_file: String,
 
@@ -90,7 +95,7 @@ pub struct Cli {
     #[arg(long)]
     pub seed: Option<u64>,
 
-    /// Batch process all PNGs in a directory and save to this output directory
+    /// Batch process all PNG and WebP images in a directory and save to this output directory
     #[arg(long)]
     pub batch_output: Option<String>,
 
