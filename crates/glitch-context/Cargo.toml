@@ -19,7 +19,7 @@ clap = { workspace = true, optional = true }
 webp-glitch = { workspace = true, optional = true }
 
 [dev-dependencies]
-serde_yml.workspace = true
+serde_yaml_ng.workspace = true
 image.workspace = true
 fdeflate.workspace = true
 crc32fast.workspace = true

@@ -5,6 +5,9 @@ on:
     branches: [ "master" ]
   pull_request:
     branches: [ "master" ]
+  schedule:
+    # Weekly, so newly published advisories fail the build.
+    - cron: "23 4 * * 1"
 
 env:
   CARGO_TERM_COLOR: always
@@ -40,3 +43,15 @@ jobs:
     - name: Build fuzz targets
       working-directory: fuzz
       run: cargo +nightly fuzz build
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-audit
+    - name: Run cargo audit
+      run: cargo audit --deny warnings
