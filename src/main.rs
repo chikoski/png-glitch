@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Context};
+use anyhow::{bail, Context};
 use clap::{ArgMatches, CommandFactory, FromArgMatches};
 use glitch_context::{
     AlphaGlitch, AverageFilter, Bitwise, BlockScramble, Brighten, ChangeFilterType, ChannelSwap,
@@ -11,6 +11,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use walkdir::WalkDir;
 
 mod cli;
@@ -239,6 +240,52 @@ fn validate_flags_for_format(args: &Cli, webp_input: bool) -> anyhow::Result<()>
     Ok(())
 }
 
+fn default_output_path(input: &Path) -> PathBuf {
+    let stem = input
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("glitched");
+    let ext = input
+        .extension()
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("png");
+    let file_name = format!("{stem}-glitched.{ext}");
+    match input.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent.join(file_name),
+        _ => PathBuf::from(file_name),
+    }
+}
+
+fn resolve_output_path(args: &Cli) -> PathBuf {
+    match &args.output_file {
+        Some(out) => PathBuf::from(out),
+        None => default_output_path(Path::new(&args.png_file)),
+    }
+}
+
+fn check_overwrite(path: &Path, force: bool) -> anyhow::Result<()> {
+    if path.exists() && !force {
+        bail!(
+            "output file '{}' already exists (use --force to overwrite)",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
+fn resolve_seed(seed: Option<u64>) -> u64 {
+    match seed {
+        Some(s) => s,
+        None => {
+            let s: u64 = rand::random();
+            eprintln!("seed: {s}");
+            s
+        }
+    }
+}
+
 fn main() -> anyhow::Result<()> {
     let matches = Cli::command().get_matches();
     let args = Cli::from_arg_matches(&matches)?;
@@ -252,111 +299,152 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn single_process(args: &Cli, steps: &[OrderedStep]) -> anyhow::Result<()> {
+    let input_path = Path::new(&args.png_file);
+    if input_path.is_dir() {
+        bail!(
+            "'{}' is a directory; use --batch-output <DIR> to process all images in a directory",
+            input_path.display()
+        );
+    }
+
     let webp_input = is_webp(&args.png_file);
     validate_flags_for_format(args, webp_input)?;
 
+    let output_path = resolve_output_path(args);
+    check_overwrite(&output_path, args.force)?;
+
+    let seed = resolve_seed(args.seed);
+
     if webp_input {
-        let mut context = WebpGlitchContext::open(&args.png_file, args.seed)
-            .context("Failed to open WebP file")?;
+        let mut context = WebpGlitchContext::open(&args.png_file, Some(seed))?;
         apply_webp_filters(args, steps, &mut context)?;
         context.execute();
-        context
-            .save(&args.output_file)
-            .context("Failed to save output file")?;
+        context.save(&output_path)?;
     } else {
-        let mut context =
-            GlitchContext::open(&args.png_file, args.seed).context("Failed to open PNG file")?;
+        let mut context = GlitchContext::open(&args.png_file, Some(seed))?;
         apply_filters(args, steps, &mut context)?;
         context.execute();
-        context
-            .save(&args.output_file)
-            .context("Failed to save output file")?;
+        context.save(&output_path)?;
     }
     Ok(())
 }
 
-fn batch_process(args: &Cli, steps: &[OrderedStep], output_dir: &str) -> anyhow::Result<()> {
-    let output_path = Path::new(output_dir);
-    if !output_path.exists() {
-        fs::create_dir_all(output_path).context("Failed to create output directory")?;
+fn compute_batch_dest_path(input_dir: &Path, file_path: &Path, output_dir: &Path) -> PathBuf {
+    let rel_path = file_path
+        .strip_prefix(input_dir)
+        .ok()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new(file_path.file_name().unwrap_or_default()));
+    output_dir.join(rel_path)
+}
+
+fn process_batch_file(
+    args: &Cli,
+    steps: &[OrderedStep],
+    path: &Path,
+    dest_path: &Path,
+    seed: u64,
+) -> anyhow::Result<()> {
+    check_overwrite(dest_path, args.force)?;
+    if let Some(parent) = dest_path.parent()
+        && !parent.as_os_str().is_empty()
+        && !parent.exists()
+    {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create directory '{}'", parent.display()))?;
     }
 
-    let png_files: Vec<PathBuf> = WalkDir::new(&args.png_file)
+    let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+    if ext.eq_ignore_ascii_case("webp") {
+        validate_flags_for_format(args, true)?;
+        let mut context = WebpGlitchContext::open(path, Some(seed))?;
+        apply_webp_filters(args, steps, &mut context)?;
+        context.execute();
+        context.save(dest_path)?;
+    } else {
+        validate_flags_for_format(args, false)?;
+        let mut context = GlitchContext::open(path, Some(seed))?;
+        apply_filters(args, steps, &mut context)?;
+        context.execute();
+        context.save(dest_path)?;
+    }
+    Ok(())
+}
+
+fn find_batch_images(input_dir: &Path) -> Vec<PathBuf> {
+    WalkDir::new(input_dir)
         .into_iter()
         .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
         .filter(|e| {
-            matches!(
-                e.path().extension().and_then(|s| s.to_str()),
-                Some("png") | Some("webp")
-            )
+            e.path()
+                .extension()
+                .and_then(|s| s.to_str())
+                .map(|ext| ext.eq_ignore_ascii_case("png") || ext.eq_ignore_ascii_case("webp"))
+                .unwrap_or(false)
         })
         .map(|e| e.path().to_path_buf())
-        .collect();
+        .collect()
+}
 
-    if png_files.is_empty() {
-        return Err(anyhow!("No PNG files found in {}", args.png_file));
+fn batch_process(args: &Cli, steps: &[OrderedStep], output_dir: &str) -> anyhow::Result<()> {
+    let input_dir = Path::new(&args.png_file);
+    let output_path = Path::new(output_dir);
+    if !output_path.exists() {
+        fs::create_dir_all(output_path)
+            .with_context(|| format!("failed to create output directory '{output_dir}'"))?;
     }
 
-    let pb = ProgressBar::new(png_files.len() as u64);
+    let image_files = find_batch_images(input_dir);
+    if image_files.is_empty() {
+        bail!("No PNG or WebP files found in '{}'", args.png_file);
+    }
+
+    let seed = resolve_seed(args.seed);
+
+    let pb = ProgressBar::new(image_files.len() as u64);
     pb.set_style(
         ProgressStyle::default_bar()
             .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta}) {msg}")?
             .progress_chars("#>-"),
     );
 
-    png_files.par_iter().for_each(|path| {
-        let file_name = path.file_name().unwrap_or_default();
-        let dest_path = output_path.join(file_name);
+    let succeeded = AtomicUsize::new(0);
+    let failed = AtomicUsize::new(0);
 
-        pb.set_message(format!("Processing {:?}", file_name));
+    image_files.par_iter().for_each(|path| {
+        let dest_path = compute_batch_dest_path(input_dir, path, output_path);
+        let display_name = path
+            .strip_prefix(input_dir)
+            .unwrap_or(path.as_path())
+            .display()
+            .to_string();
 
-        let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
-        if ext.eq_ignore_ascii_case("webp") {
-            if let Err(e) = validate_flags_for_format(args, true) {
-                eprintln!("Skipping {:?}: {}", path, e);
-                return;
+        pb.set_message(format!("Processing {display_name}"));
+
+        match process_batch_file(args, steps, path, &dest_path, seed) {
+            Ok(()) => {
+                succeeded.fetch_add(1, Ordering::Relaxed);
             }
-            let mut context = match WebpGlitchContext::open(path, args.seed) {
-                Ok(ctx) => ctx,
-                Err(e) => {
-                    eprintln!("Failed to open {:?}: {}", path, e);
-                    return;
-                }
-            };
-            if let Err(e) = apply_webp_filters(args, steps, &mut context) {
-                eprintln!("Failed to apply filters to {:?}: {}", path, e);
-                return;
-            }
-            context.execute();
-            if let Err(e) = context.save(&dest_path) {
-                eprintln!("Failed to save {:?}: {}", dest_path, e);
-            }
-        } else {
-            if let Err(e) = validate_flags_for_format(args, false) {
-                eprintln!("Skipping {:?}: {}", path, e);
-                return;
-            }
-            let mut context = match GlitchContext::open(path, args.seed) {
-                Ok(ctx) => ctx,
-                Err(e) => {
-                    eprintln!("Failed to open {:?}: {}", path, e);
-                    return;
-                }
-            };
-            if let Err(e) = apply_filters(args, steps, &mut context) {
-                eprintln!("Failed to apply filters to {:?}: {}", path, e);
-                return;
-            }
-            context.execute();
-            if let Err(e) = context.save(&dest_path) {
-                eprintln!("Failed to save {:?}: {}", dest_path, e);
+            Err(e) => {
+                failed.fetch_add(1, Ordering::Relaxed);
+                pb.println(format!("Error processing '{}': {:#}", path.display(), e));
             }
         }
 
         pb.inc(1);
     });
 
-    pb.finish_with_message("Batch processing complete");
+    let ok_count = succeeded.load(Ordering::Relaxed);
+    let err_count = failed.load(Ordering::Relaxed);
+    pb.finish_with_message(format!(
+        "Batch processing complete: {ok_count} succeeded, {err_count} failed"
+    ));
+
+    if err_count > 0 {
+        bail!("batch processing finished with {err_count} failure(s) ({ok_count} succeeded)");
+    }
+
     Ok(())
 }
 
@@ -372,9 +460,10 @@ fn apply_filters(
     for step in steps {
         match step {
             OrderedStep::Config(config_path) => {
-                let file = File::open(config_path).context("Failed to open config file")?;
-                let config: ConfigFile =
-                    serde_yml::from_reader(file).context("Failed to parse config file")?;
+                let file = File::open(config_path)
+                    .with_context(|| format!("failed to open config file '{config_path}'"))?;
+                let config: ConfigFile = serde_yml::from_reader(file)
+                    .with_context(|| format!("failed to parse config file '{config_path}'"))?;
                 for filter in config.filters {
                     context.add_from_config(filter);
                 }
@@ -509,9 +598,10 @@ fn apply_webp_filters(
     for step in steps {
         match step {
             OrderedStep::Config(config_path) => {
-                let file = File::open(config_path).context("Failed to open config file")?;
-                let config: ConfigFile =
-                    serde_yml::from_reader(file).context("Failed to parse config file")?;
+                let file = File::open(config_path)
+                    .with_context(|| format!("failed to open config file '{config_path}'"))?;
+                let config: ConfigFile = serde_yml::from_reader(file)
+                    .with_context(|| format!("failed to parse config file '{config_path}'"))?;
                 for filter_cfg in config.filters {
                     match filter_cfg {
                         FilterConfig::Invert => context.add_filter(PixelFilterAdapter(Invert)),
@@ -786,5 +876,129 @@ filters:
             out1, out2,
             "different CLI filter orders should produce different output"
         );
+    }
+
+    #[test]
+    fn test_default_output_path_preserves_extension_and_directory() {
+        assert_eq!(
+            default_output_path(Path::new("photo.png")),
+            PathBuf::from("photo-glitched.png")
+        );
+        assert_eq!(
+            default_output_path(Path::new("dir/anim.webp")),
+            PathBuf::from("dir/anim-glitched.webp")
+        );
+    }
+
+    #[test]
+    fn test_output_and_batch_output_conflict() {
+        assert!(
+            Cli::try_parse_from([
+                "png-glitch",
+                "in_dir",
+                "-o",
+                "out.png",
+                "--batch-output",
+                "out_dir"
+            ])
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn test_batch_preserves_subdirectory_structure() {
+        let in_dir = Path::new("/tmp/in");
+        let out_dir = Path::new("/tmp/out");
+        assert_eq!(
+            compute_batch_dest_path(in_dir, Path::new("/tmp/in/a/x.png"), out_dir),
+            PathBuf::from("/tmp/out/a/x.png")
+        );
+        assert_eq!(
+            compute_batch_dest_path(in_dir, Path::new("/tmp/in/b/x.png"), out_dir),
+            PathBuf::from("/tmp/out/b/x.png")
+        );
+    }
+
+    #[test]
+    fn test_overwrite_protection_requires_force() {
+        let tmp = std::env::temp_dir().join("png_glitch_test_overwrite.png");
+        fs::write(&tmp, b"dummy").unwrap();
+        assert!(check_overwrite(&tmp, false).is_err());
+        assert!(check_overwrite(&tmp, true).is_ok());
+        let _ = fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn test_directory_without_batch_output_gives_helpful_error() {
+        let tmp_dir = std::env::temp_dir().join("png_glitch_test_dir_err");
+        fs::create_dir_all(&tmp_dir).unwrap();
+        let cli = Cli::try_parse_from(["png-glitch", tmp_dir.to_str().unwrap()]).unwrap();
+        let err = single_process(&cli, &[]).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("--batch-output"),
+            "expected '--batch-output' hint in error, got: {msg}"
+        );
+        let _ = fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[test]
+    fn test_error_message_includes_path_without_duplicate_context() {
+        let cli = Cli::try_parse_from([
+            "png-glitch",
+            "nonexistent_test_file_12345.png",
+            "-o",
+            "/tmp/nonexistent_out_12345.png",
+            "--seed",
+            "1",
+        ])
+        .unwrap();
+        let err = single_process(&cli, &[]).unwrap_err();
+        let chain = format!("{err:#}");
+        assert!(
+            chain.contains("nonexistent_test_file_12345.png"),
+            "error should include file path, got: {chain}"
+        );
+        assert_eq!(
+            chain.matches("failed to open").count(),
+            1,
+            "context should not be duplicated, got: {chain}"
+        );
+    }
+
+    #[test]
+    fn test_batch_case_insensitive_and_failure_exit() {
+        let base = std::env::temp_dir().join("png_glitch_test_batch");
+        let _ = fs::remove_dir_all(&base);
+        let in_dir = base.join("in");
+        let out_dir = base.join("out");
+        fs::create_dir_all(in_dir.join("sub")).unwrap();
+
+        let sample = include_bytes!("../crates/png-glitch/etc/sample00.png");
+        fs::write(in_dir.join("IMG_001.PNG"), sample).unwrap();
+        fs::write(in_dir.join("sub").join("corrupt.png"), b"not a png").unwrap();
+
+        let found = find_batch_images(&in_dir);
+        assert_eq!(found.len(), 2, "should find uppercase .PNG and .png");
+
+        let cli = Cli::try_parse_from([
+            "png-glitch",
+            in_dir.to_str().unwrap(),
+            "--batch-output",
+            out_dir.to_str().unwrap(),
+            "--seed",
+            "1",
+            "--invert",
+        ])
+        .unwrap();
+        let steps = collect_ordered_steps(&cli, None);
+        let res = batch_process(&cli, &steps, out_dir.to_str().unwrap());
+        assert!(res.is_err(), "partial batch failure must return Err");
+        assert!(
+            out_dir.join("IMG_001.PNG").exists(),
+            "valid uppercase PNG should still be processed"
+        );
+
+        let _ = fs::remove_dir_all(&base);
     }
 }
