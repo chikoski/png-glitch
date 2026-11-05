@@ -1,17 +1,20 @@
 use anyhow::{Context, Result};
 use clap::ValueEnum;
-pub use png_glitch::presets::{Brighten, Invert, ShiftChannels};
-pub use png_glitch::{FilterType, PngGlitch, Pixel};
+pub use png_glitch::presets::{Brighten, Darken, Invert, ShiftChannels};
+pub use png_glitch::{FilterType, Pixel, PngError, PngGlitch};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use serde::Deserialize;
 use std::path::Path;
 
-/// A trait for glitch filters.
+/// A trait for glitch filters (effects).
 pub trait GlitchFilter {
     /// Applies the filter to the PngGlitch context.
     fn apply(&self, png: &mut PngGlitch, rng: &mut ChaCha8Rng);
 }
+
+/// Alias for [`GlitchFilter`] to distinguish high-level glitch effects from PNG prediction filters (`FilterType`).
+pub use GlitchFilter as Effect;
 
 /// A pixel-level filter that operates on normalized RGBA u8 values.
 ///
@@ -51,7 +54,7 @@ impl GlitchContext {
 
     /// Creates a new GlitchContext from a byte slice.
     pub fn new(data: &[u8], seed: Option<u64>) -> Result<Self> {
-        let png = PngGlitch::new(data.to_vec()).context("Failed to parse PNG data")?;
+        let png = PngGlitch::from_bytes(data).context("Failed to parse PNG data")?;
         let rng = match seed {
             Some(s) => ChaCha8Rng::seed_from_u64(s),
             None => ChaCha8Rng::from_os_rng(),
@@ -77,11 +80,7 @@ impl GlitchContext {
 
     /// Returns the encoded glitched image as a byte vector.
     pub fn buffer(&self) -> Result<Vec<u8>> {
-        let mut buffer = Vec::new();
-        self.png
-            .encode(&mut buffer)
-            .context("Failed to encode PNG")?;
-        Ok(buffer)
+        self.png.to_bytes().context("Failed to encode PNG")
     }
 
     /// Saves the glitched image to a file.
@@ -446,10 +445,13 @@ impl GlitchFilter for Replace {
     }
 }
 
-/// Filter that swaps scanlines.
+/// Filter that swaps scanlines randomly.
 pub struct Transpose {
     pub magnitude: f64,
 }
+
+/// Alias for [`Transpose`] to distinguish the randomized glitch effect from `png_glitch::Transpose`.
+pub type RandomTranspose = Transpose;
 
 impl GlitchFilter for Transpose {
     fn apply(&self, png: &mut PngGlitch, rng: &mut ChaCha8Rng) {

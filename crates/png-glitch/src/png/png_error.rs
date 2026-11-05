@@ -56,6 +56,9 @@ pub enum PngError {
     /// Unsupported filter method.
     #[error("Unsupported filter method.")]
     UnsupportedFilterMethod,
+    /// An I/O error occurred while reading or writing a PNG file or stream.
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
 }
 
 #[cfg(test)]

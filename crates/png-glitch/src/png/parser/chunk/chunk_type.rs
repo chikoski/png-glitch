@@ -1,5 +1,4 @@
 use std::fmt::{Debug, Formatter};
-use anyhow::Context;
 use crate::operation::Encode;
 use crate::png::png_error::PngError;
 
@@ -19,12 +18,9 @@ pub enum ChunkType {
 impl ChunkType {
     /// The method creates a new chunk type from a byte array.
     /// The `bytes` parameter is a byte array of a PNG file.
-    pub fn new(bytes: &[u8]) -> anyhow::Result<ChunkType> {
+    pub fn new(bytes: &[u8]) -> Result<ChunkType, PngError> {
         if bytes.len() < 4 {
-            Err(PngError::TooShortInput).context(format!(
-                "Input has only {} bytes, while 4 bytes input is expected",
-                bytes.len()
-            ))
+            Err(PngError::TooShortInput)
         } else {
             let bytes = &bytes[0..4];
             let t = match bytes {
@@ -71,7 +67,7 @@ impl Debug for ChunkType {
 }
 
 impl Encode for ChunkType {
-    fn encode(&self, mut writer: impl std::io::Write) -> anyhow::Result<()> {
+    fn encode(&self, mut writer: impl std::io::Write) -> Result<(), PngError> {
         match self {
             Self::Start => writer.write_all(ChunkType::IHDR),
             Self::End => writer.write_all(ChunkType::IEND),
