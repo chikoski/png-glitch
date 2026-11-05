@@ -849,7 +849,7 @@ Examples:
     after_help = AFTER_HELP_EXAMPLES
 )]
 pub struct Cli {
-    /// Input PNG or WebP file (or directory when used with `--batch-output`)
+    /// Input PNG or WebP file (`-` reads standard input; a directory works with `--batch-output`)
     #[arg(value_name = "INPUT", required_unless_present = "list_filters")]
     pub input: Option<String>,
 
@@ -857,7 +857,7 @@ pub struct Cli {
     #[arg(long)]
     pub list_filters: bool,
 
-    /// Output file path [default: `<input-stem>-glitched.<ext>`]
+    /// Output file path (`-` writes standard output) [default: `<input-stem>-glitched.<ext>`]
     #[arg(short, long = "output", value_name = "FILE", conflicts_with = "batch_output")]
     pub output_file: Option<String>,
 

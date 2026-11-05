@@ -4,6 +4,7 @@ use glitch_context::{AnyGlitchContext, FilterConfig};
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use std::fs::{self, File};
+use std::io::{self, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use walkdir::WalkDir;
@@ -336,6 +337,41 @@ fn check_overwrite(path: &Path, force: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn context_from_input(
+    input: &str,
+    seed: Option<u64>,
+    mut stdin: impl Read,
+) -> anyhow::Result<AnyGlitchContext> {
+    if input == "-" {
+        let mut bytes = Vec::new();
+        stdin.read_to_end(&mut bytes).context("failed to read standard input")?;
+        AnyGlitchContext::from_bytes(&bytes, seed)
+    } else {
+        AnyGlitchContext::open(input, seed)
+    }
+}
+
+fn write_context_output(
+    context: &AnyGlitchContext,
+    output_path: &Path,
+    force: bool,
+    stdout_is_terminal: bool,
+    mut stdout: impl Write,
+) -> anyhow::Result<()> {
+    if output_path == Path::new("-") {
+        if stdout_is_terminal && !force {
+            bail!("refusing to write binary image data to a terminal (use --force to override)");
+        }
+        stdout
+            .write_all(&context.buffer()?)
+            .context("failed to write image data to standard output")?;
+    } else {
+        check_overwrite(output_path, force)?;
+        context.save(output_path)?;
+    }
+    Ok(())
+}
+
 fn resolve_seed(seed: Option<u64>) -> u64 {
     match seed {
         Some(s) => s,
@@ -388,17 +424,24 @@ fn single_process(args: &Cli, steps: &[OrderedStep]) -> anyhow::Result<()> {
         validate_flags_for_format(args, false)?;
     }
 
-    let mut context = AnyGlitchContext::open(input, args.seed)?;
+    let stdin = io::stdin();
+    let mut context = context_from_input(input, args.seed, stdin.lock())?;
     validate_flags_for_format(args, context.is_webp())?;
 
     let output_path = resolve_output_path(args, input);
-    check_overwrite(&output_path, args.force)?;
 
     let seed = resolve_seed(args.seed);
     context.set_seed(Some(seed));
     apply_steps(args, steps, &mut context)?;
     context.execute();
-    context.save(&output_path)?;
+    let stdout = io::stdout();
+    write_context_output(
+        &context,
+        &output_path,
+        args.force,
+        stdout.is_terminal(),
+        stdout.lock(),
+    )?;
     Ok(())
 }
 
@@ -457,6 +500,9 @@ fn batch_process(args: &Cli, steps: &[OrderedStep], output_dir: &str) -> anyhow:
         .as_deref()
         .context("missing required <INPUT> directory path")?;
     let input_dir = Path::new(input);
+    if input == "-" {
+        bail!("--batch-output cannot be used with standard input");
+    }
     let output_path = Path::new(output_dir);
     if !output_path.exists() {
         fs::create_dir_all(output_path)
@@ -720,6 +766,46 @@ filters:
             ])
             .is_err()
         );
+    }
+
+    #[test]
+    fn test_stdin_input_uses_magic_bytes_for_format_detection() {
+        let bytes = include_bytes!("../crates/png-glitch/etc/sample00.png");
+        let context = context_from_input("-", Some(1), std::io::Cursor::new(bytes)).unwrap();
+
+        assert!(!context.is_webp());
+    }
+
+    #[test]
+    fn test_stdout_output_writes_encoded_image() {
+        let bytes = include_bytes!("../crates/png-glitch/etc/sample00.png");
+        let context = context_from_input("-", Some(1), std::io::Cursor::new(bytes)).unwrap();
+        let mut output = Vec::new();
+
+        write_context_output(&context, Path::new("-"), false, false, &mut output).unwrap();
+
+        assert!(output.starts_with(b"\x89PNG\r\n\x1a\n"));
+    }
+
+    #[test]
+    fn test_stdout_output_requires_force_when_terminal() {
+        let bytes = include_bytes!("../crates/png-glitch/etc/sample00.png");
+        let context = context_from_input("-", Some(1), std::io::Cursor::new(bytes)).unwrap();
+        let mut output = Vec::new();
+
+        let error = write_context_output(&context, Path::new("-"), false, true, &mut output)
+            .unwrap_err();
+
+        assert!(format!("{error:#}").contains("--force"));
+    }
+
+    #[test]
+    fn test_batch_mode_rejects_stdin() {
+        let cli = Cli::try_parse_from(["png-glitch", "-", "--batch-output", "out"]).unwrap();
+
+        let error = batch_process(&cli, &[], "out").unwrap_err();
+
+        assert!(format!("{error:#}").contains("standard input"));
     }
 
     #[test]
