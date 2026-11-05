@@ -1,12 +1,6 @@
 use anyhow::{bail, Context};
 use clap::{ArgMatches, CommandFactory, FromArgMatches};
-use glitch_context::{
-    AlphaGlitch, AverageFilter, Bitwise, BlockScramble, Brighten, ChangeFilterType, ChannelSwap,
-    ChromaticAberration, ColorDistortion, ColorSpaceGlitch, FilterConfig, GlitchContext,
-    HorizontalShift, Invert, LossyArtifact, MacroblockGlitch, PaethFilter, PixelFilterAdapter,
-    PixelSort, RandomCopy, RemoveFilter, Replace, SetZero, ShiftChannels, SubFilter, Substitute,
-    Transpose, UpFilter, WebpGlitchContext,
-};
+use glitch_context::{AnyGlitchContext, FilterConfig};
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use std::fs::{self, File};
@@ -18,42 +12,10 @@ mod cli;
 
 use crate::cli::{Cli, ConfigFile};
 
-fn is_webp(path: &str) -> bool {
-    Path::new(path)
-        .extension()
-        .and_then(|s| s.to_str())
-        .map(|s| s.eq_ignore_ascii_case("webp"))
-        .unwrap_or(false)
-}
-
 #[derive(Debug, Clone)]
 enum OrderedStep {
     Config(String),
-    ChangeFilterType(f64),
-    Replace(f64),
-    Transpose(f64),
-    SetZero(f64),
-    RandomCopy(u32),
-    Substitute { index: usize, value: u8 },
-    PixelSort(f64),
-    Bitwise(f64),
-    ChannelSwap(f64),
-    HorizontalShift(f64),
-    BlockScramble(f64),
-    ColorDistortion(f64),
-    ColorSpaceGlitch(f64),
-    ChromaticAberration(f64),
-    Invert,
-    Brighten(u16),
-    ShiftChannels { r: i16, g: i16, b: i16 },
-    RemoveFilter,
-    SubFilter,
-    UpFilter,
-    AverageFilter,
-    PaethFilter,
-    MacroblockGlitch(f64),
-    AlphaGlitch(glitch_context::AlphaGlitchStrategy),
-    LossyQuality(f32),
+    Filter(FilterConfig),
 }
 
 fn collect_ordered_steps(args: &Cli, matches: Option<&ArgMatches>) -> Vec<OrderedStep> {
@@ -66,102 +28,185 @@ fn collect_ordered_steps(args: &Cli, matches: Option<&ArgMatches>) -> Vec<Ordere
     if let Some(cfg) = &args.config {
         steps.push((idx("config", 10), OrderedStep::Config(cfg.clone())));
     }
-    if let Some(m) = args.change_filter_type {
-        steps.push((idx("change_filter_type", 20), OrderedStep::ChangeFilterType(m)));
+    if let Some(magnitude) = args.change_filter_type {
+        steps.push((
+            idx("change_filter_type", 20),
+            OrderedStep::Filter(FilterConfig::ChangeFilterType { magnitude }),
+        ));
     }
-    if let Some(m) = args.replace {
-        steps.push((idx("replace", 30), OrderedStep::Replace(m)));
+    if let Some(magnitude) = args.replace {
+        steps.push((
+            idx("replace", 30),
+            OrderedStep::Filter(FilterConfig::Replace { magnitude }),
+        ));
     }
-    if let Some(m) = args.transpose {
-        steps.push((idx("transpose", 40), OrderedStep::Transpose(m)));
+    if let Some(magnitude) = args.transpose {
+        steps.push((
+            idx("transpose", 40),
+            OrderedStep::Filter(FilterConfig::Transpose { magnitude }),
+        ));
     }
-    if let Some(m) = args.set_zero {
-        steps.push((idx("set_zero", 50), OrderedStep::SetZero(m)));
+    if let Some(magnitude) = args.set_zero {
+        steps.push((
+            idx("set_zero", 50),
+            OrderedStep::Filter(FilterConfig::SetZero { magnitude }),
+        ));
     }
     if let Some(times) = args.random_copy {
-        steps.push((idx("random_copy", 60), OrderedStep::RandomCopy(times)));
+        steps.push((
+            idx("random_copy", 60),
+            OrderedStep::Filter(FilterConfig::RandomCopy { times }),
+        ));
     }
     if let Some(sub) = args.substitute {
         steps.push((
             idx("substitute", 70),
-            OrderedStep::Substitute {
+            OrderedStep::Filter(FilterConfig::Substitute {
                 index: sub.index,
                 value: sub.value,
-            },
+            }),
         ));
     }
-    if let Some(m) = args.pixel_sort {
-        steps.push((idx("pixel_sort", 80), OrderedStep::PixelSort(m)));
+    if let Some(magnitude) = args.pixel_sort {
+        steps.push((
+            idx("pixel_sort", 80),
+            OrderedStep::Filter(FilterConfig::PixelSort {
+                magnitude,
+                criterion: Some(args.pixel_sort_criterion),
+            }),
+        ));
     }
-    if let Some(m) = args.bitwise {
-        steps.push((idx("bitwise", 90), OrderedStep::Bitwise(m)));
+    if let Some(magnitude) = args.bitwise {
+        steps.push((
+            idx("bitwise", 90),
+            OrderedStep::Filter(FilterConfig::Bitwise {
+                magnitude,
+                op: Some(args.bitwise_op),
+                value: Some(args.bitwise_value),
+            }),
+        ));
     }
-    if let Some(m) = args.channel_swap {
-        steps.push((idx("channel_swap", 100), OrderedStep::ChannelSwap(m)));
+    if let Some(magnitude) = args.channel_swap {
+        steps.push((
+            idx("channel_swap", 100),
+            OrderedStep::Filter(FilterConfig::ChannelSwap {
+                magnitude,
+                target: Some(args.channel_swap_target),
+            }),
+        ));
     }
-    if let Some(m) = args.horizontal_shift {
-        steps.push((idx("horizontal_shift", 110), OrderedStep::HorizontalShift(m)));
+    if let Some(magnitude) = args.horizontal_shift {
+        steps.push((
+            idx("horizontal_shift", 110),
+            OrderedStep::Filter(FilterConfig::HorizontalShift { magnitude }),
+        ));
     }
-    if let Some(m) = args.block_scramble {
-        steps.push((idx("block_scramble", 120), OrderedStep::BlockScramble(m)));
+    if let Some(magnitude) = args.block_scramble {
+        steps.push((
+            idx("block_scramble", 120),
+            OrderedStep::Filter(FilterConfig::BlockScramble {
+                magnitude,
+                block_size: Some(args.block_scramble_size),
+            }),
+        ));
     }
-    if let Some(m) = args.color_distortion {
-        steps.push((idx("color_distortion", 130), OrderedStep::ColorDistortion(m)));
+    if let Some(magnitude) = args.color_distortion {
+        steps.push((
+            idx("color_distortion", 130),
+            OrderedStep::Filter(FilterConfig::ColorDistortion {
+                magnitude,
+                strength: Some(args.color_distortion_strength),
+            }),
+        ));
     }
-    if let Some(m) = args.color_space_glitch {
+    if let Some(magnitude) = args.color_space_glitch {
         steps.push((
             idx("color_space_glitch", 140),
-            OrderedStep::ColorSpaceGlitch(m),
+            OrderedStep::Filter(FilterConfig::ColorSpaceGlitch {
+                magnitude,
+                hue_shift: Some(args.hue_shift),
+                saturation_mult: Some(args.saturation_mult),
+                lightness_mult: Some(args.lightness_mult),
+            }),
         ));
     }
-    if let Some(m) = args.chromatic_aberration {
+    if let Some(magnitude) = args.chromatic_aberration {
         steps.push((
             idx("chromatic_aberration", 150),
-            OrderedStep::ChromaticAberration(m),
+            OrderedStep::Filter(FilterConfig::ChromaticAberration {
+                magnitude,
+                r_offset: Some(args.r_offset),
+                g_offset: Some(args.g_offset),
+                b_offset: Some(args.b_offset),
+            }),
         ));
     }
     if args.invert {
-        steps.push((idx("invert", 160), OrderedStep::Invert));
+        steps.push((
+            idx("invert", 160),
+            OrderedStep::Filter(FilterConfig::Invert),
+        ));
     }
-    if let Some(s) = args.brighten {
-        steps.push((idx("brighten", 170), OrderedStep::Brighten(s)));
+    if let Some(strength) = args.brighten {
+        steps.push((
+            idx("brighten", 170),
+            OrderedStep::Filter(FilterConfig::Brighten { strength }),
+        ));
     }
     if let Some(ch) = args.shift_channels {
         steps.push((
             idx("shift_channels", 180),
-            OrderedStep::ShiftChannels {
+            OrderedStep::Filter(FilterConfig::ShiftChannels {
                 r: ch.r,
                 g: ch.g,
                 b: ch.b,
-            },
+            }),
         ));
     }
     if args.remove_filter {
-        steps.push((idx("remove_filter", 190), OrderedStep::RemoveFilter));
-    }
-    if args.sub {
-        steps.push((idx("sub", 200), OrderedStep::SubFilter));
-    }
-    if args.up {
-        steps.push((idx("up", 210), OrderedStep::UpFilter));
-    }
-    if args.average {
-        steps.push((idx("average", 220), OrderedStep::AverageFilter));
-    }
-    if args.paeth {
-        steps.push((idx("paeth", 230), OrderedStep::PaethFilter));
-    }
-    if let Some(m) = args.macroblock_glitch {
         steps.push((
-            idx("macroblock_glitch", 240),
-            OrderedStep::MacroblockGlitch(m),
+            idx("remove_filter", 190),
+            OrderedStep::Filter(FilterConfig::RemoveFilter),
         ));
     }
-    if let Some(s) = args.alpha_glitch {
-        steps.push((idx("alpha_glitch", 250), OrderedStep::AlphaGlitch(s)));
+    if args.sub {
+        steps.push((idx("sub", 200), OrderedStep::Filter(FilterConfig::SubFilter)));
     }
-    if let Some(q) = args.lossy_quality {
-        steps.push((idx("lossy_quality", 260), OrderedStep::LossyQuality(q)));
+    if args.up {
+        steps.push((idx("up", 210), OrderedStep::Filter(FilterConfig::UpFilter)));
+    }
+    if args.average {
+        steps.push((
+            idx("average", 220),
+            OrderedStep::Filter(FilterConfig::AverageFilter),
+        ));
+    }
+    if args.paeth {
+        steps.push((
+            idx("paeth", 230),
+            OrderedStep::Filter(FilterConfig::PaethFilter),
+        ));
+    }
+    if let Some(magnitude) = args.macroblock_glitch {
+        steps.push((
+            idx("macroblock_glitch", 240),
+            OrderedStep::Filter(FilterConfig::MacroblockGlitch { magnitude }),
+        ));
+    }
+    if let Some(strategy) = args.alpha_glitch {
+        steps.push((
+            idx("alpha_glitch", 250),
+            OrderedStep::Filter(FilterConfig::AlphaGlitch {
+                magnitude: 1.0,
+                strategy: Some(strategy),
+            }),
+        ));
+    }
+    if let Some(quality) = args.lossy_quality {
+        steps.push((
+            idx("lossy_quality", 260),
+            OrderedStep::Filter(FilterConfig::LossyArtifact { quality }),
+        ));
     }
 
     steps.sort_by_key(|(i, _)| *i);
@@ -307,25 +352,17 @@ fn single_process(args: &Cli, steps: &[OrderedStep]) -> anyhow::Result<()> {
         );
     }
 
-    let webp_input = is_webp(&args.png_file);
-    validate_flags_for_format(args, webp_input)?;
+    let mut context = AnyGlitchContext::open(&args.png_file, args.seed)?;
+    validate_flags_for_format(args, context.is_webp())?;
 
     let output_path = resolve_output_path(args);
     check_overwrite(&output_path, args.force)?;
 
     let seed = resolve_seed(args.seed);
-
-    if webp_input {
-        let mut context = WebpGlitchContext::open(&args.png_file, Some(seed))?;
-        apply_webp_filters(args, steps, &mut context)?;
-        context.execute();
-        context.save(&output_path)?;
-    } else {
-        let mut context = GlitchContext::open(&args.png_file, Some(seed))?;
-        apply_filters(args, steps, &mut context)?;
-        context.execute();
-        context.save(&output_path)?;
-    }
+    context.set_seed(Some(seed));
+    apply_steps(args, steps, &mut context)?;
+    context.execute();
+    context.save(&output_path)?;
     Ok(())
 }
 
@@ -354,20 +391,11 @@ fn process_batch_file(
             .with_context(|| format!("failed to create directory '{}'", parent.display()))?;
     }
 
-    let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
-    if ext.eq_ignore_ascii_case("webp") {
-        validate_flags_for_format(args, true)?;
-        let mut context = WebpGlitchContext::open(path, Some(seed))?;
-        apply_webp_filters(args, steps, &mut context)?;
-        context.execute();
-        context.save(dest_path)?;
-    } else {
-        validate_flags_for_format(args, false)?;
-        let mut context = GlitchContext::open(path, Some(seed))?;
-        apply_filters(args, steps, &mut context)?;
-        context.execute();
-        context.save(dest_path)?;
-    }
+    let mut context = AnyGlitchContext::open(path, Some(seed))?;
+    validate_flags_for_format(args, context.is_webp())?;
+    apply_steps(args, steps, &mut context)?;
+    context.execute();
+    context.save(dest_path)?;
     Ok(())
 }
 
@@ -448,13 +476,13 @@ fn batch_process(args: &Cli, steps: &[OrderedStep], output_dir: &str) -> anyhow:
     Ok(())
 }
 
-fn apply_filters(
+fn apply_steps(
     args: &Cli,
     steps: &[OrderedStep],
-    context: &mut GlitchContext,
+    context: &mut AnyGlitchContext,
 ) -> anyhow::Result<()> {
     if let Some(pre_process) = args.pre_process {
-        context.pre_process(pre_process);
+        context.pre_process(pre_process)?;
     }
 
     for step in steps {
@@ -465,278 +493,15 @@ fn apply_filters(
                 let config: ConfigFile = serde_yml::from_reader(file)
                     .with_context(|| format!("failed to parse config file '{config_path}'"))?;
                 for filter in config.filters {
-                    context.add_from_config(filter);
+                    context.add_from_config(filter)?;
                 }
             }
-            OrderedStep::ChangeFilterType(magnitude) => {
-                context.add_filter(ChangeFilterType {
-                    magnitude: *magnitude,
-                });
-            }
-            OrderedStep::Replace(magnitude) => {
-                context.add_filter(Replace {
-                    magnitude: *magnitude,
-                });
-            }
-            OrderedStep::Transpose(magnitude) => {
-                context.add_filter(Transpose {
-                    magnitude: *magnitude,
-                });
-            }
-            OrderedStep::SetZero(magnitude) => {
-                context.add_filter(SetZero {
-                    magnitude: *magnitude,
-                });
-            }
-            OrderedStep::RandomCopy(times) => {
-                context.add_filter(RandomCopy { times: *times });
-            }
-            OrderedStep::Substitute { index, value } => {
-                context.add_filter(Substitute {
-                    index: *index,
-                    value: *value,
-                });
-            }
-            OrderedStep::PixelSort(magnitude) => {
-                context.add_filter(PixelSort {
-                    magnitude: *magnitude,
-                    criterion: args.pixel_sort_criterion,
-                });
-            }
-            OrderedStep::Bitwise(magnitude) => {
-                context.add_filter(Bitwise {
-                    magnitude: *magnitude,
-                    op: args.bitwise_op,
-                    value: args.bitwise_value,
-                });
-            }
-            OrderedStep::ChannelSwap(magnitude) => {
-                context.add_filter(ChannelSwap {
-                    magnitude: *magnitude,
-                    target: args.channel_swap_target,
-                });
-            }
-            OrderedStep::HorizontalShift(magnitude) => {
-                context.add_filter(HorizontalShift {
-                    magnitude: *magnitude,
-                });
-            }
-            OrderedStep::BlockScramble(magnitude) => {
-                context.add_filter(BlockScramble {
-                    magnitude: *magnitude,
-                    block_size: args.block_scramble_size,
-                });
-            }
-            OrderedStep::ColorDistortion(magnitude) => {
-                context.add_filter(ColorDistortion {
-                    magnitude: *magnitude,
-                    strength: args.color_distortion_strength,
-                });
-            }
-            OrderedStep::ColorSpaceGlitch(magnitude) => {
-                context.add_filter(ColorSpaceGlitch {
-                    magnitude: *magnitude,
-                    hue_shift: args.hue_shift,
-                    saturation_mult: args.saturation_mult,
-                    lightness_mult: args.lightness_mult,
-                });
-            }
-            OrderedStep::ChromaticAberration(magnitude) => {
-                context.add_filter(ChromaticAberration {
-                    magnitude: *magnitude,
-                    r_offset: args.r_offset,
-                    g_offset: args.g_offset,
-                    b_offset: args.b_offset,
-                });
-            }
-            OrderedStep::Invert => {
-                context.add_filter(Invert);
-            }
-            OrderedStep::Brighten(strength) => {
-                context.add_filter(Brighten {
-                    strength: *strength,
-                });
-            }
-            OrderedStep::ShiftChannels { r, g, b } => {
-                context.add_filter(ShiftChannels {
-                    r: *r,
-                    g: *g,
-                    b: *b,
-                });
-            }
-            OrderedStep::RemoveFilter => {
-                context.add_filter(RemoveFilter);
-            }
-            OrderedStep::SubFilter => {
-                context.add_filter(SubFilter);
-            }
-            OrderedStep::UpFilter => {
-                context.add_filter(UpFilter);
-            }
-            OrderedStep::AverageFilter => {
-                context.add_filter(AverageFilter);
-            }
-            OrderedStep::PaethFilter => {
-                context.add_filter(PaethFilter);
-            }
-            OrderedStep::MacroblockGlitch(_)
-            | OrderedStep::AlphaGlitch(_)
-            | OrderedStep::LossyQuality(_) => {
-                bail!("WebP-only filter is not supported for PNG input");
+            OrderedStep::Filter(filter_cfg) => {
+                context.add_from_config(filter_cfg.clone())?;
             }
         }
     }
 
-    Ok(())
-}
-
-fn apply_webp_filters(
-    args: &Cli,
-    steps: &[OrderedStep],
-    context: &mut WebpGlitchContext,
-) -> anyhow::Result<()> {
-    for step in steps {
-        match step {
-            OrderedStep::Config(config_path) => {
-                let file = File::open(config_path)
-                    .with_context(|| format!("failed to open config file '{config_path}'"))?;
-                let config: ConfigFile = serde_yml::from_reader(file)
-                    .with_context(|| format!("failed to parse config file '{config_path}'"))?;
-                for filter_cfg in config.filters {
-                    match filter_cfg {
-                        FilterConfig::Invert => context.add_filter(PixelFilterAdapter(Invert)),
-                        FilterConfig::Brighten { strength } => {
-                            context.add_filter(PixelFilterAdapter(Brighten { strength }))
-                        }
-                        FilterConfig::ShiftChannels { r, g, b } => {
-                            context.add_filter(PixelFilterAdapter(ShiftChannels { r, g, b }))
-                        }
-                        FilterConfig::PixelSort {
-                            magnitude,
-                            criterion,
-                        } => context.add_filter(PixelSort {
-                            magnitude,
-                            criterion: criterion
-                                .unwrap_or(glitch_context::SortCriterion::Brightness),
-                        }),
-                        FilterConfig::Bitwise {
-                            magnitude,
-                            op,
-                            value,
-                        } => context.add_filter(Bitwise {
-                            magnitude,
-                            op: op.unwrap_or(glitch_context::BitOp::Xor),
-                            value: value.unwrap_or(0),
-                        }),
-                        FilterConfig::ChannelSwap { magnitude, target } => {
-                            context.add_filter(ChannelSwap {
-                                magnitude,
-                                target: target.unwrap_or(glitch_context::SwapTarget::Rg),
-                            })
-                        }
-                        FilterConfig::HorizontalShift { magnitude } => {
-                            context.add_filter(HorizontalShift { magnitude })
-                        }
-                        FilterConfig::ColorDistortion {
-                            magnitude,
-                            strength,
-                        } => context.add_filter(ColorDistortion {
-                            magnitude,
-                            strength: strength.unwrap_or(20),
-                        }),
-                        FilterConfig::ChromaticAberration {
-                            magnitude,
-                            r_offset,
-                            g_offset,
-                            b_offset,
-                        } => context.add_filter(ChromaticAberration {
-                            magnitude,
-                            r_offset: r_offset.unwrap_or(2),
-                            g_offset: g_offset.unwrap_or(0),
-                            b_offset: b_offset.unwrap_or(-2),
-                        }),
-                        other => {
-                            bail!(
-                                "Filter `{:?}` in config file is not supported for WebP images",
-                                other
-                            );
-                        }
-                    }
-                }
-            }
-            OrderedStep::Invert => context.add_filter(PixelFilterAdapter(Invert)),
-            OrderedStep::Brighten(strength) => {
-                context.add_filter(PixelFilterAdapter(Brighten {
-                    strength: *strength,
-                }));
-            }
-            OrderedStep::ShiftChannels { r, g, b } => {
-                context.add_filter(PixelFilterAdapter(ShiftChannels {
-                    r: *r,
-                    g: *g,
-                    b: *b,
-                }));
-            }
-            OrderedStep::PixelSort(magnitude) => {
-                context.add_filter(PixelSort {
-                    magnitude: *magnitude,
-                    criterion: args.pixel_sort_criterion,
-                });
-            }
-            OrderedStep::Bitwise(magnitude) => {
-                context.add_filter(Bitwise {
-                    magnitude: *magnitude,
-                    op: args.bitwise_op,
-                    value: args.bitwise_value,
-                });
-            }
-            OrderedStep::ChannelSwap(magnitude) => {
-                context.add_filter(ChannelSwap {
-                    magnitude: *magnitude,
-                    target: args.channel_swap_target,
-                });
-            }
-            OrderedStep::HorizontalShift(magnitude) => {
-                context.add_filter(HorizontalShift {
-                    magnitude: *magnitude,
-                });
-            }
-            OrderedStep::ColorDistortion(magnitude) => {
-                context.add_filter(ColorDistortion {
-                    magnitude: *magnitude,
-                    strength: args.color_distortion_strength,
-                });
-            }
-            OrderedStep::ChromaticAberration(magnitude) => {
-                context.add_filter(ChromaticAberration {
-                    magnitude: *magnitude,
-                    r_offset: args.r_offset,
-                    g_offset: args.g_offset,
-                    b_offset: args.b_offset,
-                });
-            }
-            OrderedStep::MacroblockGlitch(magnitude) => {
-                context.add_filter(MacroblockGlitch {
-                    magnitude: *magnitude,
-                });
-            }
-            OrderedStep::AlphaGlitch(strategy) => {
-                context.add_filter(AlphaGlitch {
-                    magnitude: 1.0,
-                    strategy: *strategy,
-                });
-            }
-            OrderedStep::LossyQuality(quality) => {
-                context.add_filter(LossyArtifact { quality: *quality });
-            }
-            other => {
-                bail!(
-                    "Filter `{:?}` is not supported for WebP images",
-                    other
-                );
-            }
-        }
-    }
     Ok(())
 }
 
@@ -843,8 +608,14 @@ filters:
             .unwrap();
         let args1 = Cli::from_arg_matches(&matches1).unwrap();
         let steps1 = collect_ordered_steps(&args1, Some(&matches1));
-        assert!(matches!(steps1[0], OrderedStep::Invert));
-        assert!(matches!(steps1[1], OrderedStep::Replace(_)));
+        assert!(matches!(
+            steps1[0],
+            OrderedStep::Filter(FilterConfig::Invert)
+        ));
+        assert!(matches!(
+            steps1[1],
+            OrderedStep::Filter(FilterConfig::Replace { .. })
+        ));
 
         let matches2 = Cli::command()
             .try_get_matches_from([
@@ -859,16 +630,22 @@ filters:
             .unwrap();
         let args2 = Cli::from_arg_matches(&matches2).unwrap();
         let steps2 = collect_ordered_steps(&args2, Some(&matches2));
-        assert!(matches!(steps2[0], OrderedStep::Replace(_)));
-        assert!(matches!(steps2[1], OrderedStep::Invert));
+        assert!(matches!(
+            steps2[0],
+            OrderedStep::Filter(FilterConfig::Replace { .. })
+        ));
+        assert!(matches!(
+            steps2[1],
+            OrderedStep::Filter(FilterConfig::Invert)
+        ));
 
-        let mut ctx1 = GlitchContext::new(bytes, Some(1)).unwrap();
-        apply_filters(&args1, &steps1, &mut ctx1).unwrap();
+        let mut ctx1 = AnyGlitchContext::from_bytes(bytes, Some(1)).unwrap();
+        apply_steps(&args1, &steps1, &mut ctx1).unwrap();
         ctx1.execute();
         let out1 = ctx1.buffer().unwrap();
 
-        let mut ctx2 = GlitchContext::new(bytes, Some(1)).unwrap();
-        apply_filters(&args2, &steps2, &mut ctx2).unwrap();
+        let mut ctx2 = AnyGlitchContext::from_bytes(bytes, Some(1)).unwrap();
+        apply_steps(&args2, &steps2, &mut ctx2).unwrap();
         ctx2.execute();
         let out2 = ctx2.buffer().unwrap();
 

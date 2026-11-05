@@ -1,8 +1,10 @@
 use crate::WebpGlitch;
-use rand_chacha::ChaCha8Rng;
+use rand::RngCore;
 
-/// WebP グリッチフィルターのトレイト。
-/// `WebpGlitchContext::add_filter()` に渡して使用する。
+/// Trait for WebP glitch filters (effects).
+///
+/// Pass implementations to `WebpGlitchContext::add_filter()` or `AnyGlitchContext`.
 pub trait WebpGlitchFilter: Send + Sync {
-    fn apply(&self, webp: &mut WebpGlitch, rng: &mut ChaCha8Rng);
+    /// Applies the filter to the [`WebpGlitch`] instance using the provided RNG.
+    fn apply(&self, webp: &mut WebpGlitch, rng: &mut dyn RngCore);
 }

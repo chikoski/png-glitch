@@ -15,5 +15,10 @@ anyhow.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true
 serde.workspace = true
-clap.workspace = true
-webp-glitch.workspace = true
+clap = { workspace = true, optional = true }
+webp-glitch = { workspace = true, optional = true }
+
+[features]
+default = ["webp", "clap"]
+webp = ["dep:webp-glitch"]
+clap = ["dep:clap"]
