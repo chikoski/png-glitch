@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Workspace
+
+#### Fixed
+- Fuzz targets build again and run in CI (#52): the fuzz crate moved from `crates/png-glitch/fuzz` to the top-level `fuzz/` with its own `[workspace]` table, the parser target uses the public API, and new `glitch_context_pipeline` and `webp_riff` targets were added. Every PR builds all targets; a scheduled workflow fuzzes each one and uploads crashes as artifacts.
+
 ### `png-glitch-cli` `0.5.0`
 
 #### Added
@@ -52,6 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Fixed
 - `Substitute`, `ChromaticAberration`, and `ColorDistortion` now clamp/guard against small images and 16-bit channel overflow instead of panicking (#5, #6).
 - `WebpShiftChannels`, `PixelSort`, `ChannelSwap`, and `ColorDistortion` on WebP now use the context's seeded RNG instead of `rand::rng()` (#11).
+- `ChromaticAberration` no longer panics with an arithmetic overflow when a channel offset is near `i32::MIN`/`i32::MAX` (PNG and WebP). Found by the new `glitch_context_pipeline` fuzz target (#52).
 
 ---
 

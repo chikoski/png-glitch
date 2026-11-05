@@ -1,6 +1,6 @@
 [workspace]
 members = [".", "crates/*"]
-exclude = ["crates/png-glitch/fuzz"]
+exclude = ["fuzz"]
 resolver = "2"
 
 [workspace.package]

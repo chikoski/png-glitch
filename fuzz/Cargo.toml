@@ -1,0 +1,46 @@
+[package]
+name = "png-glitch-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Keep this crate out of the parent workspace. `exclude` in the root manifest
+# alone is not enough: cargo still walks up and finds the root workspace.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+png-glitch = { path = "../crates/png-glitch" }
+glitch-context = { path = "../crates/glitch-context" }
+webp-glitch = { path = "../crates/webp-glitch" }
+
+[[bin]]
+name = "png_parse"
+path = "fuzz_targets/png_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "png_glitch_ops"
+path = "fuzz_targets/png_glitch_ops.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "glitch_context_pipeline"
+path = "fuzz_targets/glitch_context_pipeline.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "webp_riff"
+path = "fuzz_targets/webp_riff.rs"
+test = false
+doc = false
+bench = false

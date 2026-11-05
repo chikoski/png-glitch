@@ -74,4 +74,21 @@ For detailed information on specific subsystems, refer to the following document
 - [**Glitch Operations**](crates/png-glitch/specs/GLITCH_OPERATIONS.md): Technical details on transposition and presets.
 
 ## Fuzzing & Security
-Because we parse raw bytes from potentially untrusted files, we maintain a fuzzer in `crates/png-glitch/fuzz/`. Contributors modifying the parser should run `cargo fuzz run` to ensure no regressions in memory safety or panic-freedom.
+Because we parse raw bytes from potentially untrusted files, we maintain `cargo-fuzz` targets in the top-level `fuzz/` directory. It is a standalone crate (it has its own `[workspace]` table and `Cargo.lock`), so run the commands below from inside `fuzz/`.
+
+| Target | What it exercises |
+| --- | --- |
+| `png_parse` | `PngGlitch::from_bytes_with_options` in lenient and strict mode, then re-encode. |
+| `png_glitch_ops` | Parse, then `remove_filter`/`apply_filter`, presets, `transpose`, and encode. |
+| `glitch_context_pipeline` | `AnyGlitchContext` (PNG or WebP): parse, queue every `FilterConfig` variant, execute, encode. |
+| `webp_riff` | `RiffContainer::parse`, encode/re-parse round trip, and every chunk mutation. |
+
+```bash
+rustup toolchain install nightly
+cargo install cargo-fuzz --locked
+cd fuzz
+./scripts/seed-corpus.sh --download-pngsuite   # seeds corpus/<target>/ from etc/ samples and PngSuite
+cargo +nightly fuzz run png_parse -- -max_total_time=300
+```
+
+Crashing inputs are written to `fuzz/artifacts/<target>/`; reproduce one with `cargo +nightly fuzz run <target> <file>`. CI builds every target on each pull request, and `.github/workflows/fuzz.yml` fuzzes each target on a schedule (or on demand via *Run workflow*) and uploads any crashes as workflow artifacts. Contributors modifying a parser or filter should run the relevant target locally. When `FilterConfig` gains a variant, `fuzz_targets/glitch_context_pipeline.rs` stops compiling until the new variant is added to its filter list.

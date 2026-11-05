@@ -33,4 +33,4 @@ Common errors handled by the `Parser`:
 
 ## Security Considerations
 
-As the library parses raw byte streams, it includes a **fuzzing infrastructure** (`fuzz/` directory) using `cargo-fuzz`. This helps ensure that malicious or malformed PNG files do not cause panics or memory safety issues within the `Parser`.
+As the library parses raw byte streams, the workspace includes a **fuzzing infrastructure** (the top-level `fuzz/` directory) using `cargo-fuzz`; see the *Fuzzing & Security* section of `DEVELOPER_GUIDE.md`. This helps ensure that malicious or malformed PNG files do not cause panics or memory safety issues within the `Parser`.
