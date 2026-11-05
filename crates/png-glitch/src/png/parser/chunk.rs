@@ -4,6 +4,9 @@ use crate::png::png_error::PngError;
 
 mod chunk_type;
 
+/// Maximum valid PNG chunk data length (`2^31 - 1` bytes per PNG specification).
+const MAX_CHUNK_LENGTH: usize = 0x7FFF_FFFF;
+
 /// A struct representing a PNG chunk.
 ///
 /// # Invariant
@@ -36,7 +39,7 @@ impl Chunk {
 
     /// The method returns the consumed size of the chunk.
     pub fn consumed_size(&self) -> usize {
-        self.length() + 12
+        self.length().saturating_add(12)
     }
 
     /// The method creates a new chunk.
@@ -77,9 +80,13 @@ impl Chunk {
     /// The `buffer` parameter is a byte array of a PNG file.
     pub fn parse(buffer: &[u8]) -> Result<Chunk, PngError> {
         let length = Self::parse_length(buffer)?;
+        if length > MAX_CHUNK_LENGTH {
+            return Err(PngError::TooShortInput);
+        }
+        let crc_offset = length.checked_add(8).ok_or(PngError::TooShortInput)?;
         let chunk_type = Self::parse_chunk_type(buffer.get(4..).ok_or(PngError::TooShortInput)?)?;
         let data = Self::parse_data(buffer.get(8..).ok_or(PngError::TooShortInput)?, length)?;
-        let crc = Self::parse_crc(buffer.get(length + 8..).ok_or(PngError::TooShortInput)?)?;
+        let crc = Self::parse_crc(buffer.get(crc_offset..).ok_or(PngError::TooShortInput)?)?;
 
         Ok(Chunk::new(chunk_type, data, crc))
     }
@@ -98,11 +105,8 @@ impl Chunk {
     }
 
     fn parse_data(buffer: &[u8], length: usize) -> Result<Vec<u8>, PngError> {
-        if buffer.len() < length {
-            Err(PngError::TooShortInput)
-        } else {
-            Ok(buffer[..length].to_vec())
-        }
+        let slice = buffer.get(..length).ok_or(PngError::TooShortInput)?;
+        Ok(slice.to_vec())
     }
 
     fn parse_crc(buffer: &[u8]) -> Result<[u8; 4], PngError> {

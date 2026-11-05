@@ -852,6 +852,7 @@ version = "0.7.0"
 dependencies = [
  "crc32fast",
  "fdeflate",
+ "image",
  "rayon",
  "thiserror",
 ]

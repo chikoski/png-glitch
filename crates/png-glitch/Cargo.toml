@@ -14,3 +14,6 @@ crc32fast.workspace = true
 fdeflate.workspace = true
 rayon.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+image.workspace = true
