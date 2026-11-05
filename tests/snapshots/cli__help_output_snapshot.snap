@@ -1,5 +1,6 @@
 ---
 source: tests/cli.rs
+assertion_line: 362
 expression: text
 ---
 A CLI tool to create glitch art from PNG and WebP images.
@@ -65,25 +66,25 @@ Glitch Filters:
 
       --pixel-sort-criterion <CRITERION>
           Criterion for `--pixel-sort`
-          
-          [default: brightness]
 
           Possible values:
           - brightness: Sorts pixels by average RGB brightness `(r + g + b) / 3`
           - hue:        Sorts pixels by HSL hue angle (`0.0..=360.0`)
+          
+          [default: brightness]
 
       --bitwise <MAG>
           Apply bitwise operation to scanline bytes [0.0..=1.0] (configure with `--bitwise-op`, `--bitwise-value`)
 
       --bitwise-op <OP>
           Operator for `--bitwise`
-          
-          [default: xor]
 
           Possible values:
           - and: Bitwise AND (`b & value`)
           - or:  Bitwise OR (`b | value`)
           - xor: Bitwise XOR (`b ^ value`)
+          
+          [default: xor]
 
       --bitwise-value <BYTE>
           Byte operand (0..=255) for `--bitwise`
@@ -95,13 +96,13 @@ Glitch Filters:
 
       --channel-swap-target <TARGET>
           Channel pair for `--channel-swap`
-          
-          [default: rg]
 
           Possible values:
           - rg: Swaps Red and Green channels
           - gb: Swaps Green and Blue channels
           - br: Swaps Blue and Red channels
+          
+          [default: rg]
 
       --horizontal-shift <MAG>
           Shift scanlines horizontally [0.0..=1.0]
