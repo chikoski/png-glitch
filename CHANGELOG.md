@@ -1,0 +1,75 @@
+# Changelog
+
+All notable changes to the crates in this workspace (`png-glitch`, `webp-glitch`, `glitch-context`, and `png-glitch-cli`) will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### `png-glitch-cli` `0.5.0`
+
+#### Added
+- Support for WebP images alongside PNG images with magic-byte format auto-detection.
+- Repeatable `-f / --filter <SPEC>` flag supporting `<filter>`, `<filter>=<val>`, and `<filter>:k1=v1,k2=v2` to apply any filter any number of times in command-line order (#18).
+- `--list-filters` flag to print all available filters, parameters, default values, and PNG/WebP compatibility (#18).
+- `--darken <STRENGTH>` flag and `--sub-filter`, `--up-filter`, `--average-filter`, `--paeth-filter` aliases (#18, #19).
+- `--force` flag to explicitly allow overwriting existing output files (#14).
+- Print the generated random `--seed` to `stderr` when `--seed` is omitted so random glitches can be reproduced (#16).
+- Format-specific flag validation (`--macroblock-glitch`, `--alpha-glitch`, `--lossy-quality` rejected for PNG; PNG-only flags rejected for WebP) (#9).
+- YAML configuration validation (`#[serde(deny_unknown_fields)]`, `0.0..=1.0` magnitude validation, and support for both `kebab-case` and `PascalCase` filter names) (#10, #19).
+
+#### Changed
+- Renamed positional argument `<PNG_FILE>` to `<INPUT>` (#20).
+- Set binary `#[command(name = "png-glitch")]` so `--help` and `--version` display `png-glitch` instead of `png-glitch-cli` (#12).
+- Default output path is now `<input-stem>-glitched.<ext>` next to `<INPUT>` instead of `./glitched.png` in the current working directory (#14).
+- CLI filter flags and `--config` are now applied in the exact order they appear on the command line (#13).
+- Batch processing (`--batch-output`) now walks subdirectories case-insensitively (`.png`, `.PNG`, `.webp`, `.WEBP`), preserves relative subdirectory structure, uses a shared deterministic seed, and exits non-zero if any file fails (#15).
+
+#### Fixed
+- Allowed negative values on `--r-offset`, `--g-offset`, `--b-offset`, `--hue-shift`, and `--shift-channels` without requiring `=` (#8).
+- Replaced `.expect()` panics on malformed `--substitute`, `--shift-channels`, and `--alpha-glitch` arguments with `clap` `value_parser` errors (#7).
+- Included file paths in error messages without duplicate context prefixes (#17).
+
+---
+
+### `glitch-context` `0.2.0`
+
+#### Added
+- `WebpGlitchContext`, `AnyGlitchContext`, `ImageFormat`, `detect_format`, and `open_any` for format-agnostic PNG and WebP glitching (#27).
+- `PixelFilter` trait and `PixelFilterAdapter` for format-independent pixel filters (#28).
+- `Darken` and `WebpDarken` filters, plus `Darken`, `MacroblockGlitch`, `AlphaGlitch`, and `LossyArtifact` variants on `FilterConfig` (#22, #27).
+- `Default`, `::new(...)` constructors, and `with_*` builder methods on all filter structs, along with `#[derive(Debug, Clone, Copy, PartialEq)]` (#28).
+- Cargo features `webp` and `clap` (both enabled by default) so library consumers can disable `webp-glitch` or `clap` (#26).
+- Re-exports of `rand`, `rand_chacha`, and `ChaCha8Rng` (#25).
+- Full `#![warn(missing_docs)]` rustdoc coverage and expanded test suite across all 15 PNG color-type/bit-depth combinations and all WebP filters (#29, #30).
+
+#### Changed
+- **Breaking**: `GlitchFilter::apply` and `WebpGlitchFilter::apply` now take `&mut dyn rand::RngCore` instead of `&mut ChaCha8Rng` (#25).
+- **Breaking**: `GlitchContext::add_from_config` and `WebpGlitchContext::add_from_config` now return `anyhow::Result<()>` and reject format-incompatible filters instead of silently ignoring them (#27).
+- `execute()` now drains the internal filter queue so calling `execute()` multiple times on the same context does not re-apply previously executed filters (#28).
+
+#### Fixed
+- `Substitute`, `ChromaticAberration`, and `ColorDistortion` now clamp/guard against small images and 16-bit channel overflow instead of panicking (#5, #6).
+- `WebpShiftChannels`, `PixelSort`, `ChannelSwap`, and `ColorDistortion` on WebP now use the context's seeded RNG instead of `rand::rng()` (#11).
+
+---
+
+### `png-glitch` `0.7.0`
+
+#### Added
+- `PngGlitch::from_bytes(&[u8])`, `TryFrom<&[u8]>`, `PngGlitch::to_bytes(&self) -> Result<Vec<u8>, PngError>`, and `PngGlitch::encode(impl Write)` (#21).
+- `PngGlitch::reencode_with(FilterType)` and `PngGlitch::set_filter_type(FilterType)` (with `change_filter_type` kept as a backward-compatible alias) (#23, #24).
+- `presets::Darken` saturating brightness decrease preset (#22).
+- `Effect` trait alias for `Glitch` and `RandomTranspose` type alias for `Transpose` (#24).
+
+#### Changed
+- **Breaking**: Public methods (`open`, `new`, `from_bytes`, `save`, `encode`, `to_bytes`) now return `Result<_, PngError>` instead of `anyhow::Result<_>`, and `anyhow` has been removed from `png-glitch` dependencies (#21).
+- `PngError` is now publicly exported at the crate root and includes `PngError::Io(#[from] std::io::Error)` (#21).
+
+---
+
+### `webp-glitch` `0.1.0`
+
+#### Added
+- Initial release of `webp-glitch` providing `WebpGlitch`, `ScanLine`, `WebpPixel`, `RiffContainer`, `RiffChunk`, and `WebpError` for pixel-level and RIFF chunk-level WebP glitching.

@@ -1,20 +1,24 @@
-/// WebP グリッチの基本的な使い方を示すサンプル。
-///
-/// 実行方法:
-///   cargo run --example glitch --manifest-path crates/webp-glitch/Cargo.toml
-///
-/// 出力: crates/webp-glitch/etc/sample00-glitched.webp
+//! Basic example demonstrating how to glitch a WebP image.
+//!
+//! Run from anywhere in the workspace:
+//!   cargo run -p webp-glitch --example glitch
+use std::fs;
+use std::path::Path;
 use webp_glitch::{WebpGlitch, WebpPixel};
 
 fn main() {
-    let mut glitch =
-        WebpGlitch::open("etc/sample00.webp").expect("etc/sample00.webp を開けませんでした");
+    let input_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("etc/sample00.webp");
+    let out_dir = std::env::temp_dir().join("png-glitch-examples");
+    fs::create_dir_all(&out_dir).expect("Failed to create example output directory");
+    let output_path = out_dir.join("sample00-glitched.webp");
+
+    let mut glitch = WebpGlitch::open(&input_path).expect("Failed to open etc/sample00.webp");
 
     let width = glitch.width();
     let height = glitch.height();
-    println!("入力: {}x{} WebP", width, height);
+    println!("Input: {}x{} WebP", width, height);
 
-    // --- エフェクト 1: 上 1/3 を色反転 ---
+    // --- Effect 1: Invert colors on top 1/3 ---
     let invert_end = height / 3;
     for y in 0..invert_end {
         if let Some(mut line) = glitch.scan_line_mut(y) {
@@ -25,7 +29,7 @@ fn main() {
         }
     }
 
-    // --- エフェクト 2: 中央 1/3 をチャンネルシフト (R→G→B→R) ---
+    // --- Effect 2: Channel shift (R->G->B->R) on middle 1/3 ---
     let shift_start = height / 3;
     let shift_end = height / 3 * 2;
     for y in shift_start..shift_end {
@@ -37,13 +41,12 @@ fn main() {
         }
     }
 
-    // --- エフェクト 3: 下 1/3 に水平クロマティック収差 ---
+    // --- Effect 3: Horizontal chromatic aberration on bottom 1/3 ---
     let aberration_start = height / 3 * 2;
     {
         let mut lines = glitch.scan_lines();
         for line in lines.iter_mut().skip(aberration_start as usize) {
             let w = width as usize;
-            // 各チャンネルを収集して水平オフセットして戻す
             let mut r_ch = vec![0u8; w];
             let mut g_ch = vec![0u8; w];
             let mut b_ch = vec![0u8; w];
@@ -66,8 +69,6 @@ fn main() {
         }
     }
 
-    glitch
-        .save("etc/sample00-glitched.webp")
-        .expect("保存に失敗しました");
-    println!("保存完了: etc/sample00-glitched.webp");
+    glitch.save(&output_path).expect("Failed to save WebP");
+    println!("Saved: {}", output_path.display());
 }
