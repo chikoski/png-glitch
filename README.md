@@ -4,10 +4,10 @@
 
 ## Installation
 
-To install `png-glitch` from source, run the following command:
+To install `png-glitch` from crates.io, run the following command:
 
 ```zsh
-% cargo install png-glitch --locked 
+% cargo install png-glitch-cli --locked
 ```
 
 ## Usage
@@ -118,6 +118,7 @@ Run it with:
 
 ## Documentation
 
+- **[CLI Usage & Visual Gallery](docs/CLI_GUIDE.md)**: A comprehensive guide with visual examples.
 - **[Developer & Architecture Guide](DEVELOPER_GUIDE.md)**: Deep dive into the internal design and core concepts.
 - **[Spec: Filter System](crates/png-glitch/specs/FILTER_SYSTEM.md)**: Technical details on PNG filters.
 - **[Spec: Pixel Formats](crates/png-glitch/specs/PIXEL_FORMATS.md)**: How we handle different bit depths and color types.
@@ -133,41 +134,11 @@ And the glitched one:
 # In this repository
 This repository consists of the following things:
 
-- png-glitch-cli, a binary crate for a command line interface (CLI) to glitch PNG files.
-- [png-glitch crate](crates/png-glitch), a library to glitch PNG images.
-- [glitch-context crate](crates/glitch-context), a high-level API to orchestrate glitch filters.
+- **png-glitch-cli**: A binary crate for a command line interface (CLI) to glitch PNG and WebP files.
+- **[png-glitch crate](crates/png-glitch)**: Core library to glitch PNG images.
+- **[webp-glitch crate](crates/webp-glitch)**: Core library to glitch WebP images.
+- **[glitch-context crate](crates/glitch-context)**: High-level API to orchestrate glitch filters.
 
 # Licence
 
 MIT License. Please refer to [LICENCE](LICENSE) file for details.
-FilterType
-    magnitude: 0.05
-```
-
-Run it with:
-```zsh
-% png-glitch input.png --config my_glitch.yaml
-```
-
-## Documentation
-
-- **[CLI Usage & Visual Gallery](docs/CLI_GUIDE.md)**: A comprehensive guide with visual examples.
-- **[Developer & Architecture Guide](DEVELOPER_GUIDE.md)**: Technical details on the internal design.
-- **[Spec: Filter System](crates/png-glitch/specs/FILTER_SYSTEM.md)**: Details on PNG filter abuse.
-- **[Spec: Pixel Formats](crates/png-glitch/specs/PIXEL_FORMATS.md)**: How we handle different bit depths.
-
-## Example
-
-The original image:
-![Original photo](crates/png-glitch/etc/sample00.png)
-
-And a glitched version:
-![](crates/png-glitch/etc/sample00-glitched.png)
-
-# In this repository
-- [png-glitch crate](crates/png-glitch): Core library for PNG manipulation.
-- [glitch-context crate](crates/glitch-context): High-level API for filter orchestration.
-- **png-glitch-cli**: High-performance CLI tool.
-
-# Licence
-MIT License. Refer to [LICENCE](LICENSE) for details.

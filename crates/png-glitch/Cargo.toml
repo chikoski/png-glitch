@@ -1,16 +1,17 @@
 [package]
 name = "png-glitch"
 version = "0.6.0"
-edition = "2021"
-authors = ["N.Shimizu <chikoski@gmail.com>"]
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
 description = "A library to glitch PNG images."
-license = "MIT"
+license.workspace = true
 readme = "README.md"
-repository = "https://github.com/chikoski/png-glitch"
+repository.workspace = true
 
 [dependencies]
-anyhow = "1.0.100"
-crc32fast = "1.5.0"
-fdeflate = "0.3.7"
-rayon = "1.12.0"
-thiserror = "2.0.17"
+anyhow.workspace = true
+crc32fast.workspace = true
+fdeflate.workspace = true
+rayon.workspace = true
+thiserror.workspace = true

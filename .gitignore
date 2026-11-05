@@ -3,6 +3,8 @@
 .DS_Store
 PngSuite
 *.png
+!docs/gallery/*.png
+!crates/png-glitch/etc/sample00*.png
 .vscode/
 **/*.cwasm
 **/bindings.rs

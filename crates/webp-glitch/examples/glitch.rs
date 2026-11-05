@@ -41,20 +41,20 @@ fn main() {
     let aberration_start = height / 3 * 2;
     {
         let mut lines = glitch.scan_lines();
-        for y in aberration_start as usize..lines.len() {
+        for line in lines.iter_mut().skip(aberration_start as usize) {
             let w = width as usize;
             // 各チャンネルを収集して水平オフセットして戻す
             let mut r_ch = vec![0u8; w];
             let mut g_ch = vec![0u8; w];
             let mut b_ch = vec![0u8; w];
             for x in 0..w {
-                if let Some(p) = lines[y].get_pixel(x) {
+                if let Some(p) = line.get_pixel(x) {
                     r_ch[x] = p.r();
                     g_ch[x] = p.g();
                     b_ch[x] = p.b();
                 }
             }
-            lines[y].process_pixels(|x, p| {
+            line.process_pixels(|x, p| {
                 let r = r_ch[(x + 4) % w];
                 let g = g_ch[x];
                 let b = b_ch[(x + w - 4) % w];

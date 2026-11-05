@@ -236,7 +236,29 @@ impl GlitchContext {
     }
 }
 
-#[derive(Clone, Copy, Debug, ValueEnum, Deserialize)]
+fn clamp_magnitude(m: f64) -> f64 {
+    if m.is_nan() {
+        0.0
+    } else {
+        m.clamp(0.0, 1.0)
+    }
+}
+
+fn deserialize_magnitude<'de, D>(deserializer: D) -> std::result::Result<f64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let val = f64::deserialize(deserializer)?;
+    if (0.0..=1.0).contains(&val) {
+        Ok(val)
+    } else {
+        Err(serde::de::Error::custom(format!(
+            "magnitude must be between 0.0 and 1.0, got {val}"
+        )))
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PreProcess {
     RemoveFilter,
@@ -247,18 +269,22 @@ pub enum PreProcess {
 }
 
 #[derive(Debug, Deserialize, Clone)]
-#[serde(tag = "type")]
+#[serde(tag = "type", deny_unknown_fields)]
 pub enum FilterConfig {
     ChangeFilterType {
+        #[serde(deserialize_with = "deserialize_magnitude")]
         magnitude: f64,
     },
     Replace {
+        #[serde(deserialize_with = "deserialize_magnitude")]
         magnitude: f64,
     },
     Transpose {
+        #[serde(deserialize_with = "deserialize_magnitude")]
         magnitude: f64,
     },
     SetZero {
+        #[serde(deserialize_with = "deserialize_magnitude")]
         magnitude: f64,
     },
     RandomCopy {
@@ -269,36 +295,44 @@ pub enum FilterConfig {
         value: u8,
     },
     PixelSort {
+        #[serde(deserialize_with = "deserialize_magnitude")]
         magnitude: f64,
         criterion: Option<SortCriterion>,
     },
     Bitwise {
+        #[serde(deserialize_with = "deserialize_magnitude")]
         magnitude: f64,
         op: Option<BitOp>,
         value: Option<u8>,
     },
     ChannelSwap {
+        #[serde(deserialize_with = "deserialize_magnitude")]
         magnitude: f64,
         target: Option<SwapTarget>,
     },
     HorizontalShift {
+        #[serde(deserialize_with = "deserialize_magnitude")]
         magnitude: f64,
     },
     BlockScramble {
+        #[serde(deserialize_with = "deserialize_magnitude")]
         magnitude: f64,
         block_size: Option<u32>,
     },
     ColorDistortion {
+        #[serde(deserialize_with = "deserialize_magnitude")]
         magnitude: f64,
         strength: Option<i16>,
     },
     ColorSpaceGlitch {
+        #[serde(deserialize_with = "deserialize_magnitude")]
         magnitude: f64,
         hue_shift: Option<f64>,
         saturation_mult: Option<f64>,
         lightness_mult: Option<f64>,
     },
     ChromaticAberration {
+        #[serde(deserialize_with = "deserialize_magnitude")]
         magnitude: f64,
         r_offset: Option<i32>,
         g_offset: Option<i32>,
@@ -327,8 +361,9 @@ pub struct ChangeFilterType {
 
 impl GlitchFilter for ChangeFilterType {
     fn apply(&self, png: &mut PngGlitch, rng: &mut ChaCha8Rng) {
+        let magnitude = clamp_magnitude(self.magnitude);
         png.foreach_scanline(|scan_line| {
-            if rng.random_bool(self.magnitude) {
+            if rng.random_bool(magnitude) {
                 let filter_type = match rng.random_range(0..5) {
                     0 => FilterType::None,
                     1 => FilterType::Sub,
@@ -394,8 +429,9 @@ pub struct Replace {
 
 impl GlitchFilter for Replace {
     fn apply(&self, png: &mut PngGlitch, rng: &mut ChaCha8Rng) {
+        let magnitude = clamp_magnitude(self.magnitude);
         png.foreach_scanline(|scan_line| {
-            if rng.random_bool(self.magnitude) {
+            if rng.random_bool(magnitude) {
                 let val: u8 = rng.random();
                 let index: u64 = rng.random();
                 let index = (index as usize) % scan_line.size();
@@ -412,9 +448,10 @@ pub struct Transpose {
 
 impl GlitchFilter for Transpose {
     fn apply(&self, png: &mut PngGlitch, rng: &mut ChaCha8Rng) {
+        let magnitude = clamp_magnitude(self.magnitude);
         let height = png.height();
         for i in 0..height {
-            if rng.random_bool(self.magnitude) {
+            if rng.random_bool(magnitude) {
                 let target = rng.random_range(0..height);
                 if i != target {
                     png.transpose(i, target, 1);
@@ -485,8 +522,9 @@ pub struct SetZero {
 
 impl GlitchFilter for SetZero {
     fn apply(&self, png: &mut PngGlitch, rng: &mut ChaCha8Rng) {
+        let magnitude = clamp_magnitude(self.magnitude);
         png.foreach_scanline(|scan_line| {
-            if rng.random_bool(self.magnitude) {
+            if rng.random_bool(magnitude) {
                 let index: u64 = rng.random();
                 let index = (index as usize) % scan_line.size();
                 scan_line.update(index, 0);
@@ -495,7 +533,7 @@ impl GlitchFilter for SetZero {
     }
 }
 
-#[derive(Debug, Clone, Copy, ValueEnum, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SortCriterion {
     Brightness,
@@ -510,8 +548,9 @@ pub struct PixelSort {
 
 impl GlitchFilter for PixelSort {
     fn apply(&self, png: &mut PngGlitch, rng: &mut ChaCha8Rng) {
+        let magnitude = clamp_magnitude(self.magnitude);
         png.foreach_scanline(|scan_line| {
-            if rng.random_bool(self.magnitude) {
+            if rng.random_bool(magnitude) {
                 let mut pixels = Vec::with_capacity(scan_line.pixels_count() as usize);
                 for i in 0..scan_line.pixels_count() as usize {
                     if let Some(p) = scan_line.get_pixel(i) {
@@ -560,7 +599,7 @@ impl PixelSort {
     }
 }
 
-#[derive(Debug, Clone, Copy, ValueEnum, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum BitOp {
     And,
@@ -577,8 +616,9 @@ pub struct Bitwise {
 
 impl GlitchFilter for Bitwise {
     fn apply(&self, png: &mut PngGlitch, rng: &mut ChaCha8Rng) {
+        let magnitude = clamp_magnitude(self.magnitude);
         png.foreach_scanline(|scan_line| {
-            if rng.random_bool(self.magnitude) {
+            if rng.random_bool(magnitude) {
                 for i in 0..scan_line.size() {
                     if let Some(b) = scan_line.index(i) {
                         let new_b = match self.op {
@@ -594,7 +634,7 @@ impl GlitchFilter for Bitwise {
     }
 }
 
-#[derive(Debug, Clone, Copy, ValueEnum, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SwapTarget {
     Rg,
@@ -610,8 +650,9 @@ pub struct ChannelSwap {
 
 impl GlitchFilter for ChannelSwap {
     fn apply(&self, png: &mut PngGlitch, rng: &mut ChaCha8Rng) {
+        let magnitude = clamp_magnitude(self.magnitude);
         png.foreach_scanline(|scan_line| {
-            if rng.random_bool(self.magnitude) {
+            if rng.random_bool(magnitude) {
                 scan_line.process_pixels(|_, p| match p {
                     Pixel::RGB(r, g, b) => match self.target {
                         SwapTarget::Rg => Pixel::RGB(g, r, b),
@@ -637,17 +678,18 @@ pub struct HorizontalShift {
 
 impl GlitchFilter for HorizontalShift {
     fn apply(&self, png: &mut PngGlitch, rng: &mut ChaCha8Rng) {
+        let magnitude = clamp_magnitude(self.magnitude);
         png.foreach_scanline(|scan_line| {
-            if rng.random_bool(self.magnitude) {
+            if rng.random_bool(magnitude) {
                 let shift = rng.random_range(0..scan_line.size());
                 let mut buffer = vec![0; scan_line.size()];
-                for i in 0..scan_line.size() {
-                    buffer[i] = scan_line.index(i).unwrap();
+                for (i, byte) in buffer.iter_mut().enumerate().take(scan_line.size()) {
+                    *byte = scan_line.index(i).unwrap();
                 }
-                
-                for i in 0..scan_line.size() {
+
+                for (i, &byte) in buffer.iter().enumerate().take(scan_line.size()) {
                     let new_idx = (i + shift) % scan_line.size();
-                    scan_line.update(new_idx, buffer[i]);
+                    scan_line.update(new_idx, byte);
                 }
             }
         });
@@ -678,7 +720,7 @@ impl GlitchFilter for BlockScramble {
         }
 
         let total_blocks = (num_blocks_x * num_blocks_y) as usize;
-        let num_scrambles = (total_blocks as f64 * self.magnitude) as usize;
+        let num_scrambles = (total_blocks as f64 * clamp_magnitude(self.magnitude)) as usize;
 
         let mut scan_lines = png.scan_lines();
 
@@ -751,7 +793,7 @@ pub struct ColorDistortion {
 impl GlitchFilter for ColorDistortion {
     fn apply(&self, png: &mut PngGlitch, rng: &mut ChaCha8Rng) {
         let strength = self.strength;
-        let magnitude = self.magnitude;
+        let magnitude = clamp_magnitude(self.magnitude);
         png.foreach_scanline(|scan_line| {
             if rng.random_bool(magnitude) {
                 scan_line.process_pixels(|_, p| {
@@ -790,8 +832,9 @@ pub struct ColorSpaceGlitch {
 
 impl GlitchFilter for ColorSpaceGlitch {
     fn apply(&self, png: &mut PngGlitch, rng: &mut ChaCha8Rng) {
+        let magnitude = clamp_magnitude(self.magnitude);
         png.foreach_scanline(|scan_line| {
-            if rng.random_bool(self.magnitude) {
+            if rng.random_bool(magnitude) {
                 scan_line.process_pixels(|_, p| {
                     match p {
                         Pixel::RGB(r, g, b) => {
@@ -882,8 +925,9 @@ pub struct ChromaticAberration {
 impl GlitchFilter for ChromaticAberration {
     fn apply(&self, png: &mut PngGlitch, rng: &mut ChaCha8Rng) {
         let width = png.width() as usize;
+        let magnitude = clamp_magnitude(self.magnitude);
         png.foreach_scanline(|scan_line| {
-            if rng.random_bool(self.magnitude) {
+            if rng.random_bool(magnitude) {
                 let mut r_channel = Vec::with_capacity(width);
                 let mut g_channel = Vec::with_capacity(width);
                 let mut b_channel = Vec::with_capacity(width);
@@ -1079,7 +1123,7 @@ mod test {
         ctx.add_filter(RandomCopy { times: 10 });
         ctx.execute();
         let buffer = ctx.buffer()?;
-        assert!(buffer.len() > 0);
+        assert!(!buffer.is_empty());
 
         Ok(())
     }
@@ -1092,13 +1136,13 @@ mod test {
         ctx.add_filter(PixelFilterAdapter(Invert));
         ctx.execute();
         let buffer = ctx.buffer()?;
-        assert!(buffer.len() > 0, "PixelFilterAdapter(Invert) should produce output");
+        assert!(!buffer.is_empty(), "PixelFilterAdapter(Invert) should produce output");
 
         let mut ctx2 = GlitchContext::new(bytes, None)?;
         ctx2.add_filter(PixelFilterAdapter(Brighten { strength: 20 }));
         ctx2.execute();
         let buffer2 = ctx2.buffer()?;
-        assert!(buffer2.len() > 0, "PixelFilterAdapter(Brighten) should produce output");
+        assert!(!buffer2.is_empty(), "PixelFilterAdapter(Brighten) should produce output");
 
         Ok(())
     }
@@ -1258,8 +1302,9 @@ impl WebpGlitchFilter for WebpShiftChannels {
 
 impl WebpGlitchFilter for PixelSort {
     fn apply(&self, webp: &mut WebpGlitch, rng: &mut ChaCha8Rng) {
+        let magnitude = clamp_magnitude(self.magnitude);
         webp.foreach_scanline(|line| {
-            if rng.random_bool(self.magnitude) {
+            if rng.random_bool(magnitude) {
                 let count = line.pixels_count() as usize;
                 let mut pixels: Vec<WebpPixel> = (0..count)
                     .filter_map(|x| line.get_pixel(x))
@@ -1300,8 +1345,9 @@ impl WebpGlitchFilter for PixelSort {
 
 impl WebpGlitchFilter for Bitwise {
     fn apply(&self, webp: &mut WebpGlitch, rng: &mut ChaCha8Rng) {
+        let magnitude = clamp_magnitude(self.magnitude);
         webp.foreach_scanline(|line| {
-            if rng.random_bool(self.magnitude) {
+            if rng.random_bool(magnitude) {
                 for i in 0..line.size() {
                     if let Some(b) = line.index(i) {
                         let new_b = match self.op {
@@ -1319,8 +1365,9 @@ impl WebpGlitchFilter for Bitwise {
 
 impl WebpGlitchFilter for ChannelSwap {
     fn apply(&self, webp: &mut WebpGlitch, rng: &mut ChaCha8Rng) {
+        let magnitude = clamp_magnitude(self.magnitude);
         webp.foreach_scanline(|line| {
-            if rng.random_bool(self.magnitude) {
+            if rng.random_bool(magnitude) {
                 line.process_pixels(|_, p| match p {
                     WebpPixel::RGB(r, g, b) => match self.target {
                         SwapTarget::Rg => WebpPixel::RGB(g, r, b),
@@ -1340,8 +1387,9 @@ impl WebpGlitchFilter for ChannelSwap {
 
 impl WebpGlitchFilter for HorizontalShift {
     fn apply(&self, webp: &mut WebpGlitch, rng: &mut ChaCha8Rng) {
+        let magnitude = clamp_magnitude(self.magnitude);
         webp.foreach_scanline(|line| {
-            if rng.random_bool(self.magnitude) {
+            if rng.random_bool(magnitude) {
                 let size = line.size();
                 if size == 0 {
                     return;
@@ -1359,8 +1407,8 @@ impl WebpGlitchFilter for HorizontalShift {
 
 impl WebpGlitchFilter for ColorDistortion {
     fn apply(&self, webp: &mut WebpGlitch, rng: &mut ChaCha8Rng) {
-        let strength = self.strength.min(255) as i16;
-        let magnitude = self.magnitude;
+        let strength = self.strength.min(255);
+        let magnitude = clamp_magnitude(self.magnitude);
         webp.foreach_scanline(|line| {
             if rng.random_bool(magnitude) {
                 line.process_pixels(|_, p| {
@@ -1388,8 +1436,9 @@ impl WebpGlitchFilter for ColorDistortion {
 impl WebpGlitchFilter for ChromaticAberration {
     fn apply(&self, webp: &mut WebpGlitch, rng: &mut ChaCha8Rng) {
         let width = webp.width() as usize;
+        let magnitude = clamp_magnitude(self.magnitude);
         webp.foreach_scanline(|line| {
-            if rng.random_bool(self.magnitude) {
+            if rng.random_bool(magnitude) {
                 let mut r_ch = Vec::with_capacity(width);
                 let mut g_ch = Vec::with_capacity(width);
                 let mut b_ch = Vec::with_capacity(width);
@@ -1440,7 +1489,7 @@ impl WebpGlitchFilter for MacroblockGlitch {
             return;
         }
         let total = (num_x * num_y) as usize;
-        let swaps = (total as f64 * self.magnitude) as usize;
+        let swaps = (total as f64 * clamp_magnitude(self.magnitude)) as usize;
         let mut lines = webp.scan_lines();
 
         for _ in 0..swaps {
@@ -1497,7 +1546,8 @@ impl WebpGlitchFilter for MacroblockGlitch {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum AlphaGlitchStrategy {
     Invert,
     Randomize,
@@ -1516,8 +1566,9 @@ impl WebpGlitchFilter for AlphaGlitch {
         if !webp.has_alpha() {
             return;
         }
+        let magnitude = clamp_magnitude(self.magnitude);
         webp.foreach_scanline(|line| {
-            if rng.random_bool(self.magnitude) {
+            if rng.random_bool(magnitude) {
                 line.process_pixels(|_, p| match p {
                     WebpPixel::RGBA(r, g, b, a) => {
                         let new_a = match self.strategy {
