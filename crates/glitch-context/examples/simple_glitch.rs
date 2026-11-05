@@ -1,10 +1,13 @@
 use glitch_context::{ChangeFilterType, GlitchContext, Replace, SetZero, Transpose};
 
 fn main() -> anyhow::Result<()> {
-    // Relative path to crates/png-glitch/etc/sample00.png from crates/glitch-context
-
-    let input_path = "../png-glitch/etc/sample00.png";
-    let output_path = "glitched_output.png";
+    // CARGO_MANIFEST_DIR is this example's crate directory; the sample lives in
+    // the png-glitch crate beside it, so the input works from any directory.
+    let input_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../png-glitch/etc/sample00.png");
+    // Output goes to target/examples-output/ instead of polluting the cwd.
+    let output_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/examples-output");
+    std::fs::create_dir_all(output_dir)?;
+    let output_path = format!("{output_dir}/glitched_output.png");
 
     println!("Opening {}", input_path);
     let mut context = GlitchContext::open(input_path, None)?;
