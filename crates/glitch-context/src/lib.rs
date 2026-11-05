@@ -9,13 +9,18 @@ use anyhow::{bail, Context, Result};
 #[cfg(feature = "clap")]
 use clap::ValueEnum;
 pub use png_glitch::presets::{Brighten, Darken, Invert, ShiftChannels};
-pub use png_glitch::{FilterType, Pixel, PngError, PngGlitch};
+pub use png_glitch::{
+    FilterType, Limits, ParseOptions, Pixel, PngError, PngGlitch, PngWarning,
+};
 pub use rand;
 use rand::{Rng, RngCore, SeedableRng};
 pub use rand_chacha;
 pub use rand_chacha::ChaCha8Rng;
 use serde::Deserialize;
 use std::path::Path;
+
+/// Maximum number of scanline copies allowed in a single [`RandomCopy`] invocation (`100_000`).
+pub const MAX_RANDOM_COPY_TIMES: u32 = 100_000;
 
 /// A trait for glitch filters (effects) operating on PNG images.
 pub trait GlitchFilter {
@@ -50,8 +55,17 @@ pub struct GlitchContext {
 impl GlitchContext {
     /// Creates a new [`GlitchContext`] from a file path.
     pub fn open(path: impl AsRef<Path>, seed: Option<u64>) -> Result<Self> {
+        Self::open_with_options(path, seed, ParseOptions::default())
+    }
+
+    /// Creates a new [`GlitchContext`] from a file path using custom PNG [`ParseOptions`].
+    pub fn open_with_options(
+        path: impl AsRef<Path>,
+        seed: Option<u64>,
+        options: ParseOptions,
+    ) -> Result<Self> {
         let path = path.as_ref();
-        let png = PngGlitch::open(path)
+        let png = PngGlitch::open_with_options(path, options)
             .with_context(|| format!("failed to open '{}'", path.display()))?;
         let rng = match seed {
             Some(s) => ChaCha8Rng::seed_from_u64(s),
@@ -66,7 +80,17 @@ impl GlitchContext {
 
     /// Creates a new [`GlitchContext`] from a byte slice.
     pub fn new(data: &[u8], seed: Option<u64>) -> Result<Self> {
-        let png = PngGlitch::from_bytes(data).context("Failed to parse PNG data")?;
+        Self::new_with_options(data, seed, ParseOptions::default())
+    }
+
+    /// Creates a new [`GlitchContext`] from a byte slice using custom PNG [`ParseOptions`].
+    pub fn new_with_options(
+        data: &[u8],
+        seed: Option<u64>,
+        options: ParseOptions,
+    ) -> Result<Self> {
+        let png =
+            PngGlitch::from_bytes_with_options(data, options).context("Failed to parse PNG data")?;
         let rng = match seed {
             Some(s) => ChaCha8Rng::seed_from_u64(s),
             None => ChaCha8Rng::from_os_rng(),
@@ -76,6 +100,11 @@ impl GlitchContext {
             filters: Vec::new(),
             rng,
         })
+    }
+
+    /// Returns any non-fatal PNG integrity warnings recorded when parsing in lenient mode.
+    pub fn warnings(&self) -> &[PngWarning] {
+        self.png.warnings()
     }
 
     /// Resets the internal RNG with the given `seed` (or a fresh OS seed if `None`).
@@ -164,6 +193,11 @@ impl GlitchContext {
                 self.add_filter(SetZero::new(magnitude));
             }
             FilterConfig::RandomCopy { times } => {
+                if times > MAX_RANDOM_COPY_TIMES {
+                    bail!(
+                        "random-copy `times` must be <= {MAX_RANDOM_COPY_TIMES}, got {times}"
+                    );
+                }
                 self.add_filter(RandomCopy::new(times));
             }
             FilterConfig::Substitute { index, value } => {
@@ -219,6 +253,9 @@ impl GlitchContext {
             } => {
                 let mut f = ColorDistortion::new(magnitude);
                 if let Some(s) = strength {
+                    if s < 0 {
+                        bail!("color-distortion `strength` must be >= 0, got {s}");
+                    }
                     f.strength = s;
                 }
                 self.add_filter(f);
@@ -231,12 +268,25 @@ impl GlitchContext {
             } => {
                 let mut f = ColorSpaceGlitch::new(magnitude);
                 if let Some(h) = hue_shift {
+                    if !h.is_finite() {
+                        bail!("color-space-glitch `hue_shift` must be a finite number, got {h}");
+                    }
                     f.hue_shift = h;
                 }
                 if let Some(s) = saturation_mult {
+                    if !s.is_finite() || s < 0.0 {
+                        bail!(
+                            "color-space-glitch `saturation_mult` must be a finite number >= 0.0, got {s}"
+                        );
+                    }
                     f.saturation_mult = s;
                 }
                 if let Some(l) = lightness_mult {
+                    if !l.is_finite() || l < 0.0 {
+                        bail!(
+                            "color-space-glitch `lightness_mult` must be a finite number >= 0.0, got {l}"
+                        );
+                    }
                     f.lightness_mult = l;
                 }
                 self.add_filter(f);
@@ -709,10 +759,13 @@ impl GlitchFilter for Replace {
     fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
         let magnitude = clamp_magnitude(self.magnitude);
         png.foreach_scanline(|scan_line| {
+            let size = scan_line.size();
+            if size == 0 {
+                return;
+            }
             if rng.random_bool(magnitude) {
                 let val: u8 = rng.random();
-                let index: u64 = rng.random();
-                let index = (index as usize) % scan_line.size();
+                let index = rng.random_range(0..size);
                 scan_line.update(index, val);
             }
         });
@@ -748,6 +801,9 @@ impl GlitchFilter for Transpose {
     fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
         let magnitude = clamp_magnitude(self.magnitude);
         let height = png.height();
+        if height <= 1 {
+            return;
+        }
         for i in 0..height {
             if rng.random_bool(magnitude) {
                 let target = rng.random_range(0..height);
@@ -782,12 +838,13 @@ impl RandomCopy {
 impl GlitchFilter for RandomCopy {
     fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
         let height = png.height();
-        if height == 0 {
+        if height <= 1 {
             return;
         }
+        let times = self.times.min(MAX_RANDOM_COPY_TIMES);
         let mut scan_lines = png.scan_lines();
         let index_range = 0..height as usize;
-        for _ in 0..self.times {
+        for _ in 0..times {
             let src_idx = rng.random_range(index_range.clone());
             let dest_idx = rng.random_range(index_range.clone());
 
@@ -864,9 +921,12 @@ impl GlitchFilter for SetZero {
     fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
         let magnitude = clamp_magnitude(self.magnitude);
         png.foreach_scanline(|scan_line| {
+            let size = scan_line.size();
+            if size == 0 {
+                return;
+            }
             if rng.random_bool(magnitude) {
-                let index: u64 = rng.random();
-                let index = (index as usize) % scan_line.size();
+                let index = rng.random_range(0..size);
                 scan_line.update(index, 0);
             }
         });
@@ -1153,15 +1213,19 @@ impl GlitchFilter for HorizontalShift {
     fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
         let magnitude = clamp_magnitude(self.magnitude);
         png.foreach_scanline(|scan_line| {
+            let size = scan_line.size();
+            if size <= 1 {
+                return;
+            }
             if rng.random_bool(magnitude) {
-                let shift = rng.random_range(0..scan_line.size());
-                let mut buffer = vec![0; scan_line.size()];
-                for (i, byte) in buffer.iter_mut().enumerate().take(scan_line.size()) {
+                let shift = rng.random_range(0..size);
+                let mut buffer = vec![0; size];
+                for (i, byte) in buffer.iter_mut().enumerate().take(size) {
                     *byte = scan_line.index(i).unwrap();
                 }
 
-                for (i, &byte) in buffer.iter().enumerate().take(scan_line.size()) {
-                    let new_idx = (i + shift) % scan_line.size();
+                for (i, &byte) in buffer.iter().enumerate().take(size) {
+                    let new_idx = (i + shift) % size;
                     scan_line.update(new_idx, byte);
                 }
             }
@@ -1321,7 +1385,7 @@ impl ColorDistortion {
 
 impl GlitchFilter for ColorDistortion {
     fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
-        let strength = self.strength;
+        let strength = self.strength.saturating_abs();
         let magnitude = clamp_magnitude(self.magnitude);
         png.foreach_scanline(|scan_line| {
             if rng.random_bool(magnitude) {
@@ -1406,23 +1470,38 @@ impl ColorSpaceGlitch {
 impl GlitchFilter for ColorSpaceGlitch {
     fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
         let magnitude = clamp_magnitude(self.magnitude);
+        let hue_shift = if self.hue_shift.is_finite() {
+            self.hue_shift
+        } else {
+            0.0
+        };
+        let sat_mult = if self.saturation_mult.is_finite() && self.saturation_mult >= 0.0 {
+            self.saturation_mult
+        } else {
+            1.0
+        };
+        let light_mult = if self.lightness_mult.is_finite() && self.lightness_mult >= 0.0 {
+            self.lightness_mult
+        } else {
+            1.0
+        };
         png.foreach_scanline(|scan_line| {
             if rng.random_bool(magnitude) {
                 scan_line.process_pixels(|_, p| {
                     match p {
                         Pixel::RGB(r, g, b) => {
                             let (h, s, l) = rgb_to_hsl(r, g, b);
-                            let h = (h + self.hue_shift).rem_euclid(360.0);
-                            let s = (s * self.saturation_mult).clamp(0.0, 1.0);
-                            let l = (l * self.lightness_mult).clamp(0.0, 1.0);
+                            let h = (h + hue_shift).rem_euclid(360.0);
+                            let s = (s * sat_mult).clamp(0.0, 1.0);
+                            let l = (l * light_mult).clamp(0.0, 1.0);
                             let (r, g, b) = hsl_to_rgb(h, s, l);
                             Pixel::RGB(r, g, b)
                         }
                         Pixel::RGBA(r, g, b, a) => {
                             let (h, s, l) = rgb_to_hsl(r, g, b);
-                            let h = (h + self.hue_shift).rem_euclid(360.0);
-                            let s = (s * self.saturation_mult).clamp(0.0, 1.0);
-                            let l = (l * self.lightness_mult).clamp(0.0, 1.0);
+                            let h = (h + hue_shift).rem_euclid(360.0);
+                            let s = (s * sat_mult).clamp(0.0, 1.0);
+                            let l = (l * light_mult).clamp(0.0, 1.0);
                             let (r, g, b) = hsl_to_rgb(h, s, l);
                             Pixel::RGBA(r, g, b, a)
                         }
@@ -1812,6 +1891,9 @@ impl WebpGlitchContext {
             } => {
                 let mut f = ColorDistortion::new(magnitude);
                 if let Some(s) = strength {
+                    if s < 0 {
+                        bail!("color-distortion `strength` must be >= 0, got {s}");
+                    }
                     f.strength = s;
                 }
                 self.add_filter(f);
@@ -2063,11 +2145,11 @@ impl WebpGlitchFilter for HorizontalShift {
     fn apply(&self, webp: &mut WebpGlitch, rng: &mut dyn RngCore) {
         let magnitude = clamp_magnitude(self.magnitude);
         webp.foreach_scanline(|line| {
+            let size = line.size();
+            if size <= 1 {
+                return;
+            }
             if rng.random_bool(magnitude) {
-                let size = line.size();
-                if size == 0 {
-                    return;
-                }
                 let shift = rng.random_range(0..size);
                 let mut buf: Vec<u8> = (0..size).filter_map(|i| line.index(i)).collect();
                 buf.rotate_left(shift);
@@ -2082,7 +2164,7 @@ impl WebpGlitchFilter for HorizontalShift {
 #[cfg(feature = "webp")]
 impl WebpGlitchFilter for ColorDistortion {
     fn apply(&self, webp: &mut WebpGlitch, rng: &mut dyn RngCore) {
-        let strength = self.strength.min(255);
+        let strength = self.strength.saturating_abs().min(255);
         let magnitude = clamp_magnitude(self.magnitude);
         webp.foreach_scanline(|line| {
             if rng.random_bool(magnitude) {
@@ -2376,6 +2458,15 @@ pub fn open_any(path: impl AsRef<Path>, seed: Option<u64>) -> Result<AnyGlitchCo
 impl AnyGlitchContext {
     /// Opens an image file, detecting PNG vs WebP from its magic bytes (with extension fallback).
     pub fn open(path: impl AsRef<Path>, seed: Option<u64>) -> Result<Self> {
+        Self::open_with_options(path, seed, ParseOptions::default())
+    }
+
+    /// Opens an image file with custom PNG [`ParseOptions`].
+    pub fn open_with_options(
+        path: impl AsRef<Path>,
+        seed: Option<u64>,
+        options: ParseOptions,
+    ) -> Result<Self> {
         let path = path.as_ref();
         let data = std::fs::read(path)
             .with_context(|| format!("failed to open '{}'", path.display()))?;
@@ -2391,7 +2482,7 @@ impl AnyGlitchContext {
         });
         match format {
             Some(ImageFormat::Png) | None => {
-                let ctx = GlitchContext::new(&data, seed)
+                let ctx = GlitchContext::new_with_options(&data, seed, options)
                     .with_context(|| format!("failed to open '{}'", path.display()))?;
                 Ok(Self::Png(ctx))
             }
@@ -2415,8 +2506,19 @@ impl AnyGlitchContext {
 
     /// Creates an [`AnyGlitchContext`] from an in-memory image buffer by detecting its magic bytes.
     pub fn from_bytes(data: &[u8], seed: Option<u64>) -> Result<Self> {
+        Self::from_bytes_with_options(data, seed, ParseOptions::default())
+    }
+
+    /// Creates an [`AnyGlitchContext`] from an in-memory image buffer with custom PNG [`ParseOptions`].
+    pub fn from_bytes_with_options(
+        data: &[u8],
+        seed: Option<u64>,
+        options: ParseOptions,
+    ) -> Result<Self> {
         match detect_format(data) {
-            Some(ImageFormat::Png) => Ok(Self::Png(GlitchContext::new(data, seed)?)),
+            Some(ImageFormat::Png) => Ok(Self::Png(GlitchContext::new_with_options(
+                data, seed, options,
+            )?)),
             Some(ImageFormat::Webp) => {
                 #[cfg(feature = "webp")]
                 {
@@ -2428,6 +2530,15 @@ impl AnyGlitchContext {
                 }
             }
             None => bail!("unrecognized image format (expected PNG or WebP magic bytes)"),
+        }
+    }
+
+    /// Returns any non-fatal PNG integrity warnings recorded when parsing in lenient mode.
+    pub fn warnings(&self) -> &[PngWarning] {
+        match self {
+            Self::Png(ctx) => ctx.warnings(),
+            #[cfg(feature = "webp")]
+            Self::Webp(_) => &[],
         }
     }
 
@@ -3089,6 +3200,68 @@ mod test {
         let out2 = run(777)?;
         assert_eq!(out1, out2);
         assert_eq!(detect_format(&out1), Some(ImageFormat::Webp));
+        Ok(())
+    }
+
+    #[test]
+    fn test_1x1_and_adversarial_filter_parameters_never_panic() -> Result<()> {
+        // 1x1 1-bit grayscale (1 byte per row)
+        let png_1x1 = build_synthetic_png(1, 1, 0, 1, None);
+        let mut ctx = GlitchContext::new(&png_1x1, Some(1))?;
+        for cfg in all_png_filter_configs(1.0) {
+            ctx.add_from_config(cfg)?;
+        }
+        // Also test negative ColorDistortion::strength (including i16::MIN), NaN ColorSpaceGlitch, and huge RandomCopy::times via direct struct construction
+        ctx.add_filter(ColorDistortion {
+            magnitude: 1.0,
+            strength: -5,
+        });
+        ctx.add_filter(ColorDistortion {
+            magnitude: 1.0,
+            strength: i16::MIN,
+        });
+        ctx.add_filter(ColorSpaceGlitch {
+            magnitude: 1.0,
+            hue_shift: f64::NAN,
+            saturation_mult: f64::INFINITY,
+            lightness_mult: -1.0,
+        });
+        ctx.add_filter(RandomCopy::new(u32::MAX));
+        ctx.execute();
+        assert!(!ctx.buffer()?.is_empty());
+
+        // Config validation rejects negative strength, NaN/negative multipliers, and excessive RandomCopy::times
+        assert!(
+            ctx.add_from_config(FilterConfig::ColorDistortion {
+                magnitude: 0.5,
+                strength: Some(-5),
+            })
+            .is_err()
+        );
+        assert!(
+            ctx.add_from_config(FilterConfig::ColorSpaceGlitch {
+                magnitude: 0.5,
+                hue_shift: Some(f64::NAN),
+                saturation_mult: None,
+                lightness_mult: None,
+            })
+            .is_err()
+        );
+        assert!(
+            ctx.add_from_config(FilterConfig::ColorSpaceGlitch {
+                magnitude: 0.5,
+                hue_shift: None,
+                saturation_mult: Some(-0.5),
+                lightness_mult: None,
+            })
+            .is_err()
+        );
+        assert!(
+            ctx.add_from_config(FilterConfig::RandomCopy {
+                times: MAX_RANDOM_COPY_TIMES + 1,
+            })
+            .is_err()
+        );
         Ok(())
     }
 }

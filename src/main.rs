@@ -1,6 +1,6 @@
 use anyhow::{bail, Context};
 use clap::{ArgMatches, CommandFactory, FromArgMatches};
-use glitch_context::{AnyGlitchContext, FilterConfig};
+use glitch_context::{AnyGlitchContext, FilterConfig, ParseOptions};
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use std::fs::{self, File};
@@ -388,8 +388,12 @@ fn single_process(args: &Cli, steps: &[OrderedStep]) -> anyhow::Result<()> {
         validate_flags_for_format(args, false)?;
     }
 
-    let mut context = AnyGlitchContext::open(input, args.seed)?;
+    let parse_options = ParseOptions::default().with_strict(args.strict);
+    let mut context = AnyGlitchContext::open_with_options(input, args.seed, parse_options)?;
     validate_flags_for_format(args, context.is_webp())?;
+    for w in context.warnings() {
+        eprintln!("warning: {w}");
+    }
 
     let output_path = resolve_output_path(args, input);
     check_overwrite(&output_path, args.force)?;
@@ -427,8 +431,12 @@ fn process_batch_file(
             .with_context(|| format!("failed to create directory '{}'", parent.display()))?;
     }
 
-    let mut context = AnyGlitchContext::open(path, Some(seed))?;
+    let parse_options = ParseOptions::default().with_strict(args.strict);
+    let mut context = AnyGlitchContext::open_with_options(path, Some(seed), parse_options)?;
     validate_flags_for_format(args, context.is_webp())?;
+    for w in context.warnings() {
+        eprintln!("warning ({}): {w}", path.display());
+    }
     apply_steps(args, steps, &mut context)?;
     context.execute();
     context.save(dest_path)?;
@@ -907,5 +915,61 @@ filters:
 "#;
         let cfg: ConfigFile = serde_yml::from_str(yaml).expect("kebab and PascalCase YAML should parse");
         assert_eq!(cfg.filters.len(), 3);
+    }
+
+    #[test]
+    fn test_invalid_filter_parameters_and_strict_flag() {
+        assert!(
+            Cli::try_parse_from([
+                "png-glitch",
+                "input.png",
+                "--color-distortion",
+                "0.5",
+                "--color-distortion-strength",
+                "-5"
+            ])
+            .is_err()
+        );
+        assert!(
+            Cli::try_parse_from([
+                "png-glitch",
+                "input.png",
+                "-f",
+                "color-distortion:magnitude=0.5,strength=-5"
+            ])
+            .is_err()
+        );
+        assert!(
+            Cli::try_parse_from([
+                "png-glitch",
+                "input.png",
+                "--random-copy",
+                "100001"
+            ])
+            .is_err()
+        );
+        assert!(
+            Cli::try_parse_from([
+                "png-glitch",
+                "input.png",
+                "-f",
+                "random-copy=100001"
+            ])
+            .is_err()
+        );
+        assert!(
+            Cli::try_parse_from([
+                "png-glitch",
+                "input.png",
+                "--color-space-glitch",
+                "0.5",
+                "--saturation-mult",
+                "-1.0"
+            ])
+            .is_err()
+        );
+        let strict_cli = Cli::try_parse_from(["png-glitch", "input.png", "--strict"])
+            .expect("--strict flag should parse");
+        assert!(strict_cli.strict);
     }
 }

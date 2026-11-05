@@ -1,6 +1,6 @@
 use fdeflate::Decompressor;
 
-use crate::png::png_error::PngError;
+use crate::png::png_error::{PngError, PngWarning};
 use crate::png::{Png, SIGNATURE};
 
 pub use crate::png::parser::chunk::{Chunk, ChunkType};
@@ -35,25 +35,69 @@ impl Default for Limits {
     }
 }
 
+/// Options controlling PNG parser strictness and resource limits.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ParseOptions {
+    /// When `true`, reject CRC mismatches, non-consecutive `IDAT` chunks,
+    /// excess decompressed IDAT bytes, scan-line filter bytes `> 4`, and
+    /// trailing bytes after `IEND`. When `false` (default), accept and
+    /// record [`PngWarning`]s.
+    pub strict: bool,
+    /// Resource limits enforced on image dimensions and decompressed size.
+    pub limits: Limits,
+}
+
+impl ParseOptions {
+    /// Creates default (lenient) [`ParseOptions`].
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Creates strict [`ParseOptions`] that reject any integrity anomaly.
+    pub fn strict() -> Self {
+        Self {
+            strict: true,
+            limits: Limits::default(),
+        }
+    }
+
+    /// Sets whether strict validation is enabled.
+    pub fn with_strict(mut self, strict: bool) -> Self {
+        self.strict = strict;
+        self
+    }
+
+    /// Sets the resource [`Limits`].
+    pub fn with_limits(mut self, limits: Limits) -> Self {
+        self.limits = limits;
+        self
+    }
+}
+
 /// A struct to parse a PNG file.
 pub struct Parser {
     header: Option<Header>,
     terminator: Option<Terminator>,
     data: Vec<u8>,
-    misc: Vec<Chunk>,
-    limits: Limits,
+    seen_idat: bool,
+    idat_finished: bool,
+    pre_idat_chunks: Vec<Chunk>,
+    post_idat_chunks: Vec<Chunk>,
+    warnings: Vec<PngWarning>,
+    options: ParseOptions,
 }
 
 impl Parser {
-    /// The method parses a PNG file with default [`Limits`] and returns a `Png` object.
+    /// The method parses a PNG file with default [`ParseOptions`] and returns a `Png` object.
+    #[cfg(test)]
     pub fn parse(buffer: &[u8]) -> Result<Png, PngError> {
-        Self::parse_with_limits(buffer, Limits::default())
+        Self::parse_with_options(buffer, ParseOptions::default())
     }
 
-    /// Parses a PNG file using the specified resource [`Limits`].
-    pub fn parse_with_limits(buffer: &[u8], limits: Limits) -> Result<Png, PngError> {
+    /// Parses a PNG file using the specified [`ParseOptions`].
+    pub fn parse_with_options(buffer: &[u8], options: ParseOptions) -> Result<Png, PngError> {
         if buffer.starts_with(SIGNATURE) {
-            let mut parser = Self::new(limits);
+            let mut parser = Self::new(options);
             parser.parse_chunks(&buffer[8..])?;
             parser.build()
         } else {
@@ -70,6 +114,14 @@ impl Parser {
                 .ok_or(PngError::TooShortInput)?;
             self.found_chunk(chunk)?;
             if self.has_iend() {
+                if index < buffer.len() {
+                    let trailing = buffer.len() - index;
+                    if self.options.strict {
+                        return Err(PngError::TrailingDataAfterIEND { bytes: trailing });
+                    }
+                    self.warnings
+                        .push(PngWarning::TrailingDataAfterIEND { bytes: trailing });
+                }
                 break;
             }
         }
@@ -84,20 +136,50 @@ impl Parser {
             return Err(PngError::NOIENDFound);
         }
 
-        let data = self.deflate()?;
+        let mut data = self.deflate()?;
         let header = self.header.take().ok_or(PngError::NoIHDRFound)?;
         let terminator = self.terminator.take().ok_or(PngError::NOIENDFound)?;
 
-        Ok(Png::new(header, terminator, self.misc, data))
+        // Check scan-line filter bytes (> 4).
+        let stride = header.scan_line_width();
+        let height = header.height() as usize;
+        for row in 0..height {
+            let filter_idx = row * stride;
+            if let Some(&filter_byte) = data.get(filter_idx)
+                && filter_byte > 4
+            {
+                if self.options.strict {
+                    return Err(PngError::InvalidFilterType);
+                }
+                self.warnings.push(PngWarning::InvalidFilterByte {
+                    row: row as u32,
+                    byte: filter_byte,
+                });
+                data[filter_idx] = 0;
+            }
+        }
+
+        Ok(Png::new(
+            header,
+            terminator,
+            self.pre_idat_chunks,
+            self.post_idat_chunks,
+            data,
+            self.warnings,
+        ))
     }
 
-    fn new(limits: Limits) -> Parser {
+    fn new(options: ParseOptions) -> Parser {
         Parser {
             header: None,
             terminator: None,
             data: vec![],
-            misc: vec![],
-            limits,
+            seen_idat: false,
+            idat_finished: false,
+            pre_idat_chunks: vec![],
+            post_idat_chunks: vec![],
+            warnings: vec![],
+            options,
         }
     }
 
@@ -110,15 +192,30 @@ impl Parser {
     }
 
     fn has_idat(&self) -> bool {
-        !self.data.is_empty()
+        self.seen_idat
+    }
+
+    fn check_chunk_crc(&mut self, chunk: &Chunk) -> Result<(), PngError> {
+        if !chunk.has_valid_crc() {
+            let chunk_type = chunk.type_name();
+            if self.options.strict {
+                return Err(PngError::CrcMismatch { chunk_type });
+            }
+            self.warnings.push(PngWarning::CrcMismatch { chunk_type });
+        }
+        Ok(())
     }
 
     fn found_chunk(&mut self, chunk: Chunk) -> Result<(), PngError> {
+        self.check_chunk_crc(&chunk)?;
         match chunk.chunk_type {
             ChunkType::Start => self.found_ihdr(chunk),
             ChunkType::End => self.found_iend(chunk),
             ChunkType::Data => self.found_idat(chunk),
             _ => {
+                if self.seen_idat {
+                    self.idat_finished = true;
+                }
                 self.found_misc_chunk(chunk);
                 Ok(())
             }
@@ -136,6 +233,13 @@ impl Parser {
 
     fn found_idat(&mut self, mut chunk: Chunk) -> Result<(), PngError> {
         if chunk.chunk_type == ChunkType::Data {
+            if self.idat_finished {
+                if self.options.strict {
+                    return Err(PngError::NonConsecutiveIDAT);
+                }
+                self.warnings.push(PngWarning::NonConsecutiveIDAT);
+            }
+            self.seen_idat = true;
             self.data.append(&mut chunk.data);
             Ok(())
         } else {
@@ -153,10 +257,14 @@ impl Parser {
     }
 
     fn found_misc_chunk(&mut self, chunk: Chunk) {
-        self.misc.push(chunk)
+        if self.seen_idat {
+            self.post_idat_chunks.push(chunk);
+        } else {
+            self.pre_idat_chunks.push(chunk);
+        }
     }
 
-    fn deflate(&self) -> Result<Vec<u8>, PngError> {
+    fn deflate(&mut self) -> Result<Vec<u8>, PngError> {
         if !self.has_idat() {
             return Err(PngError::NoIDATFound);
         }
@@ -164,7 +272,7 @@ impl Parser {
         let width = header.width();
         let height = header.height();
         let pixels = (width as u64).saturating_mul(height as u64);
-        if pixels > self.limits.max_pixels {
+        if pixels > self.options.limits.max_pixels {
             return Err(PngError::ImageTooLarge { width, height });
         }
 
@@ -172,7 +280,7 @@ impl Parser {
             .scan_line_width()
             .checked_mul(height as usize)
             .ok_or(PngError::ImageTooLarge { width, height })?;
-        if expected > self.limits.max_bytes {
+        if expected > self.options.limits.max_bytes {
             return Err(PngError::ImageTooLarge { width, height });
         }
 
@@ -180,10 +288,13 @@ impl Parser {
         // Avoid allocating huge buffers when a tiny IDAT stream cannot possibly
         // decompress to `expected` bytes.
         let max_deflate_output = self.data.len().saturating_mul(1040).saturating_add(65536);
-        let alloc_len = if expected > max_deflate_output && expected > 1024 * 1024 {
+        // Allocate 1 extra sentinel byte (`expected + 1`) so we can detect if the
+        // decompressed stream produces more bytes than `expected`.
+        let target_len = expected.saturating_add(1);
+        let alloc_len = if target_len > max_deflate_output && expected > 1024 * 1024 {
             max_deflate_output
         } else {
-            expected
+            target_len
         };
 
         let mut buffer = Vec::new();
@@ -196,12 +307,20 @@ impl Parser {
         let (_, written) = decompressor
             .read(&self.data, &mut buffer, 0, true)
             .map_err(|_| PngError::DeflateFailure)?;
-        if written != expected {
+        if written < expected {
             return Err(PngError::IncompleteDecompression {
                 expected,
                 actual: written,
             });
         }
+        if written > expected || !decompressor.is_done() {
+            if self.options.strict {
+                return Err(PngError::ExcessDecompressedData { expected });
+            }
+            self.warnings
+                .push(PngWarning::ExcessDecompressedData { expected });
+        }
+        buffer.truncate(expected);
         Ok(buffer)
     }
 }
@@ -244,7 +363,6 @@ mod tests {
     #[test]
     fn test_truncated_inputs_return_error_never_panic() {
         let bytes = include_bytes!("../../etc/sample00.png");
-        // Test every prefix of the first 64 bytes (covers signature, IHDR length, IHDR type, IHDR payload, IHDR CRC, and next chunk header)
         for len in 0..=64.min(bytes.len()) {
             let res = Parser::parse(&bytes[..len]);
             assert!(res.is_err(), "truncated prefix of length {len} must fail");
@@ -254,7 +372,6 @@ mod tests {
     #[test]
     fn test_huge_ihdr_dimensions_rejected_without_oom_or_panic() {
         let mut data = SIGNATURE.to_vec();
-        // IHDR: 60000 x 60000 RGBA8 (would require ~14.4 GB)
         let mut ihdr = Vec::new();
         ihdr.extend_from_slice(&60000u32.to_be_bytes());
         ihdr.extend_from_slice(&60000u32.to_be_bytes());
@@ -262,7 +379,10 @@ mod tests {
         let ihdr_chunk = Chunk::with_recomputed_crc(ChunkType::Start, ihdr);
         ihdr_chunk.encode(&mut data).unwrap();
 
-        let idat_chunk = Chunk::with_recomputed_crc(ChunkType::Data, vec![0x78, 0x9c, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01]);
+        let idat_chunk = Chunk::with_recomputed_crc(
+            ChunkType::Data,
+            vec![0x78, 0x9c, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01],
+        );
         idat_chunk.encode(&mut data).unwrap();
 
         let iend_chunk = Chunk::with_recomputed_crc(ChunkType::End, vec![]);

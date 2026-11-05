@@ -65,15 +65,29 @@ impl Chunk {
     /// Use this any time the chunk's payload is built or modified inside the
     /// crate so that the CRC cannot drift out of sync with `data`.
     pub(crate) fn with_recomputed_crc(chunk_type: ChunkType, data: Vec<u8>) -> Chunk {
-        let mut hasher = crc32fast::Hasher::new();
-        hasher.update(chunk_type.as_bytes());
-        hasher.update(&data);
-        let crc = hasher.finalize().to_be_bytes();
+        let crc = Self::compute_crc(&chunk_type, &data);
         Chunk {
             chunk_type,
             data,
             crc,
         }
+    }
+
+    pub(crate) fn compute_crc(chunk_type: &ChunkType, data: &[u8]) -> [u8; 4] {
+        let mut hasher = crc32fast::Hasher::new();
+        hasher.update(chunk_type.as_bytes());
+        hasher.update(data);
+        hasher.finalize().to_be_bytes()
+    }
+
+    /// Returns `true` if `self.crc` matches the CRC32 computed over `chunk_type || data`.
+    pub fn has_valid_crc(&self) -> bool {
+        Self::compute_crc(&self.chunk_type, &self.data) == self.crc
+    }
+
+    /// Returns the 4-byte ASCII chunk type name (or lossy UTF-8 representation).
+    pub fn type_name(&self) -> String {
+        String::from_utf8_lossy(self.chunk_type.as_bytes()).into_owned()
     }
 
     /// The method parses a chunk from a byte array.

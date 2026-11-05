@@ -1,6 +1,7 @@
 use clap::Parser;
 use glitch_context::{
     AlphaGlitchStrategy, BitOp, FilterConfig, PreProcess, SortCriterion, SwapTarget,
+    MAX_RANDOM_COPY_TIMES,
 };
 use serde::Deserialize;
 
@@ -39,6 +40,56 @@ pub fn parse_quality(s: &str) -> Result<f32, String> {
     } else {
         Err(format!(
             "quality must be between 0.0 and 100.0 (inclusive), got {val}"
+        ))
+    }
+}
+
+pub fn parse_random_copy_times(s: &str) -> Result<u32, String> {
+    let val: u32 = s
+        .parse()
+        .map_err(|e| format!("invalid `times` `{s}`: {e}"))?;
+    if val <= MAX_RANDOM_COPY_TIMES {
+        Ok(val)
+    } else {
+        Err(format!(
+            "random-copy `times` must be <= {MAX_RANDOM_COPY_TIMES}, got {val}"
+        ))
+    }
+}
+
+pub fn parse_non_negative_strength(s: &str) -> Result<i16, String> {
+    let val: i16 = s
+        .parse()
+        .map_err(|e| format!("invalid `strength` `{s}`: {e}"))?;
+    if val >= 0 {
+        Ok(val)
+    } else {
+        Err(format!(
+            "color-distortion `strength` must be >= 0, got {val}"
+        ))
+    }
+}
+
+pub fn parse_finite_f64(s: &str) -> Result<f64, String> {
+    let val: f64 = s
+        .parse()
+        .map_err(|_| format!("`{s}` is not a valid floating-point number"))?;
+    if val.is_finite() {
+        Ok(val)
+    } else {
+        Err(format!("expected a finite number, got {val}"))
+    }
+}
+
+pub fn parse_non_negative_f64(s: &str) -> Result<f64, String> {
+    let val: f64 = s
+        .parse()
+        .map_err(|_| format!("`{s}` is not a valid floating-point number"))?;
+    if val.is_finite() && val >= 0.0 {
+        Ok(val)
+    } else {
+        Err(format!(
+            "multiplier must be a finite number >= 0.0, got {val}"
         ))
     }
 }
@@ -188,18 +239,13 @@ pub fn parse_filter_spec(spec: &str) -> Result<FilterConfig, String> {
         }
         "random-copy" | "randomcopy" => {
             let times = match mode {
-                Some(('=', val)) => val
-                    .parse::<u32>()
-                    .map_err(|e| format!("invalid `times` for `random-copy`: {e}"))?,
+                Some(('=', val)) => parse_random_copy_times(val)?,
                 Some((':', rest)) => {
                     let mut times = None;
                     for (k, v) in parse_kv_pairs(&norm, rest)? {
                         match k {
                             "times" | "n" => {
-                                times = Some(
-                                    v.parse::<u32>()
-                                        .map_err(|e| format!("invalid `times`: {e}"))?,
-                                );
+                                times = Some(parse_random_copy_times(v)?);
                             }
                             other => {
                                 return Err(format!(
@@ -508,10 +554,7 @@ pub fn parse_filter_spec(spec: &str) -> Result<FilterConfig, String> {
                         match k {
                             "magnitude" | "mag" => magnitude = Some(parse_magnitude(v)?),
                             "strength" => {
-                                strength = Some(
-                                    v.parse::<i16>()
-                                        .map_err(|e| format!("invalid `strength`: {e}"))?,
-                                );
+                                strength = Some(parse_non_negative_strength(v)?);
                             }
                             other => {
                                 return Err(format!(
@@ -543,22 +586,13 @@ pub fn parse_filter_spec(spec: &str) -> Result<FilterConfig, String> {
                         match k {
                             "magnitude" | "mag" => magnitude = Some(parse_magnitude(v)?),
                             "hue_shift" | "hue-shift" | "hue" => {
-                                hue_shift = Some(
-                                    v.parse::<f64>()
-                                        .map_err(|e| format!("invalid `hue_shift`: {e}"))?,
-                                );
+                                hue_shift = Some(parse_finite_f64(v)?);
                             }
                             "saturation_mult" | "saturation-mult" | "saturation" | "sat" => {
-                                saturation_mult = Some(
-                                    v.parse::<f64>()
-                                        .map_err(|e| format!("invalid `saturation_mult`: {e}"))?,
-                                );
+                                saturation_mult = Some(parse_non_negative_f64(v)?);
                             }
                             "lightness_mult" | "lightness-mult" | "lightness" | "light" => {
-                                lightness_mult = Some(
-                                    v.parse::<f64>()
-                                        .map_err(|e| format!("invalid `lightness_mult`: {e}"))?,
-                                );
+                                lightness_mult = Some(parse_non_negative_f64(v)?);
                             }
                             other => {
                                 return Err(format!(
@@ -865,6 +899,10 @@ pub struct Cli {
     #[arg(long)]
     pub force: bool,
 
+    /// Enforce strict PNG integrity checks (CRC, consecutive IDAT, filter bytes, trailing data)
+    #[arg(long)]
+    pub strict: bool,
+
     /// Random seed for reproducible output (printed to stderr if omitted)
     #[arg(long, value_name = "SEED")]
     pub seed: Option<u64>,
@@ -904,7 +942,7 @@ pub struct Cli {
     pub set_zero: Option<f64>,
 
     /// Copy random scanlines N times (PNG only)
-    #[arg(long, value_name = "N", help_heading = "Glitch Filters")]
+    #[arg(long, value_name = "N", value_parser = parse_random_copy_times, help_heading = "Glitch Filters")]
     pub random_copy: Option<u32>,
 
     /// Substitute byte at INDEX with VALUE (`INDEX:VALUE`, PNG only)
@@ -955,8 +993,8 @@ pub struct Cli {
     #[arg(long, value_name = "MAG", value_parser = parse_magnitude, help_heading = "Glitch Filters")]
     pub color_distortion: Option<f64>,
 
-    /// Distortion amplitude for `--color-distortion`
-    #[arg(long, value_name = "N", default_value_t = 20, allow_hyphen_values = true, help_heading = "Glitch Filters")]
+    /// Distortion amplitude for `--color-distortion` (>= 0)
+    #[arg(long, value_name = "N", default_value_t = 20, value_parser = parse_non_negative_strength, allow_hyphen_values = true, help_heading = "Glitch Filters")]
     pub color_distortion_strength: i16,
 
     /// Transform colors in HSL space [0.0..=1.0] (PNG only; configure with `--hue-shift`, `--saturation-mult`, `--lightness-mult`)
@@ -964,15 +1002,15 @@ pub struct Cli {
     pub color_space_glitch: Option<f64>,
 
     /// Hue shift in degrees (0.0..=360.0) for `--color-space-glitch`
-    #[arg(long, value_name = "DEG", default_value_t = 0.0, allow_hyphen_values = true, help_heading = "Glitch Filters")]
+    #[arg(long, value_name = "DEG", default_value_t = 0.0, value_parser = parse_finite_f64, allow_hyphen_values = true, help_heading = "Glitch Filters")]
     pub hue_shift: f64,
 
-    /// Saturation multiplier for `--color-space-glitch`
-    #[arg(long, value_name = "MULT", default_value_t = 1.0, help_heading = "Glitch Filters")]
+    /// Saturation multiplier (>= 0.0) for `--color-space-glitch`
+    #[arg(long, value_name = "MULT", default_value_t = 1.0, value_parser = parse_non_negative_f64, help_heading = "Glitch Filters")]
     pub saturation_mult: f64,
 
-    /// Lightness multiplier for `--color-space-glitch`
-    #[arg(long, value_name = "MULT", default_value_t = 1.0, help_heading = "Glitch Filters")]
+    /// Lightness multiplier (>= 0.0) for `--color-space-glitch`
+    #[arg(long, value_name = "MULT", default_value_t = 1.0, value_parser = parse_non_negative_f64, help_heading = "Glitch Filters")]
     pub lightness_mult: f64,
 
     /// Horizontally offset R/G/B channels [0.0..=1.0] (configure with `--r-offset`, `--g-offset`, `--b-offset`)
