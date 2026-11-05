@@ -34,8 +34,11 @@ impl GlitchPreset for Invert {
 /// A preset that shifts the color channels of each pixel.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ShiftChannels {
+    /// Amount added to the red channel (`-32768..=32767`, wrapping).
     pub r: i16,
+    /// Amount added to the green channel (`-32768..=32767`, wrapping).
     pub g: i16,
+    /// Amount added to the blue channel (`-32768..=32767`, wrapping).
     pub b: i16,
 }
 
@@ -73,6 +76,7 @@ impl GlitchPreset for ShiftChannels {
 /// A preset that increases the brightness of each pixel (saturating at the bit-depth maximum).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Brighten {
+    /// Brightness increment added to each channel (saturating at the bit-depth maximum).
     pub strength: u16,
 }
 
@@ -111,6 +115,7 @@ impl GlitchPreset for Brighten {
 /// A preset that decreases the brightness of each pixel (saturating at 0).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Darken {
+    /// Brightness decrement subtracted from each channel (saturating at `0`).
     pub strength: u16,
 }
 

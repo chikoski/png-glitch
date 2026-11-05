@@ -1,31 +1,37 @@
 use crate::scan_line::ScanLine;
 
-/// 1ピクセルの色情報。WebP はネイティブで u8 チャンネルを使用する。
+/// Color information for a single WebP pixel (using native `u8` channels).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WebpPixel {
+    /// 24-bit RGB pixel `(r, g, b)`.
     RGB(u8, u8, u8),
+    /// 32-bit RGBA pixel `(r, g, b, a)`.
     RGBA(u8, u8, u8, u8),
 }
 
 impl WebpPixel {
+    /// Returns the red channel component.
     pub fn r(self) -> u8 {
         match self {
             WebpPixel::RGB(r, _, _) | WebpPixel::RGBA(r, _, _, _) => r,
         }
     }
 
+    /// Returns the green channel component.
     pub fn g(self) -> u8 {
         match self {
             WebpPixel::RGB(_, g, _) | WebpPixel::RGBA(_, g, _, _) => g,
         }
     }
 
+    /// Returns the blue channel component.
     pub fn b(self) -> u8 {
         match self {
             WebpPixel::RGB(_, _, b) | WebpPixel::RGBA(_, _, b, _) => b,
         }
     }
 
+    /// Returns the alpha channel component (`255` for [`WebpPixel::RGB`]).
     pub fn a(self) -> u8 {
         match self {
             WebpPixel::RGB(_, _, _) => 255,
@@ -33,6 +39,7 @@ impl WebpPixel {
         }
     }
 
+    /// Returns the number of channels (`3` for RGB, `4` for RGBA).
     pub fn channels(self) -> usize {
         match self {
             WebpPixel::RGB(_, _, _) => 3,

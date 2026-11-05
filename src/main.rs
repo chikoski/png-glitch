@@ -10,7 +10,7 @@ use walkdir::WalkDir;
 
 mod cli;
 
-use crate::cli::{Cli, ConfigFile};
+use crate::cli::{format_filter_list, Cli, ConfigFile};
 
 #[derive(Debug, Clone)]
 enum OrderedStep {
@@ -27,6 +27,16 @@ fn collect_ordered_steps(args: &Cli, matches: Option<&ArgMatches>) -> Vec<Ordere
 
     if let Some(cfg) = &args.config {
         steps.push((idx("config", 10), OrderedStep::Config(cfg.clone())));
+    }
+    if !args.filters.is_empty() {
+        let indices: Vec<usize> = matches
+            .and_then(|m| m.indices_of("filters"))
+            .map(|it| it.collect())
+            .unwrap_or_default();
+        for (k, filter_cfg) in args.filters.iter().enumerate() {
+            let pos = indices.get(k).copied().unwrap_or(15 + k);
+            steps.push((pos, OrderedStep::Filter(filter_cfg.clone())));
+        }
     }
     if let Some(magnitude) = args.change_filter_type {
         steps.push((
@@ -151,6 +161,12 @@ fn collect_ordered_steps(args: &Cli, matches: Option<&ArgMatches>) -> Vec<Ordere
         steps.push((
             idx("brighten", 170),
             OrderedStep::Filter(FilterConfig::Brighten { strength }),
+        ));
+    }
+    if let Some(strength) = args.darken {
+        steps.push((
+            idx("darken", 175),
+            OrderedStep::Filter(FilterConfig::Darken { strength }),
         ));
     }
     if let Some(ch) = args.shift_channels {
@@ -303,10 +319,10 @@ fn default_output_path(input: &Path) -> PathBuf {
     }
 }
 
-fn resolve_output_path(args: &Cli) -> PathBuf {
+fn resolve_output_path(args: &Cli, input: &str) -> PathBuf {
     match &args.output_file {
         Some(out) => PathBuf::from(out),
-        None => default_output_path(Path::new(&args.png_file)),
+        None => default_output_path(Path::new(input)),
     }
 }
 
@@ -334,6 +350,11 @@ fn resolve_seed(seed: Option<u64>) -> u64 {
 fn main() -> anyhow::Result<()> {
     let matches = Cli::command().get_matches();
     let args = Cli::from_arg_matches(&matches)?;
+    if args.list_filters {
+        print!("{}", format_filter_list());
+        return Ok(());
+    }
+
     let steps = collect_ordered_steps(&args, Some(&matches));
 
     if let Some(batch_output) = &args.batch_output {
@@ -344,7 +365,11 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn single_process(args: &Cli, steps: &[OrderedStep]) -> anyhow::Result<()> {
-    let input_path = Path::new(&args.png_file);
+    let input = args
+        .input
+        .as_deref()
+        .context("missing required <INPUT> file path")?;
+    let input_path = Path::new(input);
     if input_path.is_dir() {
         bail!(
             "'{}' is a directory; use --batch-output <DIR> to process all images in a directory",
@@ -352,10 +377,21 @@ fn single_process(args: &Cli, steps: &[OrderedStep]) -> anyhow::Result<()> {
         );
     }
 
-    let mut context = AnyGlitchContext::open(&args.png_file, args.seed)?;
+    // Check format compatibility from extension first if unambiguous, before opening
+    let ext = input_path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    if ext.eq_ignore_ascii_case("webp") {
+        validate_flags_for_format(args, true)?;
+    } else if ext.eq_ignore_ascii_case("png") {
+        validate_flags_for_format(args, false)?;
+    }
+
+    let mut context = AnyGlitchContext::open(input, args.seed)?;
     validate_flags_for_format(args, context.is_webp())?;
 
-    let output_path = resolve_output_path(args);
+    let output_path = resolve_output_path(args, input);
     check_overwrite(&output_path, args.force)?;
 
     let seed = resolve_seed(args.seed);
@@ -416,7 +452,11 @@ fn find_batch_images(input_dir: &Path) -> Vec<PathBuf> {
 }
 
 fn batch_process(args: &Cli, steps: &[OrderedStep], output_dir: &str) -> anyhow::Result<()> {
-    let input_dir = Path::new(&args.png_file);
+    let input = args
+        .input
+        .as_deref()
+        .context("missing required <INPUT> directory path")?;
+    let input_dir = Path::new(input);
     let output_path = Path::new(output_dir);
     if !output_path.exists() {
         fs::create_dir_all(output_path)
@@ -425,7 +465,7 @@ fn batch_process(args: &Cli, steps: &[OrderedStep], output_dir: &str) -> anyhow:
 
     let image_files = find_batch_images(input_dir);
     if image_files.is_empty() {
-        bail!("No PNG or WebP files found in '{}'", args.png_file);
+        bail!("No PNG or WebP files found in '{input}'");
     }
 
     let seed = resolve_seed(args.seed);
@@ -777,5 +817,95 @@ filters:
         );
 
         let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn test_list_filters_does_not_require_input() {
+        let cli = Cli::try_parse_from(["png-glitch", "--list-filters"])
+            .expect("--list-filters should succeed without <INPUT>");
+        assert!(cli.list_filters);
+        assert!(cli.input.is_none());
+        let list = format_filter_list();
+        assert!(list.contains("chromatic-aberration"));
+        assert!(list.contains("macroblock-glitch"));
+        assert!(list.contains("sub-filter"));
+    }
+
+    #[test]
+    fn test_repeatable_filter_flag_and_spec_parsing() {
+        let matches = Cli::command()
+            .try_get_matches_from([
+                "png-glitch",
+                "sample.png",
+                "-f",
+                "sub-filter",
+                "-f",
+                "replace=0.05",
+                "-f",
+                "chromatic-aberration:magnitude=0.2,r=4,b=-4",
+                "--invert",
+                "-f",
+                "replace=0.1",
+            ])
+            .expect("repeatable -f flags should parse");
+        let args = Cli::from_arg_matches(&matches).unwrap();
+        let steps = collect_ordered_steps(&args, Some(&matches));
+        assert_eq!(steps.len(), 5);
+        assert!(matches!(
+            steps[0],
+            OrderedStep::Filter(FilterConfig::SubFilter)
+        ));
+        assert!(matches!(
+            steps[1],
+            OrderedStep::Filter(FilterConfig::Replace { magnitude }) if (magnitude - 0.05).abs() < 1e-6
+        ));
+        assert!(matches!(
+            steps[2],
+            OrderedStep::Filter(FilterConfig::ChromaticAberration {
+                magnitude,
+                r_offset: Some(4),
+                b_offset: Some(-4),
+                ..
+            }) if (magnitude - 0.2).abs() < 1e-6
+        ));
+        assert!(matches!(
+            steps[3],
+            OrderedStep::Filter(FilterConfig::Invert)
+        ));
+        assert!(matches!(
+            steps[4],
+            OrderedStep::Filter(FilterConfig::Replace { magnitude }) if (magnitude - 0.1).abs() < 1e-6
+        ));
+    }
+
+    #[test]
+    fn test_filter_override_aliases_and_yaml_kebab_case() {
+        let cli = Cli::try_parse_from([
+            "png-glitch",
+            "input.png",
+            "--sub-filter",
+            "--up-filter",
+            "--average-filter",
+            "--paeth-filter",
+            "--darken",
+            "500",
+        ])
+        .expect("filter override aliases and --darken should parse");
+        assert!(cli.sub && cli.up && cli.average && cli.paeth);
+        assert_eq!(cli.darken, Some(500));
+
+        let yaml = r#"
+filters:
+  - type: remove-filter
+  - type: block-scramble
+    magnitude: 0.1
+    block_size: 32
+  - type: ChromaticAberration
+    magnitude: 0.2
+    r_offset: 3
+    b_offset: -3
+"#;
+        let cfg: ConfigFile = serde_yml::from_str(yaml).expect("kebab and PascalCase YAML should parse");
+        assert_eq!(cfg.filters.len(), 3);
     }
 }

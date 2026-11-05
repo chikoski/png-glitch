@@ -36,7 +36,7 @@ version = "0.4.1"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
-description = "Cli to glitch PNG images."
+description = "CLI tool to glitch PNG and WebP images."
 license.workspace = true
 readme = "README.md"
 repository.workspace = true
@@ -44,6 +44,7 @@ repository.workspace = true
 [[bin]]
 name = "png-glitch"
 path = "src/main.rs"
+doc = false
 
 [dependencies]
 anyhow.workspace = true

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
-description = "A library to manage and apply glitch filters to PNG images."
+description = "A library to manage and apply glitch filters to PNG and WebP images."
 license.workspace = true
 repository.workspace = true
 readme = "README.md"
@@ -17,6 +17,13 @@ rand_chacha.workspace = true
 serde.workspace = true
 clap = { workspace = true, optional = true }
 webp-glitch = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_yml.workspace = true
+image.workspace = true
+fdeflate.workspace = true
+crc32fast.workspace = true
+webp.workspace = true
 
 [features]
 default = ["webp", "clap"]

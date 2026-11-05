@@ -1,6 +1,6 @@
-# png-glitch: a tool to glitch PNG images
+# png-glitch: a tool to glitch PNG and WebP images
 
-`png-glitch` is a powerful tool and library for the intentional corruption of PNG images, creating unique "glitch art" by manipulating both pixel data and the underlying PNG compression structures.
+`png-glitch` is a powerful tool and library suite for the intentional corruption of **PNG** and **WebP** images, creating unique "glitch art" by manipulating pixel data, scanline filters, and underlying compression structures.
 
 ## Installation
 
@@ -12,39 +12,60 @@ To install `png-glitch` from crates.io, run the following command:
 
 ## Usage
 
-`png-glitch` glitches a given PNG or WebP file (or directory) and emits the result. By default, it saves to `<input-stem>-glitched.<ext>` next to the input file and refuses to overwrite an existing file unless `--force` is specified.
+`png-glitch` glitches a given PNG or WebP file (or directory) and emits the result. Image format is auto-detected from file magic bytes (`PNG` or `RIFF....WEBP`). By default, it saves to `<input-stem>-glitched.<ext>` next to the input file and refuses to overwrite an existing file unless `--force` is specified.
 
 ```zsh
-% png-glitch [OPTIONS] <PNG_FILE>
+% png-glitch [OPTIONS] <INPUT>
 % png-glitch input.png -o result.png --invert
-% png-glitch input.png --output result.png --block-scramble 0.1
+% png-glitch input.webp -o result.webp --macroblock-glitch 0.15 --chromatic-aberration 0.2
+% png-glitch input.png -f sub-filter -f replace=0.05 -f 'chromatic-aberration:magnitude=0.2,r=4,b=-4'
+% png-glitch --list-filters
 ```
 
-### Glitch Filters
+### Repeatable `-f / --filter` Flag
 
-Multiple filters can be combined and are applied in the order they are specified.
+In addition to individual filter flags, you can compose a pipeline of any length (including applying the same filter multiple times with different parameters) using `-f` / `--filter`:
 
-| Option | Description |
-| :--- | :--- |
-| `--invert` | Inverts all color values. |
-| `--color-space-glitch <MAG>` | Artistic control over HSL (Hue, Saturation, Lightness). |
-| `--chromatic-aberration <MAG>` | Classic retro "color fringe" effect. |
-| `--brighten <N>` | Saturating brightness increase (0–65535). Caps at the maximum value for the image's bit depth. |
-| `--shift-channels <R,G,B>` | Shifts color channels independently (wrapping). |
-| `--block-scramble <MAG>` | Shuffles grid-based blocks. |
-| `--transpose <MAG>` | Randomly swaps blocks of scanlines. |
-| `--horizontal-shift <MAG>` | Shifts scanlines horizontally. |
-| `--replace <MAG>` | Replaces pixels with noise (0.0–1.0). |
-| `--set-zero <MAG>` | Sets random pixels to zero (0.0–1.0). |
-| `--random-copy <N>` | Copies random scanlines N times. |
-| `--substitute <INDEX:VALUE>` | Substitutes a single byte by index. |
-| `--pixel-sort <MAG>` | Sorts pixels by brightness or hue within scanlines. |
-| `--bitwise <MAG>` | Applies a bitwise operation (AND/OR/XOR) to pixel data. |
-| `--channel-swap <MAG>` | Swaps two color channels (RG, GB, or BR). |
-| `--color-distortion <MAG>` | Adds per-scanline color noise. |
-| `--change-filter-type <MAG>` | Randomly changes PNG filter types across scanlines. |
+- `<filter>` (e.g. `-f invert`, `-f sub-filter`)
+- `<filter>=<value>` (e.g. `-f replace=0.05`, `-f brighten=1200`, `-f shift-channels=12,0,-12`)
+- `<filter>:key1=val1,key2=val2` (e.g. `-f 'chromatic-aberration:magnitude=0.2,r=4,b=-4'`, `-f 'block-scramble:magnitude=0.1,size=64'`)
 
-### Pre-processing (applied before glitch filters)
+Run `png-glitch --list-filters` to inspect all supported filter specs, parameters, defaults, and format support.
+
+### Supported Formats & Filter Compatibility
+
+Multiple filters can be combined and are applied in the exact order they appear on the command line or in a YAML config.
+
+| CLI Option / `-f` Name | YAML `type` (kebab-case / PascalCase) | Formats | Parameters & Defaults | Description |
+| :--- | :--- | :---: | :--- | :--- |
+| `--invert` | `invert` / `Invert` | PNG, WebP | — | Inverts all color values. |
+| `--brighten <STRENGTH>` | `brighten` / `Brighten` | PNG, WebP | `strength` (`0..=65535`) | Saturating brightness increase capped at bit-depth maximum. |
+| `--darken <STRENGTH>` | `darken` / `Darken` | PNG, WebP | `strength` (`0..=65535`) | Saturating brightness decrease floored at 0. |
+| `--shift-channels <R,G,B>` | `shift-channels` / `ShiftChannels` | PNG, WebP | `r`, `g`, `b` (`i16`) | Shifts R, G, B channel values independently (wrapping). |
+| `--chromatic-aberration <MAG>` | `chromatic-aberration` / `ChromaticAberration` | PNG, WebP | `magnitude` (`0.0..=1.0`), `r_offset=2`, `g_offset=0`, `b_offset=-2` | Displaces R/G/B channels horizontally for a color fringe effect. |
+| `--pixel-sort <MAG>` | `pixel-sort` / `PixelSort` | PNG, WebP | `magnitude` (`0.0..=1.0`), `criterion=brightness` (`brightness` \| `hue`) | Sorts pixels within scanlines/rows by brightness or hue. |
+| `--bitwise <MAG>` | `bitwise` / `Bitwise` | PNG, WebP | `magnitude` (`0.0..=1.0`), `op=xor` (`and` \| `or` \| `xor`), `value=128` | Applies a bitwise operation to pixel data. |
+| `--channel-swap <MAG>` | `channel-swap` / `ChannelSwap` | PNG, WebP | `magnitude` (`0.0..=1.0`), `target=rg` (`rg` \| `gb` \| `br`) | Swaps two color channels. |
+| `--horizontal-shift <MAG>` | `horizontal-shift` / `HorizontalShift` | PNG, WebP | `magnitude` (`0.0..=1.0`) | Circularly shifts scanlines/rows horizontally. |
+| `--color-distortion <MAG>` | `color-distortion` / `ColorDistortion` | PNG, WebP | `magnitude` (`0.0..=1.0`), `strength=32` (`0..=255`) | Adds signed random deltas to RGB channels per scanline/row. |
+| `--color-space-glitch <MAG>` | `color-space-glitch` / `ColorSpaceGlitch` | PNG only | `magnitude` (`0.0..=1.0`), `hue_shift=0.0`, `saturation_mult=1.0`, `lightness_mult=1.0` | Artistic HSL (Hue, Saturation, Lightness) distortion. |
+| `--block-scramble <MAG>` | `block-scramble` / `BlockScramble` | PNG only | `magnitude` (`0.0..=1.0`), `block_size=32` | Shuffles rectangular blocks across scanlines. |
+| `--transpose <MAG>` | `transpose` / `Transpose` | PNG only | `magnitude` (`0.0..=1.0`) | Randomly swaps blocks of scanlines. |
+| `--replace <MAG>` | `replace` / `Replace` | PNG only | `magnitude` (`0.0..=1.0`) | Replaces scanline bytes with random noise. |
+| `--set-zero <MAG>` | `set-zero` / `SetZero` | PNG only | `magnitude` (`0.0..=1.0`) | Zeroes out randomly selected scanlines. |
+| `--random-copy <COUNT>` | `random-copy` / `RandomCopy` | PNG only | `times` (`usize`) | Copies random scanline bytes `COUNT` times. |
+| `--substitute <INDEX:VALUE>` | `substitute` / `Substitute` | PNG only | `index` (`usize`), `value` (`u8`) | Substitutes a single byte in the middle scanline. |
+| `--change-filter-type <MAG>` | `change-filter-type` / `ChangeFilterType` | PNG only | `magnitude` (`0.0..=1.0`) | Randomly changes PNG filter types across scanlines. |
+| `--remove-filter` | `remove-filter` / `RemoveFilter` | PNG only | — | Forces all scanlines to PNG filter type `None`. |
+| `--sub` (`--sub-filter`) | `sub-filter` / `SubFilter` | PNG only | — | Forces all scanlines to PNG filter type `Sub`. |
+| `--up` (`--up-filter`) | `up-filter` / `UpFilter` | PNG only | — | Forces all scanlines to PNG filter type `Up`. |
+| `--average` (`--average-filter`) | `average-filter` / `AverageFilter` | PNG only | — | Forces all scanlines to PNG filter type `Average`. |
+| `--paeth` (`--paeth-filter`) | `paeth-filter` / `PaethFilter` | PNG only | — | Forces all scanlines to PNG filter type `Paeth`. |
+| `--macroblock-glitch <MAG>` | `macroblock-glitch` / `MacroblockGlitch` | WebP only | `magnitude` (`0.0..=1.0`) | Corrupts 16x16 VP8 macroblocks by swapping, duplicating, or zeroing. |
+| `--alpha-glitch <STRATEGY>` | `alpha-glitch` / `AlphaGlitch` | WebP only | `magnitude=1.0`, `strategy=noise` (`noise` \| `invert` \| `shift` \| `zero`) | Corrupts the alpha channel of RGBA WebP images. |
+| `--lossy-quality <QUALITY>` | `lossy-artifact` / `LossyArtifact` | WebP only | `quality` (`0.0..=100.0`) | Re-encodes through lossy VP8 at low quality to introduce block artifacts. |
+
+### Pre-processing (PNG only, applied before glitch filters)
 
 `--pre-process` re-encodes the PNG with a specific filter type before glitching. This changes the underlying byte patterns that glitch filters operate on, producing different visual results.
 
@@ -54,59 +75,50 @@ Multiple filters can be combined and are applied in the order they are specified
 
 Accepted values: `remove-filter`, `sub-filter`, `up-filter`, `average-filter`, `paeth-filter`
 
-### Filter Type Override (force all scan lines to a fixed filter type)
-
-These flags forcibly set all scanlines to a single PNG filter type. Unlike `--pre-process`, they are applied as a glitch step in the pipeline and are useful in batch processing workflows.
-
-| Option | Filter type applied to all scanlines |
-| :--- | :--- |
-| `--remove-filter` | None |
-| `--sub` | Sub |
-| `--up` | Up |
-| `--average` | Average |
-| `--paeth` | Paeth |
-
-### Output
+### Output & Reproducibility
 
 | Option | Description |
 | :--- | :--- |
 | `-o`, `--output <FILE>` | Output file path (default: `<input-stem>-glitched.<ext>`). |
+| `--batch-output <DIR>` | Output directory for batch processing when `<INPUT>` is a directory. |
 | `--force` | Overwrite existing output file(s) without prompting. |
-| `--seed <N>` | Random seed for reproducible results (printed to stderr when omitted). |
+| `--seed <SEED>` | Random seed (`u64`) for reproducible results (printed to stderr when omitted). |
+| `-c`, `--config <FILE>` | Load filter pipeline from a YAML configuration file. |
+| `--list-filters` | List all available filters, parameters, defaults, and format support. |
 
 ## Batch Processing
 
-To glitch multiple images at once, provide a directory as the main argument and use the `--batch-output` flag. This uses **parallel processing** for high performance:
+To glitch multiple PNG and WebP images at once, provide a directory as `<INPUT>` and use the `--batch-output` flag. This uses **parallel processing** while preserving subdirectory structure:
 
 ```zsh
-% png-glitch ./my_images --batch-output ./glitched_results --invert --block-scramble 0.05
+% png-glitch ./my_images --batch-output ./glitched_results --invert --horizontal-shift 0.05
 ```
 
 ## Configuration File (YAML)
 
-Define complex glitch pipelines for repeatable results:
+Define complex glitch pipelines for repeatable results. Both `kebab-case` (recommended, matching CLI flags) and `PascalCase` filter `type` names are accepted:
 
 ```yaml
 filters:
-  - type: RemoveFilter
-  - type: BlockScramble
+  - type: remove-filter
+  - type: block-scramble
     magnitude: 0.1
     block_size: 32
-  - type: ColorSpaceGlitch
+  - type: color-space-glitch
     magnitude: 0.2
     hue_shift: 90.0
-  - type: ChromaticAberration
+  - type: chromatic-aberration
     magnitude: 0.1
     r_offset: 3
     b_offset: -3
-  - type: Invert
-  - type: Invert
-  - type: PixelSort
+  - type: invert
+  - type: invert
+  - type: pixel-sort
     magnitude: 0.1
     criterion: hue
-  - type: HorizontalShift
+  - type: horizontal-shift
     magnitude: 0.05
-  - type: Bitwise
+  - type: bitwise
     magnitude: 0.02
     op: xor
     value: 255
@@ -133,12 +145,12 @@ And the glitched one:
 ![](crates/png-glitch/etc/sample00-glitched.png)
 
 # In this repository
-This repository consists of the following things:
+This repository consists of the following crates:
 
 - **png-glitch-cli**: A binary crate for a command line interface (CLI) to glitch PNG and WebP files.
 - **[png-glitch crate](crates/png-glitch)**: Core library to glitch PNG images.
 - **[webp-glitch crate](crates/webp-glitch)**: Core library to glitch WebP images.
-- **[glitch-context crate](crates/glitch-context)**: High-level API to orchestrate glitch filters.
+- **[glitch-context crate](crates/glitch-context)**: High-level API to orchestrate glitch filters across PNG and WebP.
 
 # Licence
 

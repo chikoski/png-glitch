@@ -12,7 +12,7 @@ pub use scan_line::ScanLine;
 use riff::RiffContainer;
 use std::path::Path;
 
-/// WebP 画像のグリッチを行うメイン構造体。
+/// Main struct for decoding, manipulating, and re-encoding WebP images.
 pub struct WebpGlitch {
     riff: RiffContainer,
     pixels: PixelBuffer,
@@ -20,47 +20,50 @@ pub struct WebpGlitch {
 }
 
 impl WebpGlitch {
-    /// ファイルから WebP を読み込む。
+    /// Opens a WebP image from a file path.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, WebpError> {
         let data = std::fs::read(path)?;
         Self::new(data)
     }
 
-    /// バイト列から WebP を読み込む。
+    /// Creates a [`WebpGlitch`] instance from an in-memory WebP byte buffer.
     pub fn new(data: Vec<u8>) -> Result<Self, WebpError> {
         let riff = RiffContainer::parse(&data)?;
         let pixels = decode_pixels(&data)?;
         Ok(Self { riff, pixels, quality: 90.0 })
     }
 
+    /// Returns the image width in pixels.
     pub fn width(&self) -> u32 {
         self.pixels.width
     }
 
+    /// Returns the image height in pixels.
     pub fn height(&self) -> u32 {
         self.pixels.height
     }
 
+    /// Returns `true` if the WebP image has an alpha channel.
     pub fn has_alpha(&self) -> bool {
         self.pixels.has_alpha
     }
 
-    /// 再エンコード時の品質を設定する (0.0〜100.0)。
+    /// Sets the re-encoding quality (`0.0..=100.0`).
     pub fn set_quality(&mut self, quality: f32) {
         self.quality = quality.clamp(0.0, 100.0);
     }
 
-    /// 全スキャンラインを返す。
+    /// Returns mutable views over all scanlines in the decoded pixel buffer.
     pub fn scan_lines(&mut self) -> Vec<ScanLine<'_>> {
         self.pixels.scan_lines()
     }
 
-    /// 指定行のスキャンラインを返す。範囲外なら None。
+    /// Returns a mutable view over scanline `y`, or `None` if `y >= height()`.
     pub fn scan_line_mut(&mut self, y: u32) -> Option<ScanLine<'_>> {
         self.pixels.scan_line_mut(y)
     }
 
-    /// 各スキャンラインに順次クロージャを適用する。
+    /// Applies a closure sequentially to every scanline.
     pub fn foreach_scanline<F>(&mut self, mut f: F) -> &mut Self
     where
         F: FnMut(&mut ScanLine<'_>),
@@ -71,7 +74,7 @@ impl WebpGlitch {
         self
     }
 
-    /// 各スキャンラインにクロージャを並列適用する (rayon)。
+    /// Applies a closure to all scanlines in parallel using `rayon`.
     pub fn par_foreach_scanline<F>(&mut self, f: F) -> &mut Self
     where
         F: Fn(&mut ScanLine<'_>) + Send + Sync,
@@ -90,7 +93,7 @@ impl WebpGlitch {
         self
     }
 
-    /// RIFF チャンクデータを直接操作するクロージャを受け取る。
+    /// Provides mutable access to the underlying RIFF container chunks.
     pub fn with_riff<F>(&mut self, f: F) -> &mut Self
     where
         F: FnOnce(&mut RiffContainer),
@@ -99,14 +102,14 @@ impl WebpGlitch {
         self
     }
 
-    /// グリッチ済み画像を WebP としてファイルに保存する。
+    /// Encodes and saves the glitched WebP image to a file.
     pub fn save(self, path: impl AsRef<Path>) -> Result<(), WebpError> {
         let data = self.encode()?;
         std::fs::write(path, data)?;
         Ok(())
     }
 
-    /// グリッチ済み画像を WebP バイト列にエンコードして返す。
+    /// Encodes the glitched WebP image into a byte vector.
     pub fn encode(&self) -> Result<Vec<u8>, WebpError> {
         encode_pixels(&self.pixels, self.quality)
     }
