@@ -75,7 +75,7 @@ impl<'a> ScanLine<'a> {
 
             return match self.color_type {
                 ColorType::GrayScale => Some(Pixel::Gray(value as u16)),
-                ColorType::IndexColor => Some(Pixel::Indexed(value as u8)),
+                ColorType::IndexColor => Some(Pixel::Indexed(value)),
                 _ => None,
             };
         }
@@ -281,7 +281,7 @@ impl<'a> ScanLine<'a> {
 
                 let pixel = match color_type {
                     ColorType::GrayScale => Pixel::Gray(value as u16),
-                    ColorType::IndexColor => Pixel::Indexed(value as u8),
+                    ColorType::IndexColor => Pixel::Indexed(value),
                     _ => continue,
                 };
 
