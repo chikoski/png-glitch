@@ -7,7 +7,7 @@
 To install `png-glitch` from source, run the following command:
 
 ```zsh
-% cargo install png-glitch --locked 
+% cargo install png-glitch-cli --locked 
 ```
 
 ## Usage

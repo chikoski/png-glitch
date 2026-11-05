@@ -3,7 +3,7 @@ use glitch_context::{BitOp, FilterConfig, PreProcess, SortCriterion, SwapTarget}
 use serde::Deserialize;
 
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
+#[command(name = "png-glitch", author, version, about, long_about = None)]
 pub struct Cli {
     #[arg(short, long = "output", default_value = "glitched.png")]
     pub output_file: String,
