@@ -26,7 +26,13 @@ fn is_webp(path: &str) -> bool {
 }
 
 fn main() -> anyhow::Result<()> {
-    let args = Cli::parse();
+    let mut args = Cli::parse();
+
+    // #16: an omitted seed used to come silently from from_os_rng(), so a good
+    // result could not be reproduced. Generate one here, pass it down
+    // explicitly, and print it for reproduction.
+    let seed = *args.seed.get_or_insert(rand::random::<u64>());
+    eprintln!("seed: {}", seed);
 
     if let Some(batch_output) = &args.batch_output {
         batch_process(&args, batch_output)
@@ -66,16 +72,20 @@ fn batch_process(args: &Cli, output_dir: &str) -> anyhow::Result<()> {
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| {
-            matches!(
-                e.path().extension().and_then(|s| s.to_str()),
-                Some("png") | Some("webp")
-            )
+            e.path()
+                .extension()
+                .and_then(|s| s.to_str())
+                .map(|s| s.eq_ignore_ascii_case("png") || s.eq_ignore_ascii_case("webp"))
+                .unwrap_or(false)
         })
         .map(|e| e.path().to_path_buf())
         .collect();
 
     if png_files.is_empty() {
-        return Err(anyhow!("No PNG files found in {}", args.png_file));
+        return Err(anyhow!(
+            "No PNG or WebP files found in {}. Pass --batch-output to process a directory.",
+            args.png_file
+        ));
     }
 
     let pb = ProgressBar::new(png_files.len() as u64);
