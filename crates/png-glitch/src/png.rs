@@ -1,5 +1,6 @@
 use crate::operation::{Encode, Scan, Transpose};
 use crate::png::parser::Header;
+pub use crate::png::parser::Limits;
 use crate::png::parser::Parser;
 use crate::png::parser::Terminator;
 use crate::png::parser::{Chunk, ChunkType};
@@ -47,9 +48,12 @@ impl Png {
         }
     }
 
-    fn parse(buffer: &[u8]) -> Result<Png, PngError> {
-        let png = Parser::parse(buffer)?;
-        Ok(png)
+    pub(crate) fn parse(buffer: &[u8]) -> Result<Png, PngError> {
+        Parser::parse(buffer)
+    }
+
+    pub(crate) fn parse_with_limits(buffer: &[u8], limits: Limits) -> Result<Png, PngError> {
+        Parser::parse_with_limits(buffer, limits)
     }
 
     /// The method returns the width of the PNG image.
@@ -71,9 +75,9 @@ impl Png {
         scan_line_index * size
     }
 
-    fn scan_line_range(&self, scan_line_index: usize, lines: u32) -> Range<usize> {
+    fn scan_line_range(&self, scan_line_index: usize, lines: usize) -> Range<usize> {
         let start = self.index_of(scan_line_index);
-        let end = start + self.scan_line_width() * lines as usize;
+        let end = start + self.scan_line_width() * lines;
         start..end
     }
 
@@ -82,24 +86,29 @@ impl Png {
         self.remove_filter_from(0, self.height());
     }
 
-    /// The method removes filter from the scan lines in specified region
+    /// Reconstructs raw pixel bytes by removing PNG filters in `[from, from + lines)`,
+    /// clamping out-of-range regions to the image height.
     pub fn remove_filter_from(&mut self, from: u32, lines: u32) {
-        let end_index = from + lines;
+        let height = self.height() as usize;
+        let start_index = (from as usize).min(height);
+        let end_index = start_index.saturating_add(lines as usize).min(height);
         let scan_line_width = self.scan_line_width();
         let color_type = self.header.color_type();
         let bit_depth = self.header.bit_depth();
         let image_width = self.header.width();
-        
-        // This operation is inherently sequential because each line depends on the previous one.
-        for i in (from..end_index).rev() {
-            let current_start = i as usize * scan_line_width;
+
+        // Reconstructing row `i` requires row `i - 1` to already be unfiltered,
+        // so rows must be processed top-down (`start_index..end_index`).
+        for i in start_index..end_index {
+            let current_start = i * scan_line_width;
             let (prev_part, current_part) = self.data.split_at_mut(current_start);
             let current_line_data = &mut current_part[..scan_line_width];
-            
-            let mut current_line = ScanLine::new(current_line_data, color_type, bit_depth, image_width);
-            
+
+            let mut current_line =
+                ScanLine::new(current_line_data, color_type, bit_depth, image_width);
+
             if i > 0 {
-                let prev_start = (i as usize - 1) * scan_line_width;
+                let prev_start = (i - 1) * scan_line_width;
                 let prev_line_data = &mut prev_part[prev_start..prev_start + scan_line_width];
                 let prev_line = ScanLine::new(prev_line_data, color_type, bit_depth, image_width);
                 current_line.remove_filter(Some(&prev_line));
@@ -114,23 +123,29 @@ impl Png {
         self.apply_filter_from(filter, 0, self.height());
     }
 
-    /// The method applies a filter to scan lines in specified region
+    /// Applies `filter_type` to scan lines in `[from, from + lines)`,
+    /// clamping out-of-range regions to the image height.
     pub fn apply_filter_from(&mut self, filter_type: FilterType, from: u32, lines: u32) {
-        let end_index = from + lines;
+        let height = self.height() as usize;
+        let start_index = (from as usize).min(height);
+        let end_index = start_index.saturating_add(lines as usize).min(height);
         let scan_line_width = self.scan_line_width();
         let color_type = self.header.color_type();
         let bit_depth = self.header.bit_depth();
         let image_width = self.header.width();
 
-        for i in from..end_index {
-            let current_start = i as usize * scan_line_width;
+        // Filtering row `i` in place requires row `i - 1` to still hold its
+        // unfiltered bytes, so rows must be processed bottom-up (`rev()`).
+        for i in (start_index..end_index).rev() {
+            let current_start = i * scan_line_width;
             let (prev_part, current_part) = self.data.split_at_mut(current_start);
             let current_line_data = &mut current_part[..scan_line_width];
-            
-            let mut current_line = ScanLine::new(current_line_data, color_type, bit_depth, image_width);
-            
+
+            let mut current_line =
+                ScanLine::new(current_line_data, color_type, bit_depth, image_width);
+
             if i > 0 {
-                let prev_start = (i as usize - 1) * scan_line_width;
+                let prev_start = (i - 1) * scan_line_width;
                 let prev_line_data = &mut prev_part[prev_start..prev_start + scan_line_width];
                 let prev_line = ScanLine::new(prev_line_data, color_type, bit_depth, image_width);
                 current_line.apply_filter(filter_type, Some(&prev_line));
@@ -156,14 +171,18 @@ impl TryFrom<&[u8]> for Png {
 }
 impl Transpose for Png {
     fn transpose(&mut self, src: usize, dest: usize, lines: u32) {
-        let src_range = self.scan_line_range(src, lines);
-        let dest_range = self.scan_line_range(dest, lines);
+        let height = self.height() as usize;
+        if src >= height || dest >= height || src == dest || lines == 0 {
+            return;
+        }
+        let max_lines = (height - src).min(height - dest);
+        let actual_lines = (lines as usize).min(max_lines);
+        if actual_lines == 0 {
+            return;
+        }
 
-        assert_eq!(
-            src_range.len(),
-            dest_range.len(),
-            "Source and destination ranges must have the same length for transpose."
-        );
+        let src_range = self.scan_line_range(src, actual_lines);
+        let dest_range = self.scan_line_range(dest, actual_lines);
 
         let mut tmp = vec![0; src_range.len()];
         tmp.copy_from_slice(&self.data[src_range.clone()]);
@@ -212,21 +231,26 @@ impl Scan for Png {
         let color_type = self.header.color_type();
         let bit_depth = self.header.bit_depth();
         let image_width = self.header.width();
-        self.data.par_chunks_exact_mut(scan_line_width).for_each(|chunk| {
-            let mut scan_line = ScanLine::new(chunk, color_type, bit_depth, image_width);
-            modifier(&mut scan_line);
-        });
+        self.data
+            .par_chunks_exact_mut(scan_line_width)
+            .for_each(|chunk| {
+                let mut scan_line = ScanLine::new(chunk, color_type, bit_depth, image_width);
+                modifier(&mut scan_line);
+            });
     }
 
     fn scan_lines_from(&mut self, from: usize, lines: usize) -> Vec<ScanLine<'_>> {
+        let height = self.height() as usize;
+        let start_line = from.min(height);
+        let end_line = start_line.saturating_add(lines).min(height);
         let scan_line_width = self.scan_line_width();
         let color_type = self.header.color_type();
         let bit_depth = self.header.bit_depth();
         let image_width = self.header.width();
-        
-        let start = from * scan_line_width;
-        let end = (from + lines) * scan_line_width;
-        
+
+        let start = start_line * scan_line_width;
+        let end = end_line * scan_line_width;
+
         self.data[start..end]
             .chunks_exact_mut(scan_line_width)
             .map(|chunk| ScanLine::new(chunk, color_type, bit_depth, image_width))
@@ -289,17 +313,17 @@ mod test {
         let mut png = Png::parse(bytes)?;
         let original_data = png.data.clone();
         let height = png.height();
-        
+
         if height > 2 {
             png.transpose(0, 1, 1);
             // Verify that row 0 and row 1 are swapped
             let width = png.scan_line_width();
-            assert_eq!(png.data[0..width], original_data[width..2*width]);
-            assert_eq!(png.data[width..2*width], original_data[0..width]);
+            assert_eq!(png.data[0..width], original_data[width..2 * width]);
+            assert_eq!(png.data[width..2 * width], original_data[0..width]);
             // Verify the rest of the data is unchanged
-            assert_eq!(png.data[2*width..], original_data[2*width..]);
+            assert_eq!(png.data[2 * width..], original_data[2 * width..]);
         }
-        
+
         Ok(())
     }
 }

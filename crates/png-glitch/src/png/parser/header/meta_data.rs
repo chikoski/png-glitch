@@ -28,8 +28,10 @@ impl MetaData {
         }
     }
 
-    /// The method returns the number of bits per scanline.
-    pub fn bits_per_scanline(&self) -> usize {
-        self.color_type.bit_per_pixel(self.bit_depth) * (self.width as usize)
+    /// Returns the number of bits per scanline, or `None` if the multiplication overflows `usize`.
+    pub fn checked_bits_per_scanline(&self) -> Option<usize> {
+        self.color_type
+            .bit_per_pixel(self.bit_depth)
+            .checked_mul(self.width as usize)
     }
 }

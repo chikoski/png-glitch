@@ -4,7 +4,7 @@
 pub use crate::operation::Transpose;
 use crate::operation::{Encode, Scan};
 use crate::png::Png;
-pub use crate::png::{FilterType, Pixel, PngError, ScanLine};
+pub use crate::png::{ColorType, FilterType, Limits, Pixel, PngError, ScanLine};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -60,15 +60,28 @@ pub struct PngGlitch {
 impl PngGlitch {
     /// Creates a `PngGlitch` object to glitch the PNG image loaded from the given file path.
     pub fn open(path: impl AsRef<Path>) -> Result<PngGlitch, PngError> {
+        Self::open_with_limits(path, Limits::default())
+    }
+
+    /// Creates a `PngGlitch` object from a file path using custom resource [`Limits`].
+    pub fn open_with_limits(path: impl AsRef<Path>, limits: Limits) -> Result<PngGlitch, PngError> {
         let mut file = File::open(path)?;
         let mut buf = vec![];
         file.read_to_end(&mut buf)?;
-        PngGlitch::from_bytes(&buf)
+        PngGlitch::from_bytes_with_limits(&buf, limits)
     }
 
     /// Creates a `PngGlitch` object from any byte slice or buffer containing PNG data.
     pub fn from_bytes(bytes: impl AsRef<[u8]>) -> Result<PngGlitch, PngError> {
-        let png = Png::try_from(bytes.as_ref())?;
+        Self::from_bytes_with_limits(bytes, Limits::default())
+    }
+
+    /// Creates a `PngGlitch` object from a byte slice using custom resource [`Limits`].
+    pub fn from_bytes_with_limits(
+        bytes: impl AsRef<[u8]>,
+        limits: Limits,
+    ) -> Result<PngGlitch, PngError> {
+        let png = Png::parse_with_limits(bytes.as_ref(), limits)?;
         Ok(PngGlitch { png })
     }
 
@@ -82,7 +95,7 @@ impl PngGlitch {
         self.png.scan_lines()
     }
 
-    /// Takes the specified number of `ScanLine` objects starting from `from`.
+    /// Takes at most `lines` `ScanLine` objects starting from `from`, clamping to the image height.
     pub fn scan_lines_from(&mut self, from: u32, lines: u32) -> Vec<ScanLine<'_>> {
         self.png.scan_lines_from(from as usize, lines as usize)
     }
@@ -132,7 +145,17 @@ impl PngGlitch {
         self.png.height()
     }
 
-    /// Swaps `lines` scan lines starting from `src` with those at `dst`.
+    /// Returns the color type of the loaded PNG image.
+    pub fn color_type(&self) -> ColorType {
+        self.png.header.color_type()
+    }
+
+    /// Returns the bit depth of the loaded PNG image.
+    pub fn bit_depth(&self) -> u8 {
+        self.png.header.bit_depth()
+    }
+
+    /// Swaps `lines` scan lines starting from `src` with those at `dst`, clamping out-of-range regions.
     pub fn transpose(&mut self, src: u32, dst: u32, lines: u32) -> &mut Self {
         self.png.transpose(src as usize, dst as usize, lines);
         self
@@ -204,6 +227,74 @@ impl TryFrom<&[u8]> for PngGlitch {
 mod test {
     use super::*;
 
+    fn write_test_chunk(out: &mut Vec<u8>, chunk_type: &[u8; 4], data: &[u8]) {
+        out.extend_from_slice(&(data.len() as u32).to_be_bytes());
+        out.extend_from_slice(chunk_type);
+        out.extend_from_slice(data);
+        let mut hasher = crc32fast::Hasher::new();
+        hasher.update(chunk_type);
+        hasher.update(data);
+        out.extend_from_slice(&hasher.finalize().to_be_bytes());
+    }
+
+    fn build_synthetic_png(width: u32, height: u32, color_type: u8, bit_depth: u8) -> Vec<u8> {
+        let channels: usize = match color_type {
+            0 => 1,
+            2 => 3,
+            3 => 1,
+            4 => 2,
+            6 => 4,
+            _ => unreachable!(),
+        };
+        let bits_per_pixel = channels * (bit_depth as usize);
+        let row_bytes = (width as usize * bits_per_pixel).div_ceil(8);
+        let mut raw = Vec::with_capacity(height as usize * (1 + row_bytes));
+        for y in 0..(height as usize) {
+            raw.push(0); // FilterType::None
+            for x in 0..row_bytes {
+                // Clear unused padding bits in the last byte of sub-8-bit rows so independent decoders compare cleanly
+                let mut byte = ((y * 37 + x * 19 + 11) & 0xFF) as u8;
+                if bit_depth < 8 && x + 1 == row_bytes {
+                    let valid_bits = (width as usize * bits_per_pixel) % 8;
+                    if valid_bits != 0 {
+                        let mask = !((1u8 << (8 - valid_bits)) - 1);
+                        byte &= mask;
+                    }
+                }
+                raw.push(byte);
+            }
+        }
+
+        let mut png = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+        let mut ihdr = Vec::with_capacity(13);
+        ihdr.extend_from_slice(&width.to_be_bytes());
+        ihdr.extend_from_slice(&height.to_be_bytes());
+        ihdr.push(bit_depth);
+        ihdr.push(color_type);
+        ihdr.push(0);
+        ihdr.push(0);
+        ihdr.push(0);
+        write_test_chunk(&mut png, b"IHDR", &ihdr);
+
+        if color_type == 3 {
+            let entries = 1usize << bit_depth;
+            let mut plte = Vec::with_capacity(entries * 3);
+            for i in 0..entries {
+                plte.push(((i * 53) & 0xFF) as u8);
+                plte.push(((i * 97 + 40) & 0xFF) as u8);
+                plte.push(((i * 151 + 80) & 0xFF) as u8);
+            }
+            write_test_chunk(&mut png, b"PLTE", &plte);
+        }
+
+        let mut compressor = fdeflate::Compressor::new(Vec::new()).unwrap();
+        compressor.write_data(&raw).unwrap();
+        let idat = compressor.finish().unwrap();
+        write_test_chunk(&mut png, b"IDAT", &idat);
+        write_test_chunk(&mut png, b"IEND", &[]);
+        png
+    }
+
     #[test]
     fn test_change_filter_type() -> Result<(), PngError> {
         let bytes = include_bytes!("../etc/sample00.png");
@@ -212,44 +303,111 @@ mod test {
         let mut png_raw = PngGlitch::from_bytes(bytes)?;
         png_raw.remove_filter();
 
-        // 2. Test Subject
+        // 2. Test Subject: cycle through all 5 filter types and back to None
         let mut png_glitch = PngGlitch::try_from(bytes as &[u8])?;
-
-        // Change to Sub
-        png_glitch.reencode_with(FilterType::Sub);
-
-        for scan_line in png_glitch.scan_lines() {
-            assert_eq!(FilterType::Sub, scan_line.filter_type());
-        }
-
-        // Change back to None
-        png_glitch.change_filter_type(FilterType::None);
-        for scan_line in png_glitch.scan_lines() {
-            assert_eq!(FilterType::None, scan_line.filter_type());
-        }
-
-        // Compare with Baseline (png_raw)
-        let raw_lines = png_raw.scan_lines();
-        let glitched_lines = png_glitch.scan_lines();
-
-        assert_eq!(glitched_lines.len(), raw_lines.len());
-
-        for (g_line, r_line) in glitched_lines.iter().zip(raw_lines.iter()) {
-            let g_size = g_line.size();
-            let r_size = r_line.size();
-            assert_eq!(g_size, r_size);
-
-            for i in 0..g_size {
-                assert_eq!(
-                    g_line.index(i),
-                    r_line.index(i),
-                    "Pixel mismatch at index {}",
-                    i
-                );
+        for filter in [
+            FilterType::Sub,
+            FilterType::Up,
+            FilterType::Average,
+            FilterType::Paeth,
+            FilterType::None,
+        ] {
+            png_glitch.reencode_with(filter);
+            for scan_line in png_glitch.scan_lines() {
+                assert_eq!(filter, scan_line.filter_type());
             }
         }
 
+        // Compare with Baseline (png_raw)
+        assert_eq!(png_glitch.data(), png_raw.data());
         Ok(())
+    }
+
+    #[test]
+    fn test_roundtrip_filter_reencoding_across_color_types_bit_depths_and_odd_widths() {
+        let formats: &[(u8, &[u8])] = &[
+            (0, &[1, 2, 4, 8, 16]),
+            (2, &[8, 16]),
+            (3, &[1, 2, 4, 8]),
+            (4, &[8, 16]),
+            (6, &[8, 16]),
+        ];
+        let filter_types = [
+            FilterType::None,
+            FilterType::Sub,
+            FilterType::Up,
+            FilterType::Average,
+            FilterType::Paeth,
+        ];
+
+        for &(color_type, depths) in formats {
+            for &bit_depth in depths {
+                // Test non-byte-aligned and odd widths (1..=9 and 17)
+                for width in [1u32, 2, 3, 4, 5, 6, 7, 8, 9, 17] {
+                    let height = 5u32;
+                    let src_bytes = build_synthetic_png(width, height, color_type, bit_depth);
+                    let expected_img = image::load_from_memory_with_format(
+                        &src_bytes,
+                        image::ImageFormat::Png,
+                    )
+                    .expect("synthetic PNG should decode with `image` crate")
+                    .into_rgba8();
+
+                    let mut png = PngGlitch::from_bytes(&src_bytes).unwrap();
+                    let unfiltered_raw = png.data().to_vec();
+
+                    // 1. Round-trip every filter type and verify decoded pixels match the original
+                    for &ft in &filter_types {
+                        png.reencode_with(ft);
+                        let encoded = png.to_bytes().unwrap();
+                        let decoded_img = image::load_from_memory_with_format(
+                            &encoded,
+                            image::ImageFormat::Png,
+                        )
+                        .unwrap_or_else(|e| {
+                            panic!(
+                                "re-encoded PNG (color_type={color_type}, bit_depth={bit_depth}, width={width}, filter={ft:?}) failed to decode: {e}"
+                            )
+                        })
+                        .into_rgba8();
+                        assert_eq!(
+                            decoded_img, expected_img,
+                            "pixel mismatch after re-encoding with {ft:?} (color_type={color_type}, bit_depth={bit_depth}, width={width})"
+                        );
+                    }
+
+                    // 2. Removing filter brings back the exact raw scanline bytes
+                    png.remove_filter();
+                    assert_eq!(png.data(), unfiltered_raw.as_slice());
+
+                    // 3. Double Invert restores original pixels
+                    png.apply(presets::Invert);
+                    png.apply(presets::Invert);
+                    assert_eq!(png.data(), unfiltered_raw.as_slice());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_range_apis_clamp_and_never_panic_on_out_of_bounds_or_overflow() {
+        let bytes = build_synthetic_png(8, 6, 2, 8);
+        let mut png = PngGlitch::from_bytes(&bytes).unwrap();
+        let h = png.height();
+
+        // Out-of-bounds and overflowing ranges must clamp cleanly without panicking
+        png.transpose(0, h - 1, 5);
+        png.transpose(h + 10, 0, 1);
+        png.transpose(0, 0, u32::MAX);
+
+        assert!(png.scan_lines_from(h, 10).is_empty());
+        assert_eq!(png.scan_lines_from(h - 2, 10).len(), 2);
+        assert_eq!(png.scan_lines_from(0, u32::MAX).len(), h as usize);
+
+        png.remove_filter_from(h - 1, 5);
+        png.remove_filter_from(h + 5, u32::MAX);
+        png.apply_filter_from(FilterType::Up, 0, u32::MAX);
+        png.apply_filter_from(FilterType::Paeth, u32::MAX, 2);
     }
 
     #[test]

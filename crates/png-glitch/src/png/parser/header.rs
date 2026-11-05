@@ -9,6 +9,9 @@ use meta_data::MetaData;
 mod color_type;
 mod meta_data;
 
+/// Maximum valid PNG dimension (`2^31 - 1` per PNG specification §11.2.2).
+const MAX_PNG_DIMENSION: u32 = 0x7FFF_FFFF;
+
 /// A struct representing the IHDR chunk of a PNG file.
 pub struct Header {
     #[doc(hidden)]
@@ -18,10 +21,24 @@ pub struct Header {
 }
 
 impl Header {
-    fn new(width: u32, height: u32, bit_depth: u8, color_type: ColorType, inner: Chunk) -> Header {
+    fn new(
+        width: u32,
+        height: u32,
+        bit_depth: u8,
+        color_type: ColorType,
+        inner: Chunk,
+    ) -> Result<Header, PngError> {
         let metadata = MetaData::new(width, height, color_type, bit_depth);
-        let scanline_width = metadata.bits_per_scanline() / 8 + 1;
-        Header { inner, metadata, scanline_width }
+        let scanline_width = metadata
+            .checked_bits_per_scanline()
+            .map(|bits| bits.div_ceil(8))
+            .and_then(|bytes| bytes.checked_add(1))
+            .ok_or(PngError::ImageTooLarge { width, height })?;
+        Ok(Header {
+            inner,
+            metadata,
+            scanline_width,
+        })
     }
 
     /// The method returns the width of the PNG image.
@@ -34,7 +51,7 @@ impl Header {
         self.metadata.height
     }
 
-    /// The method returns the width of a scan line in bytes.
+    /// The method returns the width of a scan line in bytes (including the 1-byte filter tag).
     pub fn scan_line_width(&self) -> usize {
         self.scanline_width
     }
@@ -103,17 +120,29 @@ impl TryFrom<Chunk> for Header {
         if chunk.data.len() < 13 {
             return Err(PngError::TooShortInput);
         }
+        if chunk.data.len() != 13 {
+            return Err(PngError::InvalidHeaderLength(chunk.data.len()));
+        }
         Header::parse_compression_method(&chunk)?;
         Header::parse_filter_method(&chunk)?;
         Header::parse_interlace_method(&chunk)?;
-        let header = Header::new(
-            Header::parse_width(&chunk),
-            Header::parse_height(&chunk),
-            Header::parse_bit_depth(&chunk),
-            Header::parse_color_type(&chunk)?,
-            chunk,
-        );
-        Ok(header)
+
+        let width = Header::parse_width(&chunk);
+        let height = Header::parse_height(&chunk);
+        if width == 0 || height == 0 || width > MAX_PNG_DIMENSION || height > MAX_PNG_DIMENSION {
+            return Err(PngError::InvalidDimensions { width, height });
+        }
+
+        let color_type = Header::parse_color_type(&chunk)?;
+        let bit_depth = Header::parse_bit_depth(&chunk);
+        if !color_type.is_valid_bit_depth(bit_depth) {
+            return Err(PngError::InvalidBitDepth {
+                color_type: color_type.code(),
+                bit_depth,
+            });
+        }
+
+        Header::new(width, height, bit_depth, color_type, chunk)
     }
 }
 
@@ -125,7 +154,12 @@ impl Encode for Header {
 
 impl Debug for Header {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}, scanline width = {}", self.metadata, self.scan_line_width())
+        write!(
+            f,
+            "{:?}, scanline width = {}",
+            self.metadata,
+            self.scan_line_width()
+        )
     }
 }
 
@@ -133,36 +167,105 @@ impl Debug for Header {
 mod test {
     use super::*;
 
+    fn valid_ihdr_bytes() -> Vec<u8> {
+        let mut data = vec![0; 13];
+        data[3] = 4; // width = 4
+        data[7] = 4; // height = 4
+        data[8] = 8; // bit_depth = 8
+        data[9] = 2; // color_type = TrueColor
+        data
+    }
+
     #[test]
     fn test_unsupported_interlacing() {
-        let mut data = vec![0; 13];
+        let mut data = valid_ihdr_bytes();
         data[12] = 1; // Interlace method 1 (Adam7)
         let chunk = Chunk::new(ChunkType::Start, data, [0; 4]);
         let result = Header::try_from(chunk);
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.to_string().contains("Interlaced PNG is not supported"));
+        assert!(matches!(result, Err(PngError::UnsupportedInterlacing)));
     }
 
     #[test]
     fn test_unsupported_compression() {
-        let mut data = vec![0; 13];
+        let mut data = valid_ihdr_bytes();
         data[10] = 1; // Unsupported compression method
         let chunk = Chunk::new(ChunkType::Start, data, [0; 4]);
         let result = Header::try_from(chunk);
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.to_string().contains("Unsupported compression method"));
+        assert!(matches!(
+            result,
+            Err(PngError::UnsupportedCompressionMethod)
+        ));
     }
 
     #[test]
     fn test_unsupported_filter() {
-        let mut data = vec![0; 13];
+        let mut data = valid_ihdr_bytes();
         data[11] = 1; // Unsupported filter method
         let chunk = Chunk::new(ChunkType::Start, data, [0; 4]);
         let result = Header::try_from(chunk);
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.to_string().contains("Unsupported filter method"));
+        assert!(matches!(result, Err(PngError::UnsupportedFilterMethod)));
+    }
+
+    #[test]
+    fn test_invalid_dimensions_and_bit_depth() {
+        // Zero width
+        let mut data = valid_ihdr_bytes();
+        data[3] = 0;
+        let chunk = Chunk::new(ChunkType::Start, data, [0; 4]);
+        assert!(matches!(
+            Header::try_from(chunk),
+            Err(PngError::InvalidDimensions {
+                width: 0,
+                height: 4
+            })
+        ));
+
+        // Bit depth 0
+        let mut data = valid_ihdr_bytes();
+        data[8] = 0;
+        let chunk = Chunk::new(ChunkType::Start, data, [0; 4]);
+        assert!(matches!(
+            Header::try_from(chunk),
+            Err(PngError::InvalidBitDepth {
+                color_type: 2,
+                bit_depth: 0
+            })
+        ));
+
+        // Bit depth 255 on TrueColor (previously overflowed u8 in bit_per_pixel)
+        let mut data = valid_ihdr_bytes();
+        data[8] = 255;
+        let chunk = Chunk::new(ChunkType::Start, data, [0; 4]);
+        assert!(matches!(
+            Header::try_from(chunk),
+            Err(PngError::InvalidBitDepth {
+                color_type: 2,
+                bit_depth: 255
+            })
+        ));
+
+        // Bit depth 1 on TrueColor (disallowed by PNG spec)
+        let mut data = valid_ihdr_bytes();
+        data[8] = 1;
+        let chunk = Chunk::new(ChunkType::Start, data, [0; 4]);
+        assert!(matches!(
+            Header::try_from(chunk),
+            Err(PngError::InvalidBitDepth {
+                color_type: 2,
+                bit_depth: 1
+            })
+        ));
+    }
+
+    #[test]
+    fn test_non_byte_aligned_stride_uses_div_ceil() {
+        // 3 pixels wide, 1-bit Grayscale -> ceil(3 * 1 / 8) + 1 = 1 + 1 = 2 bytes per scanline
+        let mut data = valid_ihdr_bytes();
+        data[3] = 3; // width = 3
+        data[8] = 1; // bit_depth = 1
+        data[9] = 0; // GrayScale
+        let chunk = Chunk::new(ChunkType::Start, data, [0; 4]);
+        let header = Header::try_from(chunk).expect("valid 3px 1-bit grayscale IHDR");
+        assert_eq!(header.scan_line_width(), 2);
     }
 }

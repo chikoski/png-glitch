@@ -49,19 +49,22 @@ impl<'a> ScanLine<'a> {
 
     /// The method returns the number of bytes per pixel.
     pub fn bytes_per_pixel(&self) -> usize {
-        let bits = self.bit_depth;
+        let bits = self.bit_depth as usize;
 
         match self.color_type {
-            ColorType::GrayScale => std::cmp::max(bits / 8, 1) as usize,
-            ColorType::GrayScaleAlpha => std::cmp::max(bits * 2 / 8, 1) as usize,
-            ColorType::TrueColor => std::cmp::max(bits * 3 / 8, 1) as usize,
-            ColorType::TrueColorAlpha => std::cmp::max(bits * 4 / 8, 1) as usize,
-            ColorType::IndexColor => std::cmp::max(bits / 8, 1) as usize,
+            ColorType::GrayScale => std::cmp::max(bits / 8, 1),
+            ColorType::GrayScaleAlpha => std::cmp::max(bits * 2 / 8, 1),
+            ColorType::TrueColor => std::cmp::max(bits * 3 / 8, 1),
+            ColorType::TrueColorAlpha => std::cmp::max(bits * 4 / 8, 1),
+            ColorType::IndexColor => std::cmp::max(bits / 8, 1),
         }
     }
 
     /// The method returns a pixel at the specified index.
     pub fn get_pixel(&self, x: usize) -> Option<Pixel> {
+        if x >= self.width as usize || self.bit_depth == 0 {
+            return None;
+        }
         if self.bit_depth < 8 {
             let pixels_per_byte = 8 / self.bit_depth as usize;
             let byte_offset = self.pixel_data_offset() + x / pixels_per_byte;
@@ -115,6 +118,9 @@ impl<'a> ScanLine<'a> {
 
     /// The method sets a pixel at the specified index.
     pub fn set_pixel(&mut self, x: usize, pixel: Pixel) {
+        if x >= self.width as usize || self.bit_depth == 0 {
+            return;
+        }
         if self.bit_depth < 8 {
             let pixels_per_byte = 8 / self.bit_depth as usize;
             let byte_offset = self.pixel_data_offset() + x / pixels_per_byte;
@@ -215,17 +221,23 @@ impl<'a> ScanLine<'a> {
 
     /// This method returns the filter method applied to the scan line.
     pub fn filter_type(&self) -> FilterType {
-        FilterType::try_from(self.data[0]).unwrap_or(FilterType::None)
+        self.data
+            .first()
+            .copied()
+            .and_then(|b| FilterType::try_from(b).ok())
+            .unwrap_or(FilterType::None)
     }
 
     /// This method updates the filter method of the scan line with the specified one.
     pub fn set_filter_type(&mut self, filter_type: FilterType) {
-        self.data[0] = filter_type.into();
+        if let Some(first) = self.data.first_mut() {
+            *first = filter_type.into();
+        }
     }
 
     /// This method returns the byte size of the scan line.
     pub fn size(&self) -> usize {
-        self.data.len() - 1
+        self.data.len().saturating_sub(1)
     }
 
     /// This method returns the color type of the scan line.
@@ -265,6 +277,9 @@ impl<'a> ScanLine<'a> {
     where
         F: FnMut(usize, Pixel) -> Pixel,
     {
+        if self.bit_depth == 0 {
+            return;
+        }
         let width = self.width as usize;
         let color_type = self.color_type;
         let bit_depth = self.bit_depth;
@@ -276,7 +291,9 @@ impl<'a> ScanLine<'a> {
 
             for x in 0..width {
                 let byte_offset = offset + x / pixels_per_byte;
-                let byte = self.data[byte_offset];
+                let Some(&byte) = self.data.get(byte_offset) else {
+                    break;
+                };
                 let shift = (pixels_per_byte - 1 - (x % pixels_per_byte)) * bit_depth as usize;
                 let value = (byte >> shift) & mask;
 
@@ -304,7 +321,9 @@ impl<'a> ScanLine<'a> {
         let bpp = self.bytes_per_pixel();
         for x in 0..width {
             let pixel_offset = offset + x * bpp;
-            let slice = &self.data[pixel_offset..pixel_offset + bpp];
+            let Some(slice) = self.data.get(pixel_offset..pixel_offset + bpp) else {
+                break;
+            };
 
             let pixel = match (color_type, bit_depth) {
                 (ColorType::GrayScale, 8) => Pixel::Gray(slice[0] as u16),

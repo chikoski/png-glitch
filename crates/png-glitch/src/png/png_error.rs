@@ -28,9 +28,36 @@ pub enum PngError {
     /// An invalid chunk type is found.
     #[error("Invalid chunk type.")]
     InvalidChunkType(Chunk),
+    /// An invalid IHDR chunk payload length is found (must be 13 bytes).
+    #[error("Invalid IHDR chunk length: expected 13 bytes, got {0}.")]
+    InvalidHeaderLength(usize),
+    /// Invalid image dimensions (width or height is 0 or exceeds `0x7FFF_FFFF`).
+    #[error("Invalid image dimensions: {width}x{height}.")]
+    InvalidDimensions {
+        /// Width from IHDR.
+        width: u32,
+        /// Height from IHDR.
+        height: u32,
+    },
     /// An invalid color type is found.
     #[error("Invalid color type.")]
     InvalidColorType,
+    /// An invalid bit depth or unsupported `(color_type, bit_depth)` combination is found.
+    #[error("Invalid bit depth {bit_depth} for color type {color_type}.")]
+    InvalidBitDepth {
+        /// Raw color type value or discriminant.
+        color_type: u8,
+        /// Bit depth value from IHDR.
+        bit_depth: u8,
+    },
+    /// Image dimensions exceed the configured memory or pixel limit.
+    #[error("Image dimensions {width}x{height} exceed decode limits.")]
+    ImageTooLarge {
+        /// Width from IHDR.
+        width: u32,
+        /// Height from IHDR.
+        height: u32,
+    },
     /// An invalid filter type is found.
     #[error("Invalid filter type.")]
     InvalidFilterType,
@@ -75,6 +102,22 @@ mod tests {
         assert_eq!(PngError::DuplicateIHDRFound.to_string(), "Another IHDR chunk found.");
         assert_eq!(PngError::DuplicateIENDFound.to_string(), "Another IEND chunk found.");
         assert_eq!(PngError::InvalidColorType.to_string(), "Invalid color type.");
+        assert_eq!(
+            PngError::InvalidBitDepth {
+                color_type: 2,
+                bit_depth: 1
+            }
+            .to_string(),
+            "Invalid bit depth 1 for color type 2."
+        );
+        assert_eq!(
+            PngError::InvalidDimensions {
+                width: 0,
+                height: 10
+            }
+            .to_string(),
+            "Invalid image dimensions: 0x10."
+        );
         assert_eq!(PngError::InvalidFilterType.to_string(), "Invalid filter type.");
         assert_eq!(PngError::DeflateFailure.to_string(), "Failed to deflate data.");
         assert_eq!(
@@ -86,4 +129,3 @@ mod tests {
         assert_eq!(PngError::UnsupportedFilterMethod.to_string(), "Unsupported filter method.");
     }
 }
-
