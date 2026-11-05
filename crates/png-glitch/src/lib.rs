@@ -24,12 +24,11 @@ pub mod presets;
 ///
 /// The following snippet shows how you can glitch "./etc/sample00.png" using a mix of presets and low-level manipulation.
 ///
-/// ```
-/// # use std::env;
-/// # env::set_current_dir(env::var("CARGO_MANIFEST_DIR").unwrap_or(".".to_string())).expect("");
-///
+/// ```no_run
 /// use png_glitch::{FilterType, PngGlitch, Pixel};
 /// use png_glitch::presets::{Invert, Brighten};
+///
+/// let out = std::env::temp_dir().join("glitched.png");
 ///
 /// PngGlitch::open("./etc/sample00.png")
 ///   .expect("The PNG file should be successfully parsed")
@@ -42,7 +41,7 @@ pub mod presets;
 ///         scan_line.set_pixel(10, Pixel::RGB(r, 0, b));
 ///     }
 ///   })
-///   .save("./glitched.png")
+///   .save(&out)
 ///   .expect("The glitched file should be saved as a PNG file");
 /// ```
 ///
