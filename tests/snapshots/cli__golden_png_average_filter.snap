@@ -1,0 +1,5 @@
+---
+source: tests/cli.rs
+expression: "golden_hash(\"small.png\", \"average-filter\")"
+---
+1be9e0127fc887e4040e1904a11dff58b4b7bda186fd28eb8b634ff23e0249b4

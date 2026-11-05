@@ -1,0 +1,5 @@
+---
+source: tests/cli.rs
+expression: "golden_hash(\"small.png\", \"pixel-sort:magnitude=0.5,criterion=hue\")"
+---
+0f65c8dae716e948da3ab7dab8908c2623e4afd61067b0d2a1b52e5819fde5cf

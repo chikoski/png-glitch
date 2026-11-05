@@ -1,0 +1,5 @@
+---
+source: tests/cli.rs
+expression: "golden_hash(\"small.png\", \"paeth-filter\")"
+---
+c1bba29c483e4e795e860650a512ca31dc6b8974480f1a757da3fffb3a7f820b

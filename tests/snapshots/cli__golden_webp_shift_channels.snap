@@ -1,0 +1,5 @@
+---
+source: tests/cli.rs
+expression: "golden_hash(\"small.webp\", \"shift-channels=15,0,-15\")"
+---
+8c116ad4be52dad97bbdf70e5f43970f8c3bb2ee43d8356d584561c12a6c66bb
