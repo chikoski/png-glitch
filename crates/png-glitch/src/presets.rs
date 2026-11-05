@@ -7,8 +7,15 @@ pub trait GlitchPreset {
 }
 
 /// A preset that inverts the colors of each pixel.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Invert;
+
+impl Invert {
+    /// Creates a new [`Invert`] preset.
+    pub fn new() -> Self {
+        Self
+    }
+}
 
 impl GlitchPreset for Invert {
     fn apply_to_line(&self, line: &mut ScanLine) {
@@ -25,11 +32,18 @@ impl GlitchPreset for Invert {
 }
 
 /// A preset that shifts the color channels of each pixel.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ShiftChannels {
     pub r: i16,
     pub g: i16,
     pub b: i16,
+}
+
+impl ShiftChannels {
+    /// Creates a new [`ShiftChannels`] preset with the given channel offsets.
+    pub fn new(r: i16, g: i16, b: i16) -> Self {
+        Self { r, g, b }
+    }
 }
 
 impl GlitchPreset for ShiftChannels {
@@ -57,9 +71,22 @@ impl GlitchPreset for ShiftChannels {
 }
 
 /// A preset that increases the brightness of each pixel (saturating at the bit-depth maximum).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Brighten {
     pub strength: u16,
+}
+
+impl Default for Brighten {
+    fn default() -> Self {
+        Self { strength: 20 }
+    }
+}
+
+impl Brighten {
+    /// Creates a new [`Brighten`] preset with the given strength.
+    pub fn new(strength: u16) -> Self {
+        Self { strength }
+    }
 }
 
 impl GlitchPreset for Brighten {
@@ -82,9 +109,22 @@ impl GlitchPreset for Brighten {
 }
 
 /// A preset that decreases the brightness of each pixel (saturating at 0).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Darken {
     pub strength: u16,
+}
+
+impl Default for Darken {
+    fn default() -> Self {
+        Self { strength: 20 }
+    }
+}
+
+impl Darken {
+    /// Creates a new [`Darken`] preset with the given strength.
+    pub fn new(strength: u16) -> Self {
+        Self { strength }
+    }
 }
 
 impl GlitchPreset for Darken {
