@@ -538,7 +538,7 @@ fn apply_steps(
             OrderedStep::Config(config_path) => {
                 let file = File::open(config_path)
                     .with_context(|| format!("failed to open config file '{config_path}'"))?;
-                let config: ConfigFile = serde_yml::from_reader(file)
+                let config: ConfigFile = serde_yaml_ng::from_reader(file)
                     .with_context(|| format!("failed to parse config file '{config_path}'"))?;
                 for filter in config.filters {
                     context.add_from_config(filter)?;
@@ -624,7 +624,7 @@ filters:
     magnitude: 0.1
     blocksize: 64
 "#;
-        let res: Result<ConfigFile, _> = serde_yml::from_str(bad_yaml);
+        let res: Result<ConfigFile, _> = serde_yaml_ng::from_str(bad_yaml);
         assert!(res.is_err(), "unknown field `blocksize` must be rejected");
 
         let bad_mag_yaml = r#"
@@ -632,7 +632,7 @@ filters:
   - type: Replace
     magnitude: 1.5
 "#;
-        let res_mag: Result<ConfigFile, _> = serde_yml::from_str(bad_mag_yaml);
+        let res_mag: Result<ConfigFile, _> = serde_yaml_ng::from_str(bad_mag_yaml);
         assert!(
             res_mag.is_err(),
             "out-of-range magnitude in YAML must be rejected"
@@ -913,7 +913,7 @@ filters:
     r_offset: 3
     b_offset: -3
 "#;
-        let cfg: ConfigFile = serde_yml::from_str(yaml).expect("kebab and PascalCase YAML should parse");
+        let cfg: ConfigFile = serde_yaml_ng::from_str(yaml).expect("kebab and PascalCase YAML should parse");
         assert_eq!(cfg.filters.len(), 3);
     }
 
