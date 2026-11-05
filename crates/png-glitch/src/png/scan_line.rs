@@ -195,6 +195,7 @@ impl<'a> ScanLine<'a> {
         self.set_filter_type(filter_type);
     }
 
+    /// Reconstructs raw pixel bytes by removing the PNG prediction filter from this scan line.
     pub fn remove_filter(&mut self, previous_line: Option<&ScanLine>) {
         filter::remove(self, previous_line);
         self.set_filter_type(FilterType::None);

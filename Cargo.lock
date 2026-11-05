@@ -467,10 +467,15 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "crc32fast",
+ "fdeflate",
+ "image",
  "png-glitch",
  "rand",
  "rand_chacha",
  "serde",
+ "serde_yml",
+ "webp",
  "webp-glitch",
 ]
 

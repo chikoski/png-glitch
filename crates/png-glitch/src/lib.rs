@@ -1,3 +1,6 @@
+//! Low-level library for parsing, manipulating, and re-encoding PNG scanlines to create glitch art.
+#![warn(missing_docs)]
+
 pub use crate::operation::Transpose;
 use crate::operation::{Encode, Scan};
 use crate::png::Png;
@@ -8,6 +11,7 @@ use std::path::Path;
 
 mod operation;
 mod png;
+/// Reusable scanline glitch presets (`Invert`, `Brighten`, `Darken`, `ShiftChannels`).
 pub mod presets;
 
 /// PngGlitch is a crate to create a glitched PNG image.
