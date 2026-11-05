@@ -1633,7 +1633,7 @@ impl GlitchFilter for ChromaticAberration {
 
                 scan_line.process_pixels(|x, p| {
                     let get_val = |chan: &Vec<u16>, offset: i32| {
-                        let nx = (x as i32 + offset).rem_euclid(width as i32) as usize;
+                        let nx = (x as i64 + i64::from(offset)).rem_euclid(width as i64) as usize;
                         chan[nx]
                     };
 
@@ -2213,7 +2213,7 @@ impl WebpGlitchFilter for ChromaticAberration {
                     }
                 }
                 let get = |ch: &Vec<u8>, off: i32, x: usize| {
-                    let nx = (x as i32 + off).rem_euclid(width as i32) as usize;
+                    let nx = (x as i64 + i64::from(off)).rem_euclid(width as i64) as usize;
                     ch[nx]
                 };
                 line.process_pixels(|x, p| {
@@ -2753,6 +2753,34 @@ mod test {
         ctx.execute();
         let after_second = ctx.buffer()?;
         assert_eq!(after_first, after_second);
+        Ok(())
+    }
+
+    /// Regression (found by `fuzz/glitch_context_pipeline`): extreme offsets
+    /// overflowed `x as i32 + offset` and panicked in debug builds.
+    #[test]
+    fn test_chromatic_aberration_extreme_offsets_do_not_overflow() -> Result<()> {
+        let config = || FilterConfig::ChromaticAberration {
+            magnitude: 1.0,
+            r_offset: Some(i32::MAX),
+            g_offset: Some(0),
+            b_offset: Some(i32::MIN),
+        };
+
+        let png = include_bytes!("../../png-glitch/etc/sample00.png");
+        let mut ctx = AnyGlitchContext::from_bytes(png, Some(7))?;
+        ctx.add_from_config(config())?;
+        ctx.execute();
+        ctx.buffer()?;
+
+        #[cfg(feature = "webp")]
+        {
+            let webp = include_bytes!("../../webp-glitch/etc/sample00.webp");
+            let mut ctx = AnyGlitchContext::from_bytes(webp, Some(7))?;
+            ctx.add_from_config(config())?;
+            ctx.execute();
+            ctx.buffer()?;
+        }
         Ok(())
     }
 

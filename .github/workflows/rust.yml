@@ -26,3 +26,17 @@ jobs:
       run: cargo test --workspace --doc --verbose
     - name: Check documentation
       run: cargo doc --workspace --no-deps
+
+  fuzz-build:
+    name: Build fuzz targets
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@nightly
+    - uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-fuzz
+    - name: Build fuzz targets
+      working-directory: fuzz
+      run: cargo +nightly fuzz build
