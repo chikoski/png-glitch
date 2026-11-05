@@ -4,7 +4,9 @@
 pub use crate::operation::Transpose;
 use crate::operation::{Encode, Scan};
 use crate::png::Png;
-pub use crate::png::{ColorType, FilterType, Limits, Pixel, PngError, ScanLine};
+pub use crate::png::{
+    ColorType, FilterType, Limits, ParseOptions, Pixel, PngError, PngWarning, ScanLine,
+};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -60,20 +62,28 @@ pub struct PngGlitch {
 impl PngGlitch {
     /// Creates a `PngGlitch` object to glitch the PNG image loaded from the given file path.
     pub fn open(path: impl AsRef<Path>) -> Result<PngGlitch, PngError> {
-        Self::open_with_limits(path, Limits::default())
+        Self::open_with_options(path, ParseOptions::default())
     }
 
     /// Creates a `PngGlitch` object from a file path using custom resource [`Limits`].
     pub fn open_with_limits(path: impl AsRef<Path>, limits: Limits) -> Result<PngGlitch, PngError> {
+        Self::open_with_options(path, ParseOptions::default().with_limits(limits))
+    }
+
+    /// Creates a `PngGlitch` object from a file path using custom [`ParseOptions`].
+    pub fn open_with_options(
+        path: impl AsRef<Path>,
+        options: ParseOptions,
+    ) -> Result<PngGlitch, PngError> {
         let mut file = File::open(path)?;
         let mut buf = vec![];
         file.read_to_end(&mut buf)?;
-        PngGlitch::from_bytes_with_limits(&buf, limits)
+        PngGlitch::from_bytes_with_options(&buf, options)
     }
 
     /// Creates a `PngGlitch` object from any byte slice or buffer containing PNG data.
     pub fn from_bytes(bytes: impl AsRef<[u8]>) -> Result<PngGlitch, PngError> {
-        Self::from_bytes_with_limits(bytes, Limits::default())
+        Self::from_bytes_with_options(bytes, ParseOptions::default())
     }
 
     /// Creates a `PngGlitch` object from a byte slice using custom resource [`Limits`].
@@ -81,13 +91,26 @@ impl PngGlitch {
         bytes: impl AsRef<[u8]>,
         limits: Limits,
     ) -> Result<PngGlitch, PngError> {
-        let png = Png::parse_with_limits(bytes.as_ref(), limits)?;
+        Self::from_bytes_with_options(bytes, ParseOptions::default().with_limits(limits))
+    }
+
+    /// Creates a `PngGlitch` object from a byte slice using custom [`ParseOptions`].
+    pub fn from_bytes_with_options(
+        bytes: impl AsRef<[u8]>,
+        options: ParseOptions,
+    ) -> Result<PngGlitch, PngError> {
+        let png = Png::parse_with_options(bytes.as_ref(), options)?;
         Ok(PngGlitch { png })
     }
 
     /// Creates a `PngGlitch` object from a byte buffer (`Vec<u8>` or `&[u8]`).
     pub fn new(buffer: impl AsRef<[u8]>) -> Result<PngGlitch, PngError> {
         Self::from_bytes(buffer)
+    }
+
+    /// Returns any non-fatal PNG integrity warnings recorded when parsing in lenient mode.
+    pub fn warnings(&self) -> &[PngWarning] {
+        self.png.warnings()
     }
 
     /// Returns a list of scan lines in the loaded PNG image.
@@ -435,5 +458,120 @@ mod test {
             Ok(_) => panic!("expected PngError::InvalidSignature"),
         };
         assert!(matches!(err, PngError::InvalidSignature));
+    }
+
+    #[test]
+    fn test_chunk_order_preserved_before_and_after_idat() {
+        let raw = vec![0u8, 10, 20, 30]; // 1x1 RGB
+        let mut compressor = fdeflate::Compressor::new(Vec::new()).unwrap();
+        compressor.write_data(&raw).unwrap();
+        let idat = compressor.finish().unwrap();
+
+        let mut png = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+        let mut ihdr = Vec::with_capacity(13);
+        ihdr.extend_from_slice(&1u32.to_be_bytes());
+        ihdr.extend_from_slice(&1u32.to_be_bytes());
+        ihdr.extend_from_slice(&[8, 2, 0, 0, 0]);
+        write_test_chunk(&mut png, b"IHDR", &ihdr);
+        write_test_chunk(&mut png, b"gAMA", &[0, 0, 0xB1, 0x8F]);
+        write_test_chunk(&mut png, b"tEXt", b"Comment\0before-idat");
+        write_test_chunk(&mut png, b"IDAT", &idat);
+        write_test_chunk(&mut png, b"tEXt", b"Comment\0after-idat");
+        write_test_chunk(&mut png, b"IEND", &[]);
+
+        let pg = PngGlitch::from_bytes(&png).unwrap();
+        let encoded = pg.to_bytes().unwrap();
+
+        // Collect chunk order from the re-encoded PNG
+        let mut pos = 8usize;
+        let mut seen = Vec::new();
+        while pos + 12 <= encoded.len() {
+            let len = u32::from_be_bytes(encoded[pos..pos + 4].try_into().unwrap()) as usize;
+            let tag = std::str::from_utf8(&encoded[pos + 4..pos + 8])
+                .unwrap()
+                .to_string();
+            let payload = &encoded[pos + 8..pos + 8 + len];
+            seen.push((tag, payload.to_vec()));
+            pos += 12 + len;
+        }
+
+        let tags: Vec<&str> = seen.iter().map(|(t, _)| t.as_str()).collect();
+        assert_eq!(tags, vec!["IHDR", "gAMA", "tEXt", "IDAT", "tEXt", "IEND"]);
+        assert_eq!(seen[2].1, b"Comment\0before-idat");
+        assert_eq!(seen[4].1, b"Comment\0after-idat");
+    }
+
+    #[test]
+    fn test_integrity_checks_lenient_warnings_and_strict_errors() {
+        // 1. CRC mismatch on IHDR
+        let mut bad_crc = build_synthetic_png(2, 2, 2, 8);
+        bad_crc[29] ^= 0xFF; // flip last byte of IHDR CRC
+        let lenient = PngGlitch::from_bytes(&bad_crc).unwrap();
+        assert!(
+            lenient
+                .warnings()
+                .iter()
+                .any(|w| matches!(w, PngWarning::CrcMismatch { chunk_type, .. } if chunk_type == "IHDR"))
+        );
+        assert!(matches!(
+            PngGlitch::from_bytes_with_options(&bad_crc, ParseOptions::strict()),
+            Err(PngError::CrcMismatch { .. })
+        ));
+
+        // 2. Invalid filter byte (> 4) and excess decompressed IDAT bytes
+        let mut raw = vec![99u8, 1, 2, 3, 0u8, 4, 5, 6]; // 1x2 RGB with filter=99 on row 0
+        raw.extend_from_slice(&[0xAA, 0xBB]); // 2 excess bytes
+        let mut comp = fdeflate::Compressor::new(Vec::new()).unwrap();
+        comp.write_data(&raw).unwrap();
+        let idat = comp.finish().unwrap();
+
+        let mut png_excess = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+        let mut ihdr = Vec::new();
+        ihdr.extend_from_slice(&1u32.to_be_bytes());
+        ihdr.extend_from_slice(&2u32.to_be_bytes());
+        ihdr.extend_from_slice(&[8, 2, 0, 0, 0]);
+        write_test_chunk(&mut png_excess, b"IHDR", &ihdr);
+        write_test_chunk(&mut png_excess, b"IDAT", &idat);
+        write_test_chunk(&mut png_excess, b"IEND", &[]);
+        png_excess.extend_from_slice(b"trailing");
+
+        let mut lenient_pg = PngGlitch::from_bytes(&png_excess).unwrap();
+        assert!(
+            lenient_pg
+                .warnings()
+                .iter()
+                .any(|w| matches!(w, PngWarning::ExcessDecompressedData { .. }))
+        );
+        assert!(
+            lenient_pg
+                .warnings()
+                .iter()
+                .any(|w| matches!(w, PngWarning::InvalidFilterByte { row: 0, byte: 99 }))
+        );
+        assert!(
+            lenient_pg
+                .warnings()
+                .iter()
+                .any(|w| matches!(w, PngWarning::TrailingDataAfterIEND { bytes: 8 }))
+        );
+        // Filter byte 99 was normalized to FilterType::None (0)
+        assert_eq!(lenient_pg.scan_lines()[0].filter_type(), FilterType::None);
+
+        // Strict mode rejects trailing data / excess / invalid filter byte
+        assert!(PngGlitch::from_bytes_with_options(&png_excess, ParseOptions::strict()).is_err());
+
+        // 3. Non-consecutive IDAT chunks
+        let split_a = &idat[..idat.len() / 2];
+        let split_b = &idat[idat.len() / 2..];
+        let mut non_consec = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+        write_test_chunk(&mut non_consec, b"IHDR", &ihdr);
+        write_test_chunk(&mut non_consec, b"IDAT", split_a);
+        write_test_chunk(&mut non_consec, b"tEXt", b"interleaved");
+        write_test_chunk(&mut non_consec, b"IDAT", split_b);
+        write_test_chunk(&mut non_consec, b"IEND", &[]);
+        assert!(matches!(
+            PngGlitch::from_bytes_with_options(&non_consec, ParseOptions::strict()),
+            Err(PngError::NonConsecutiveIDAT)
+        ));
     }
 }

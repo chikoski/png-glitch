@@ -1,10 +1,10 @@
 use crate::operation::{Encode, Scan, Transpose};
 use crate::png::parser::Header;
-pub use crate::png::parser::Limits;
+pub use crate::png::parser::{Limits, ParseOptions};
 use crate::png::parser::Parser;
 use crate::png::parser::Terminator;
 use crate::png::parser::{Chunk, ChunkType};
-pub use crate::png::png_error::PngError;
+pub use crate::png::png_error::{PngError, PngWarning};
 pub use crate::png::scan_line::Pixel;
 pub use crate::png::scan_line::ScanLine;
 pub use parser::ColorType;
@@ -26,8 +26,10 @@ pub type DecodedData = Vec<u8>;
 pub struct Png {
     pub(crate) header: Header,
     pub(crate) terminator: Terminator,
-    pub(crate) misc_chunks: Vec<Chunk>,
+    pub(crate) pre_idat_chunks: Vec<Chunk>,
+    pub(crate) post_idat_chunks: Vec<Chunk>,
     pub(crate) data: DecodedData,
+    pub(crate) warnings: Vec<PngWarning>,
 }
 
 impl Png {
@@ -39,21 +41,38 @@ impl Png {
         Ok(())
     }
 
-    fn new(header: Header, terminator: Terminator, misc_chunks: Vec<Chunk>, data: Vec<u8>) -> Png {
+    fn new(
+        header: Header,
+        terminator: Terminator,
+        pre_idat_chunks: Vec<Chunk>,
+        post_idat_chunks: Vec<Chunk>,
+        data: Vec<u8>,
+        warnings: Vec<PngWarning>,
+    ) -> Png {
         Png {
             header,
             terminator,
-            misc_chunks,
+            pre_idat_chunks,
+            post_idat_chunks,
             data,
+            warnings,
         }
     }
 
     pub(crate) fn parse(buffer: &[u8]) -> Result<Png, PngError> {
-        Parser::parse(buffer)
+        Parser::parse_with_options(buffer, ParseOptions::default())
     }
 
-    pub(crate) fn parse_with_limits(buffer: &[u8], limits: Limits) -> Result<Png, PngError> {
-        Parser::parse_with_limits(buffer, limits)
+    pub(crate) fn parse_with_options(
+        buffer: &[u8],
+        options: ParseOptions,
+    ) -> Result<Png, PngError> {
+        Parser::parse_with_options(buffer, options)
+    }
+
+    /// Returns any non-fatal integrity warnings recorded when parsing in lenient mode.
+    pub fn warnings(&self) -> &[PngWarning] {
+        &self.warnings
     }
 
     /// The method returns the width of the PNG image.
@@ -195,11 +214,14 @@ impl Encode for Png {
     fn encode(&self, mut writer: impl std::io::Write) -> Result<(), PngError> {
         writer.write_all(SIGNATURE)?;
         self.header.encode(&mut writer)?;
-        for chunk in self.misc_chunks.iter() {
+        for chunk in self.pre_idat_chunks.iter() {
             chunk.encode(&mut writer)?;
         }
         let idat_chunk_list = create_idat_chunk(self)?;
         for chunk in idat_chunk_list.iter() {
+            chunk.encode(&mut writer)?;
+        }
+        for chunk in self.post_idat_chunks.iter() {
             chunk.encode(&mut writer)?;
         }
         self.terminator.encode(&mut writer)?;
