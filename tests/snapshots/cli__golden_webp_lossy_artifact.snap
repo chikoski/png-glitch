@@ -1,0 +1,5 @@
+---
+source: tests/cli.rs
+expression: "golden_hash(\"small.webp\", \"lossy-artifact=10\")"
+---
+4a0b6882449381f7f35df0a9ea17a50eb72401f1931edf8639f6d8c914a15935

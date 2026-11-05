@@ -1,0 +1,5 @@
+---
+source: tests/cli.rs
+expression: "golden_hash(\"small.png\", \"shift-channels=15,0,-15\")"
+---
+483ed8c21e0b2e4a50c7b13100764fe9a792a813fcc7b5ec553aa1620bfd1884

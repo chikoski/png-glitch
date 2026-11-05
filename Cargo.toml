@@ -59,3 +59,10 @@ walkdir.workspace = true
 indicatif.workspace = true
 rayon.workspace = true
 serde_yaml_ng.workspace = true
+
+[dev-dependencies]
+assert_cmd = "2.2.2"
+blake3 = "1.8.7"
+insta = "1.49.0"
+predicates = "3.1.4"
+tempfile = "3.27.0"

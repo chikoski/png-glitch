@@ -1,0 +1,5 @@
+---
+source: tests/cli.rs
+expression: "golden_hash(\"small.png\", \"chromatic-aberration:magnitude=0.5,r=4,b=-4\")"
+---
+35e50babce26af137a6cce7427bcc64e437d1c90297fd59b3c0846f1166bacf7

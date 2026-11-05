@@ -1,0 +1,5 @@
+---
+source: tests/cli.rs
+expression: "golden_hash(\"small.png\", \"invert\")"
+---
+c7624d689a05dee6d47c99d17e3ede24c618c3de013c033df11baa0d0a909536

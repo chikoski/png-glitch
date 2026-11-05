@@ -1,0 +1,5 @@
+---
+source: tests/cli.rs
+expression: "golden_hash(\"small.webp\", \"color-distortion=0.3\")"
+---
+552f35c5b6b9a6aea4f7cb5cbc9d09618dbed1b8476494e5d69a44139e8a593a
