@@ -91,11 +91,7 @@ Built-in glitch recipes available in `png_glitch::presets`:
 
 # Contribution
 
-1. Fork the repository.
-2. Create a feature branch on your forked repository with `git checkout -b feature-name` command.
-3. Develop the feature.
-4. Commit your changes with `git commit` command.
-5. Upload the feature branch to GitHub and create a pull request.
+See the workspace [CONTRIBUTING.md](../../CONTRIBUTING.md) guide for setup, testing, and step-by-step instructions on adding new glitch filters.
 
 # License
 

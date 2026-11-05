@@ -1,9 +1,14 @@
-extern crate png_glitch;
-
 use png_glitch::{FilterType, PngGlitch};
+use std::fs;
+use std::path::Path;
 
 fn main() {
-    let mut glitch = PngGlitch::open("etc/sample00.png").expect("Failed to open file");
+    let input_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("etc/sample00.png");
+    let out_dir = std::env::temp_dir().join("png-glitch-examples");
+    fs::create_dir_all(&out_dir).expect("Failed to create example output directory");
+    let output_path = out_dir.join("region-glitch.png");
+
+    let mut glitch = PngGlitch::open(&input_path).expect("Failed to open file");
 
     let height = glitch.height();
     let region_height = height / 5;
@@ -18,14 +23,13 @@ fn main() {
 
     // 3. Apply a different filter to the bottom region
     println!("Applying Paeth filter to bottom region...");
-    glitch.apply_filter_from(FilterType::Paeth, region_height * 4, height - (region_height * 4));
+    glitch.apply_filter_from(
+        FilterType::Paeth,
+        region_height * 4,
+        height - (region_height * 4),
+    );
 
-    // 4. Change filter type for a region
-    // This internally calls remove_filter_from and then apply_filter_from
-    // Note: change_filter_type for the whole image exists, but let's just 
-    // use the component methods to show the regional control.
-    
-    glitch.save("etc/region-glitch.png").expect("Failed to save file");
-    
-    println!("Region-glitched image saved to etc/region-glitch.png");
+    glitch.save(&output_path).expect("Failed to save file");
+
+    println!("Region-glitched image saved to {}", output_path.display());
 }
