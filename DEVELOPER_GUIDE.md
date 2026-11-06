@@ -91,4 +91,6 @@ cd fuzz
 cargo +nightly fuzz run png_parse -- -max_total_time=300
 ```
 
+A `cargo-fuzz` installed from a prebuilt musl binary (as `taiki-e/install-action` does in CI) defaults to `--target x86_64-unknown-linux-musl`, where AddressSanitizer does not work; pass `--target x86_64-unknown-linux-gnu` to every `cargo +nightly fuzz` command (CI does).
+
 Crashing inputs are written to `fuzz/artifacts/<target>/`; reproduce one with `cargo +nightly fuzz run <target> <file>`. CI builds every target on each pull request, and `.github/workflows/fuzz.yml` fuzzes each target on a schedule (or on demand via *Run workflow*) and uploads any crashes as workflow artifacts. Contributors modifying a parser or filter should run the relevant target locally. When `FilterConfig` gains a variant, `fuzz_targets/glitch_context_pipeline.rs` stops compiling until the new variant is added to its filter list.
