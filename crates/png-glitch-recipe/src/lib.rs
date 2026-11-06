@@ -10,7 +10,9 @@
 mod resolve;
 
 use resolve::{BuiltinFilter, Resolve};
-pub use resolve::{ImageHeader, Recipe, ResolvedRecipe, ResolvedStep};
+pub use resolve::{
+    ImageHeader, Recipe, RecipeStep, ResolvedEffect, ResolvedRecipe, ResolvedStep, Step,
+};
 
 #[cfg(feature = "clap")]
 use clap::ValueEnum;
@@ -164,6 +166,36 @@ impl GlitchContext {
     /// Returns any non-fatal PNG integrity warnings recorded when parsing in lenient mode.
     pub fn warnings(&self) -> &[PngWarning] {
         self.png.warnings()
+    }
+
+    /// Returns the wrapped image, for reading.
+    pub fn png(&self) -> &PngGlitch {
+        &self.png
+    }
+
+    /// Returns the wrapped image, so low-level [`PngGlitch`] operations can be mixed with filters.
+    ///
+    /// Queued filters have not run yet; call [`execute`](Self::execute) first to see their effect.
+    pub fn png_mut(&mut self) -> &mut PngGlitch {
+        &mut self.png
+    }
+
+    /// Consumes the context and returns the wrapped image. Queued filters are discarded.
+    pub fn into_inner(self) -> PngGlitch {
+        self.png
+    }
+
+    /// Queues a closure as a filter, for quick experiments.
+    ///
+    /// The closure receives the image and the context's RNG, like [`GlitchFilter::apply`].
+    pub fn add_fn(&mut self, f: impl Fn(&mut PngGlitch, &mut dyn RngCore) + 'static) {
+        struct FnFilter<F>(F);
+        impl<F: Fn(&mut PngGlitch, &mut dyn RngCore)> GlitchFilter for FnFilter<F> {
+            fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
+                (self.0)(png, rng)
+            }
+        }
+        self.add_filter(FnFilter(f));
     }
 
     /// Resets the internal RNG with the given `seed` (or a fresh OS seed if `None`).

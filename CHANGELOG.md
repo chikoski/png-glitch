@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Added
 - `Recipe` (an ordered list of `FilterConfig` steps, independent of any image; `Clone`, `Debug`, `PartialEq`), `Recipe::resolve(&ImageHeader, seed)` → `ResolvedRecipe` (all random choices drawn, concrete `png-glitch` effects only), and `ResolvedRecipe::execute(&mut PngGlitch)` (deterministic, no RNG). One recipe can be reused for any number of images and seeds, and `Recipe::run` resolves and executes in one call (#68, ADR 0004).
+- Custom recipe steps (#70, re-scoped by ADR 0003/0004): the `RecipeStep` trait (draws choices from the RNG and returns a `png-glitch` `Effect`; closures `Fn(&ImageHeader, &mut dyn RngCore) -> ResolvedEffect` implement it), `Recipe::then_step` and `Recipe::then_effect` (a fixed effect), `ResolvedEffect` and `ResolvedStep::Custom`. `Recipe::steps()` now returns `&[Step]` (`Step::Config` or `Step::Custom`).
+- `GlitchContext::png()`, `png_mut()`, `into_inner()` and `add_fn(closure)` to mix filters with direct `PngGlitch` calls. Example: `examples/custom_effect.rs`.
 - `ImageHeader`, `ResolvedStep` and `RecipeError::HeaderMismatch`: executing a resolved recipe on an image whose header differs from the one it was resolved for is an error.
 - `GlitchContext` is unchanged for callers and now runs the same resolve/execute code, so seeded output is byte-identical (golden tests unchanged).
 

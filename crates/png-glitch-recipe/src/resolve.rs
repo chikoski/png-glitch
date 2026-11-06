@@ -11,6 +11,8 @@ use png_glitch::effects::Effect;
 use png_glitch::{ColorType, PngGlitch};
 use rand::{RngCore, SeedableRng};
 use rand_chacha::ChaCha8Rng;
+use std::fmt;
+use std::sync::Arc;
 
 /// The parts of a PNG header that resolving a recipe depends on (no pixel data).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,6 +45,89 @@ impl ImageHeader {
     }
 }
 
+trait ErasedEffect: Effect + fmt::Debug + Send + Sync {}
+impl<T: Effect + fmt::Debug + Send + Sync> ErasedEffect for T {}
+
+/// A user-defined `png-glitch` [`Effect`] with concrete parameters, as produced by a
+/// [`RecipeStep`]. Cheap to clone; two values are equal only if they are the same instance.
+#[derive(Clone)]
+pub struct ResolvedEffect(Arc<dyn ErasedEffect>);
+
+impl ResolvedEffect {
+    /// Wraps an effect so a [`ResolvedRecipe`] can hold it.
+    pub fn new(effect: impl Effect + fmt::Debug + Send + Sync + 'static) -> Self {
+        Self(Arc::new(effect))
+    }
+}
+
+impl fmt::Debug for ResolvedEffect {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl PartialEq for ResolvedEffect {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+/// A user-defined recipe step: draws its random choices from the RNG and returns a
+/// deterministic `png-glitch` effect.
+///
+/// Closures `Fn(&ImageHeader, &mut dyn RngCore) -> ResolvedEffect` implement this trait, which is
+/// handy for quick experiments. Add a step with [`Recipe::then_step`].
+pub trait RecipeStep: Send + Sync {
+    /// Draws the choices for an image with the given header and returns the effect to run.
+    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedEffect;
+}
+
+impl<F> RecipeStep for F
+where
+    F: Fn(&ImageHeader, &mut dyn RngCore) -> ResolvedEffect + Send + Sync,
+{
+    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedEffect {
+        self(header, rng)
+    }
+}
+
+/// A step that always runs the same effect.
+struct FixedStep(ResolvedEffect);
+
+impl RecipeStep for FixedStep {
+    fn resolve(&self, _header: &ImageHeader, _rng: &mut dyn RngCore) -> ResolvedEffect {
+        self.0.clone()
+    }
+}
+
+/// A step of a [`Recipe`]: a built-in step described by a [`FilterConfig`], or a user-defined one.
+#[derive(Clone)]
+pub enum Step {
+    /// A built-in step.
+    Config(FilterConfig),
+    /// A user-defined step.
+    Custom(Arc<dyn RecipeStep>),
+}
+
+impl fmt::Debug for Step {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Config(config) => f.debug_tuple("Config").field(config).finish(),
+            Self::Custom(_) => f.write_str("Custom(..)"),
+        }
+    }
+}
+
+impl PartialEq for Step {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Config(a), Self::Config(b)) => a == b,
+            (Self::Custom(a), Self::Custom(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        }
+    }
+}
+
 /// A step whose parameters are all concrete: one deterministic `png-glitch` effect.
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
@@ -68,6 +153,8 @@ pub enum ResolvedStep {
     Brighten(fx::Brighten),
     Darken(fx::Darken),
     ShiftChannels(fx::ShiftChannels),
+    /// A user-defined effect.
+    Custom(ResolvedEffect),
 }
 
 impl ResolvedStep {
@@ -93,6 +180,7 @@ impl ResolvedStep {
             Self::Brighten(e) => e.apply_to(png),
             Self::Darken(e) => e.apply_to(png),
             Self::ShiftChannels(e) => e.apply_to(png),
+            Self::Custom(e) => e.0.apply_to(png),
         }
     }
 }
@@ -130,7 +218,7 @@ macro_rules! impl_glitch_filter_via_resolve {
 /// A recipe can be cloned, compared and reused for any number of images and seeds.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Recipe {
-    steps: Vec<FilterConfig>,
+    steps: Vec<Step>,
 }
 
 impl Recipe {
@@ -142,18 +230,29 @@ impl Recipe {
     /// Creates a recipe from a list of steps.
     pub fn from_configs(steps: impl IntoIterator<Item = FilterConfig>) -> Self {
         Self {
-            steps: steps.into_iter().collect(),
+            steps: steps.into_iter().map(Step::Config).collect(),
         }
     }
 
-    /// Appends a step.
+    /// Appends a built-in step.
     pub fn then(mut self, step: FilterConfig) -> Self {
-        self.steps.push(step);
+        self.steps.push(Step::Config(step));
         self
     }
 
+    /// Appends a user-defined step that draws its choices from the RNG (see [`RecipeStep`]).
+    pub fn then_step(mut self, step: impl RecipeStep + 'static) -> Self {
+        self.steps.push(Step::Custom(Arc::new(step)));
+        self
+    }
+
+    /// Appends a user-defined deterministic `png-glitch` effect.
+    pub fn then_effect(self, effect: impl Effect + fmt::Debug + Send + Sync + 'static) -> Self {
+        self.then_step(FixedStep(ResolvedEffect::new(effect)))
+    }
+
     /// The steps, in execution order.
-    pub fn steps(&self) -> &[FilterConfig] {
+    pub fn steps(&self) -> &[Step] {
         &self.steps
     }
 
@@ -170,9 +269,12 @@ impl Recipe {
         let steps = self
             .steps
             .iter()
-            .map(|config| {
-                let filter = filter_from_config(config.clone())?;
-                Ok(filter.resolve(header, &mut rng))
+            .map(|step| match step {
+                Step::Config(config) => {
+                    let filter = filter_from_config(config.clone())?;
+                    Ok(filter.resolve(header, &mut rng))
+                }
+                Step::Custom(step) => Ok(ResolvedStep::Custom(step.resolve(header, &mut rng))),
             })
             .collect::<Result<Vec<_>>>()?;
         Ok(ResolvedRecipe {
