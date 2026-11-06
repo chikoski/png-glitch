@@ -37,5 +37,6 @@ seed() {
 
 seed png_parse "${png_seeds[@]}"
 seed png_glitch_ops "${png_seeds[@]}"
-seed glitch_context_pipeline "${png_seeds[@]}" "${webp_seeds[@]}"
+seed glitch_context_pipeline "${png_seeds[@]}"
+seed webp_pipeline "${webp_seeds[@]}"
 seed webp_riff "${webp_seeds[@]}"

@@ -257,7 +257,6 @@ dependencies = [
  "rand",
  "rand_chacha",
  "serde",
- "webp-glitch",
 ]
 
 [[package]]
@@ -403,6 +402,7 @@ dependencies = [
  "libfuzzer-sys",
  "png-glitch",
  "webp-glitch",
+ "webp-glitch-context",
 ]
 
 [[package]]
@@ -631,6 +631,15 @@ dependencies = [
  "rayon",
  "thiserror",
  "webp",
+]
+
+[[package]]
+name = "webp-glitch-context"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "glitch-context",
+ "webp-glitch",
 ]
 
 [[package]]

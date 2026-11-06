@@ -156,7 +156,8 @@ This repository consists of the following crates:
 - **png-glitch-cli**: A binary crate for a command line interface (CLI) to glitch PNG and WebP files.
 - **[png-glitch crate](crates/png-glitch)**: Core library to glitch PNG images.
 - **[webp-glitch crate](crates/webp-glitch)**: Core library to glitch WebP images.
-- **[glitch-context crate](crates/glitch-context)**: High-level API to orchestrate glitch filters across PNG and WebP.
+- **[glitch-context crate](crates/glitch-context)**: High-level API to orchestrate glitch filters on PNG images.
+- **[webp-glitch-context crate](crates/webp-glitch-context)**: High-level API to orchestrate glitch filters on WebP images.
 
 # Licence
 

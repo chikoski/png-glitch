@@ -1,24 +1,22 @@
-//! End-to-end `glitch-context` pipeline: parse arbitrary bytes (PNG or WebP,
-//! auto-detected), queue every built-in filter, execute, and encode.
+//! End-to-end `glitch-context` pipeline: parse arbitrary PNG bytes, queue every
+//! PNG-capable filter, execute, and encode.
 #![no_main]
 use glitch_context::{
-    AlphaGlitchStrategy, AnyGlitchContext, BitOp, FilterConfig, Limits, ParseOptions, PreProcess,
-    SortCriterion, SwapTarget,
+    BitOp, FilterConfig, GlitchContext, Limits, ParseOptions, PreProcess, SortCriterion, SwapTarget,
 };
 use libfuzzer_sys::fuzz_target;
 
-/// Running ~37 filters (plus a libwebp re-encode) per input is expensive, so
-/// keep images small to get a useful number of executions per second. Inputs
-/// above `MAX_INPUT_LEN` are skipped because WebP decoding has no pixel limit.
+/// Running ~30 filters per input is expensive, so keep images small to get a
+/// useful number of executions per second.
 const LIMITS: Limits = Limits {
     max_bytes: 1024 * 1024,
     max_pixels: 256 * 256,
 };
 const MAX_INPUT_LEN: usize = 64 * 1024;
-const MAX_WEBP_PIXELS: u64 = 256 * 256;
 
 /// One configuration per [`FilterConfig`] variant, with parameters chosen to
 /// hit edge cases (extreme offsets, out-of-range indices, max strength).
+/// WebP-only variants are not listed; they are exercised by `webp_pipeline`.
 fn every_filter() -> Vec<FilterConfig> {
     use FilterConfig::*;
     let configs = vec![
@@ -28,20 +26,62 @@ fn every_filter() -> Vec<FilterConfig> {
         Transpose { magnitude: 0.5 },
         SetZero { magnitude: 0.5 },
         RandomCopy { times: 64 },
-        Substitute { index: 0, value: 0xff },
-        Substitute { index: usize::MAX, value: 0x00 },
-        PixelSort { magnitude: 1.0, criterion: Some(SortCriterion::Brightness) },
-        PixelSort { magnitude: 1.0, criterion: Some(SortCriterion::Hue) },
-        Bitwise { magnitude: 1.0, op: Some(BitOp::And), value: Some(0x0f) },
-        Bitwise { magnitude: 1.0, op: Some(BitOp::Or), value: Some(0xf0) },
-        Bitwise { magnitude: 1.0, op: Some(BitOp::Xor), value: Some(0xaa) },
-        ChannelSwap { magnitude: 1.0, target: Some(SwapTarget::Rg) },
-        ChannelSwap { magnitude: 1.0, target: Some(SwapTarget::Gb) },
-        ChannelSwap { magnitude: 1.0, target: Some(SwapTarget::Br) },
+        Substitute {
+            index: 0,
+            value: 0xff,
+        },
+        Substitute {
+            index: usize::MAX,
+            value: 0x00,
+        },
+        PixelSort {
+            magnitude: 1.0,
+            criterion: Some(SortCriterion::Brightness),
+        },
+        PixelSort {
+            magnitude: 1.0,
+            criterion: Some(SortCriterion::Hue),
+        },
+        Bitwise {
+            magnitude: 1.0,
+            op: Some(BitOp::And),
+            value: Some(0x0f),
+        },
+        Bitwise {
+            magnitude: 1.0,
+            op: Some(BitOp::Or),
+            value: Some(0xf0),
+        },
+        Bitwise {
+            magnitude: 1.0,
+            op: Some(BitOp::Xor),
+            value: Some(0xaa),
+        },
+        ChannelSwap {
+            magnitude: 1.0,
+            target: Some(SwapTarget::Rg),
+        },
+        ChannelSwap {
+            magnitude: 1.0,
+            target: Some(SwapTarget::Gb),
+        },
+        ChannelSwap {
+            magnitude: 1.0,
+            target: Some(SwapTarget::Br),
+        },
         HorizontalShift { magnitude: 1.0 },
-        BlockScramble { magnitude: 1.0, block_size: Some(1) },
-        BlockScramble { magnitude: 1.0, block_size: Some(u32::MAX) },
-        ColorDistortion { magnitude: 1.0, strength: Some(i16::MAX) },
+        BlockScramble {
+            magnitude: 1.0,
+            block_size: Some(1),
+        },
+        BlockScramble {
+            magnitude: 1.0,
+            block_size: Some(u32::MAX),
+        },
+        ColorDistortion {
+            magnitude: 1.0,
+            strength: Some(i16::MAX),
+        },
         ColorSpaceGlitch {
             magnitude: 1.0,
             hue_shift: Some(-720.0),
@@ -57,29 +97,45 @@ fn every_filter() -> Vec<FilterConfig> {
         Invert,
         Brighten { strength: u16::MAX },
         Darken { strength: u16::MAX },
-        ShiftChannels { r: i16::MAX, g: i16::MIN, b: 1 },
+        ShiftChannels {
+            r: i16::MAX,
+            g: i16::MIN,
+            b: 1,
+        },
         SubFilter,
         UpFilter,
         AverageFilter,
         PaethFilter,
-        MacroblockGlitch { magnitude: 1.0 },
-        AlphaGlitch { magnitude: 1.0, strategy: Some(AlphaGlitchStrategy::Invert) },
-        AlphaGlitch { magnitude: 1.0, strategy: Some(AlphaGlitchStrategy::Randomize) },
-        AlphaGlitch { magnitude: 1.0, strategy: Some(AlphaGlitchStrategy::Zero) },
-        AlphaGlitch { magnitude: 1.0, strategy: Some(AlphaGlitchStrategy::One) },
-        LossyArtifact { quality: 0.0 },
     ];
     // Compile-time reminder: adding a `FilterConfig` variant breaks this match
     // until the variant is also added to the list above.
     for c in &configs {
         match c {
-            ChangeFilterType { .. } | Replace { .. } | Transpose { .. } | SetZero { .. }
-            | RandomCopy { .. } | Substitute { .. } | PixelSort { .. } | Bitwise { .. }
-            | ChannelSwap { .. } | HorizontalShift { .. } | BlockScramble { .. }
-            | ColorDistortion { .. } | ColorSpaceGlitch { .. } | ChromaticAberration { .. }
-            | Invert | Brighten { .. } | Darken { .. } | ShiftChannels { .. } | RemoveFilter
-            | SubFilter | UpFilter | AverageFilter | PaethFilter | MacroblockGlitch { .. }
-            | AlphaGlitch { .. } | LossyArtifact { .. } => {}
+            ChangeFilterType { .. }
+            | Replace { .. }
+            | Transpose { .. }
+            | SetZero { .. }
+            | RandomCopy { .. }
+            | Substitute { .. }
+            | PixelSort { .. }
+            | Bitwise { .. }
+            | ChannelSwap { .. }
+            | HorizontalShift { .. }
+            | BlockScramble { .. }
+            | ColorDistortion { .. }
+            | ColorSpaceGlitch { .. }
+            | ChromaticAberration { .. }
+            | Invert
+            | Brighten { .. }
+            | Darken { .. }
+            | ShiftChannels { .. }
+            | RemoveFilter
+            | SubFilter
+            | UpFilter
+            | AverageFilter
+            | PaethFilter => {}
+            // WebP-only variants: covered by the `webp_pipeline` target.
+            MacroblockGlitch { .. } | AlphaGlitch { .. } | LossyArtifact { .. } => {}
         }
     }
     configs
@@ -97,18 +153,13 @@ fuzz_target!(|data: &[u8]| {
         return;
     }
     let options = ParseOptions::default().with_limits(LIMITS);
-    let Ok(mut ctx) = AnyGlitchContext::from_bytes_with_options(data, Some(seed_of(data)), options)
-    else {
+    let Ok(mut ctx) = GlitchContext::new_with_options(data, Some(seed_of(data)), options) else {
         return;
     };
-    if ctx.is_webp() && u64::from(ctx.width()) * u64::from(ctx.height()) > MAX_WEBP_PIXELS {
-        return;
-    }
 
-    // Errors for WebP are expected (PNG-only pre-process).
-    let _ = ctx.pre_process(PreProcess::PaethFilter);
+    ctx.pre_process(PreProcess::PaethFilter);
     for config in every_filter() {
-        // Format-specific filters are rejected for the other format; that is fine.
+        // `every_filter` is PNG-only, so a rejection is unexpected but harmless.
         let _ = ctx.add_from_config(config);
     }
     ctx.execute();

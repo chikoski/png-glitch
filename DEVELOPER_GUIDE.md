@@ -124,7 +124,7 @@ We use the `rayon` crate for high-performance processing:
 - **Optimization:** Filters like `BlockScramble` are optimized to minimize memory allocation and redundant scanline pre-fetching.
 
 ### High-Level Orchestration
-The `glitch-context` crate provides a unified API for managing complex glitch pipelines.
+The `glitch-context` crate provides a unified API for managing complex glitch pipelines on PNG images. The `webp-glitch-context` crate is its WebP counterpart, and the CLI (`src/any_context.rs`) detects the format and dispatches to one of them.
 - **`GlitchFilter` Trait:** All effects are implemented as modular filters.
 - **`FilterConfig`:** A unified configuration enum that supports YAML serialization and deserialization.
 - **`add_from_config`:** A single method to apply complex effect stacks from external configuration files.
@@ -145,7 +145,8 @@ Because we parse raw bytes from potentially untrusted files, we maintain `cargo-
 | --- | --- |
 | `png_parse` | `PngGlitch::from_bytes_with_options` in lenient and strict mode, then re-encode. |
 | `png_glitch_ops` | Parse, then `remove_filter`/`apply_filter`, presets, `transpose`, and encode. |
-| `glitch_context_pipeline` | `AnyGlitchContext` (PNG or WebP): parse, queue every `FilterConfig` variant, execute, encode. |
+| `glitch_context_pipeline` | `GlitchContext` (PNG): parse, queue every PNG-capable `FilterConfig` variant, execute, encode. |
+| `webp_pipeline` | `WebpGlitchContext` (WebP): parse, queue every WebP-capable `FilterConfig` variant, execute, encode. |
 | `webp_riff` | `RiffContainer::parse`, encode/re-parse round trip, and every chunk mutation. |
 
 ```bash
@@ -158,4 +159,4 @@ cargo +nightly fuzz run png_parse -- -max_total_time=300
 
 A `cargo-fuzz` installed from a prebuilt musl binary (as `taiki-e/install-action` does in CI) defaults to `--target x86_64-unknown-linux-musl`, where AddressSanitizer does not work; pass `--target x86_64-unknown-linux-gnu` to every `cargo +nightly fuzz` command (CI does).
 
-Crashing inputs are written to `fuzz/artifacts/<target>/`; reproduce one with `cargo +nightly fuzz run <target> <file>`. CI builds every target on each pull request, and `.github/workflows/fuzz.yml` fuzzes each target on a schedule (or on demand via *Run workflow*) and uploads any crashes as workflow artifacts. Contributors modifying a parser or filter should run the relevant target locally. When `FilterConfig` gains a variant, `fuzz_targets/glitch_context_pipeline.rs` stops compiling until the new variant is added to its filter list.
+Crashing inputs are written to `fuzz/artifacts/<target>/`; reproduce one with `cargo +nightly fuzz run <target> <file>`. CI builds every target on each pull request, and `.github/workflows/fuzz.yml` fuzzes each target on a schedule (or on demand via *Run workflow*) and uploads any crashes as workflow artifacts. Contributors modifying a parser or filter should run the relevant target locally. When `FilterConfig` gains a variant, `fuzz_targets/glitch_context_pipeline.rs` (and, for WebP-capable variants, `webp_pipeline.rs`) stops compiling until the new variant is added to its filter list.

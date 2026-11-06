@@ -445,8 +445,6 @@ dependencies = [
  "rand_chacha",
  "serde",
  "serde-saphyr",
- "webp",
- "webp-glitch",
 ]
 
 [[package]]
@@ -680,7 +678,7 @@ dependencies = [
  "serde-saphyr",
  "tempfile",
  "walkdir",
- "webp-glitch",
+ "webp-glitch-context",
 ]
 
 [[package]]
@@ -1137,6 +1135,17 @@ dependencies = [
  "rayon",
  "thiserror",
  "webp",
+]
+
+[[package]]
+name = "webp-glitch-context"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "glitch-context",
+ "image",
+ "webp",
+ "webp-glitch",
 ]
 
 [[package]]

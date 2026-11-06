@@ -26,6 +26,7 @@ jobs:
           - png_parse
           - png_glitch_ops
           - glitch_context_pipeline
+          - webp_pipeline
           - webp_riff
 
     steps:

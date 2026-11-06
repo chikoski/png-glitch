@@ -5,7 +5,7 @@ Thank you for your interest in contributing to `png-glitch`! This guide covers s
 ## Prerequisites
 
 - **Rust**: `1.89` or later (Rust 2024 edition).
-- A C compiler (used by `libwebp-sys2` when building `webp-glitch`).
+- A C compiler (used by `libwebp-sys2` when building `webp-glitch` and `webp-glitch-context`).
 
 ## Workspace Structure
 
@@ -14,7 +14,8 @@ Thank you for your interest in contributing to `png-glitch`! This guide covers s
 | `png-glitch-cli` | `./` (root) | Command-line interface (`png-glitch` binary) for PNG and WebP images. |
 | `png-glitch` | `crates/png-glitch` | Core low-level PNG scanline, filter, and pixel manipulation library. |
 | `webp-glitch` | `crates/webp-glitch` | Core WebP scanline, pixel, and RIFF chunk manipulation library. |
-| `glitch-context` | `crates/glitch-context` | High-level filter pipeline, RNG management, and YAML/CLI config orchestration. |
+| `glitch-context` | `crates/glitch-context` | High-level PNG filter pipeline, RNG management, and YAML/CLI config orchestration. |
+| `webp-glitch-context` | `crates/webp-glitch-context` | High-level WebP filter pipeline (`WebpGlitchContext`) and the WebP-only effects. Reuses the config types of `glitch-context`. |
 
 ## Development Commands
 
@@ -49,7 +50,7 @@ Significant design decisions are recorded as [Architecture Decision Records](doc
 
 ## Coding Guidelines
 
-1. **No Panics in Library Code**: Library crates (`png-glitch`, `webp-glitch`, `glitch-context`) must never panic (`unwrap()`, `expect()`, out-of-bounds slice indexing, or divide-by-zero) on malformed image bytes or caller-supplied parameters. Return a typed `Err` or clamp/no-op on empty/out-of-range inputs.
+1. **No Panics in Library Code**: Library crates (`png-glitch`, `webp-glitch`, `glitch-context`, `webp-glitch-context`) must never panic (`unwrap()`, `expect()`, out-of-bounds slice indexing, or divide-by-zero) on malformed image bytes or caller-supplied parameters. Return a typed `Err` or clamp/no-op on empty/out-of-range inputs.
 2. **Deterministic RNG**: All random decisions inside filters must use the `&mut dyn rand::RngCore` passed into `GlitchFilter::apply` / `WebpGlitchFilter::apply`—never `rand::rng()`—so that `--seed` produces identical results across runs.
 3. **Documentation**: `png-glitch` and `glitch-context` enforce `#![warn(missing_docs)]`. Every public struct, enum, variant, field, trait, and method must have a clear English doc comment.
 4. **Terminology**: Refer to the [Terminology Glossary in `DEVELOPER_GUIDE.md`](DEVELOPER_GUIDE.md#terminology-glossary) for the distinction between *PNG filter types*, *presets*, and *glitch filters*.
@@ -64,9 +65,10 @@ Adding a filter end-to-end touches four places:
 
 1. Define the filter struct with `#[derive(Debug, Clone, Copy, PartialEq)]`, doc comments on the struct and all public fields, `Default`, `pub fn new(...)`, and `pub fn with_*(mut self, ...)` builder methods.
 2. Implement the appropriate trait(s):
-   - **Format-independent pixel filter**: Implement [`PixelFilter`](crates/glitch-context/src/lib.rs) (or both [`GlitchFilter`](crates/glitch-context/src/lib.rs) for `PngGlitch` and [`WebpGlitchFilter`](crates/glitch-context/src/lib.rs) for `WebpGlitch`).
+   - **Format-independent pixel filter**: Implement [`PixelFilter`](crates/glitch-context/src/lib.rs); `PixelFilterAdapter` applies it to PNG, and `ForWebp(PixelFilterAdapter(..))` applies it to WebP.
    - **PNG-specific scanline/filter-byte effect**: Implement [`GlitchFilter`](crates/glitch-context/src/lib.rs).
-   - **WebP-specific RIFF/VP8 effect**: Implement [`WebpGlitchFilter`](crates/glitch-context/src/lib.rs).
+   - **Effect that also supports WebP**: add the matching `impl WebpGlitchFilter for ForWebp<YourEffect>` in [`crates/webp-glitch-context/src/lib.rs`](crates/webp-glitch-context/src/lib.rs) (the orphan rule requires the `ForWebp` wrapper).
+   - **WebP-specific RIFF/VP8 effect**: Implement `WebpGlitchFilter` in `crates/webp-glitch-context/src/lib.rs`.
 3. Ensure `magnitude <= 0.0` is a no-op and guard against zero-width/zero-height scanlines.
 
 ### Step 2: Register in `FilterConfig` (`crates/glitch-context/src/lib.rs`)
@@ -74,7 +76,7 @@ Adding a filter end-to-end touches four places:
 1. Add a variant to `FilterConfig` with `#[serde(alias = "PascalCaseName")]` (since `FilterConfig` uses `#[serde(rename_all = "kebab-case")]`) and `#[serde(deserialize_with = "deserialize_magnitude")]` on any `0.0..=1.0` `magnitude` field.
 2. Handle the new variant in:
    - `GlitchContext::add_from_config` (return `Err` if the filter is WebP-only).
-   - `WebpGlitchContext::add_from_config` (return `Err` if the filter is PNG-only).
+   - `WebpGlitchContext::add_from_config` in `crates/webp-glitch-context/src/lib.rs` (return `Err` if the filter is PNG-only).
 
 ### Step 3: Expose in the CLI (`src/cli.rs` and `src/main.rs`)
 
@@ -85,7 +87,7 @@ Adding a filter end-to-end touches four places:
 
 ### Step 4: Tests and Documentation
 
-1. Add unit tests in `crates/glitch-context/src/lib.rs` (including `test_all_png_filters_across_color_types_and_bit_depths` and/or `test_all_webp_filters_and_reproducibility`, `magnitude = 0.0` boundary test, and YAML deserialization test).
+1. Add unit tests in `crates/glitch-context/src/lib.rs` (including `test_all_png_filters_across_color_types_and_bit_depths`, `magnitude = 0.0` boundary test, and YAML deserialization test). For WebP, extend `all_webp_filters_and_reproducibility` in `crates/webp-glitch-context/tests/webp.rs`.
 2. Add CLI parsing tests in `src/main.rs`.
 3. Add a row to the filter compatibility tables in `README.md` and `crates/glitch-context/README.md`.
 
@@ -111,7 +113,8 @@ Workspace crates must be published to crates.io in dependency order:
 1. `cargo publish -p webp-glitch`
 2. `cargo publish -p png-glitch`
 3. `cargo publish -p glitch-context`
-4. `cargo publish -p png-glitch-cli`
+4. `cargo publish -p webp-glitch-context` (depends on `webp-glitch` and `glitch-context`)
+5. `cargo publish -p png-glitch-cli`
 
 Update [`CHANGELOG.md`](CHANGELOG.md) and bump versions in `Cargo.toml` (including `[workspace.dependencies]`) before tagging a release.
 
