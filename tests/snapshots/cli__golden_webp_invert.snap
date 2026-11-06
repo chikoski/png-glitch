@@ -1,0 +1,5 @@
+---
+source: tests/cli.rs
+expression: "golden_hash(\"small.webp\", \"invert\")"
+---
+b86a9a6b9aba87687886678f1bb475d3b1b4f6fbf8946febd53c701b0c77727e

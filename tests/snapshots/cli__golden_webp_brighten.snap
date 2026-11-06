@@ -1,0 +1,5 @@
+---
+source: tests/cli.rs
+expression: "golden_hash(\"small.webp\", \"brighten=30\")"
+---
+bae1371d20f2ed823dc874a86f182a87f33b7b7e2972a8ed0944e33d0961c010

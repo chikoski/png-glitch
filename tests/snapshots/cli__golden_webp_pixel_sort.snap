@@ -1,0 +1,5 @@
+---
+source: tests/cli.rs
+expression: "golden_hash(\"small.webp\", \"pixel-sort=0.5\")"
+---
+1c74858a5282bd7e81c3153906b29feb8dad5d224ed48027b142cec56a618c6d

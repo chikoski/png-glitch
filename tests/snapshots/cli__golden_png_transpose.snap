@@ -1,0 +1,5 @@
+---
+source: tests/cli.rs
+expression: "golden_hash(\"small.png\", \"transpose=0.3\")"
+---
+853ca288615ab19f933510ed09572cc2b5c18ec8d81b4c335ff4e8108156feb1

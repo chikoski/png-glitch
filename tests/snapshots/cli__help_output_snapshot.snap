@@ -1,0 +1,236 @@
+---
+source: tests/cli.rs
+assertion_line: 362
+expression: text
+---
+A CLI tool to create glitch art from PNG and WebP images.
+
+Usage: png-glitch [OPTIONS] [INPUT]
+
+Arguments:
+  [INPUT]
+          Input PNG or WebP file (or directory when used with `--batch-output`)
+
+Options:
+      --list-filters
+          List all available glitch filters with their parameters and defaults
+
+  -o, --output <FILE>
+          Output file path [default: `<input-stem>-glitched.<ext>`]
+
+      --force
+          Overwrite existing output file(s) without prompting
+
+      --strict
+          Enforce strict PNG integrity checks (CRC, consecutive IDAT, filter bytes, trailing data)
+
+      --seed <SEED>
+          Random seed for reproducible output (printed to stderr if omitted)
+
+      --batch-output <DIR>
+          Batch process all PNG and WebP images in INPUT directory and save to DIR
+
+      --config <FILE>
+          Path to YAML config file
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version
+
+Glitch Filters:
+  -f, --filter <SPEC>
+          Add a filter step to the pipeline (repeatable, applied in order; see `--list-filters`)
+
+      --change-filter-type <MAG>
+          Randomly overwrite PNG scanline filter type bytes [0.0..=1.0] (PNG only)
+
+      --replace <MAG>
+          Replace random scanline bytes with noise [0.0..=1.0] (PNG only)
+
+      --transpose <MAG>
+          Randomly swap scanlines [0.0..=1.0] (PNG only)
+
+      --set-zero <MAG>
+          Set random scanline bytes to zero [0.0..=1.0] (PNG only)
+
+      --random-copy <N>
+          Copy random scanlines N times (PNG only)
+
+      --substitute <INDEX:VALUE>
+          Substitute byte at INDEX with VALUE (`INDEX:VALUE`, PNG only)
+
+      --pixel-sort <MAG>
+          Sort pixels within scanlines [0.0..=1.0] (configure with `--pixel-sort-criterion`)
+
+      --pixel-sort-criterion <CRITERION>
+          Criterion for `--pixel-sort`
+
+          Possible values:
+          - brightness: Sorts pixels by average RGB brightness `(r + g + b) / 3`
+          - hue:        Sorts pixels by HSL hue angle (`0.0..=360.0`)
+          
+          [default: brightness]
+
+      --bitwise <MAG>
+          Apply bitwise operation to scanline bytes [0.0..=1.0] (configure with `--bitwise-op`, `--bitwise-value`)
+
+      --bitwise-op <OP>
+          Operator for `--bitwise`
+
+          Possible values:
+          - and: Bitwise AND (`b & value`)
+          - or:  Bitwise OR (`b | value`)
+          - xor: Bitwise XOR (`b ^ value`)
+          
+          [default: xor]
+
+      --bitwise-value <BYTE>
+          Byte operand (0..=255) for `--bitwise`
+          
+          [default: 0]
+
+      --channel-swap <MAG>
+          Swap two color channels [0.0..=1.0] (configure with `--channel-swap-target`)
+
+      --channel-swap-target <TARGET>
+          Channel pair for `--channel-swap`
+
+          Possible values:
+          - rg: Swaps Red and Green channels
+          - gb: Swaps Green and Blue channels
+          - br: Swaps Blue and Red channels
+          
+          [default: rg]
+
+      --horizontal-shift <MAG>
+          Shift scanlines horizontally [0.0..=1.0]
+
+      --block-scramble <MAG>
+          Scramble square pixel blocks [0.0..=1.0] (PNG only; configure with `--block-scramble-size`)
+
+      --block-scramble-size <PX>
+          Block size in pixels for `--block-scramble`
+          
+          [default: 16]
+
+      --color-distortion <MAG>
+          Add random color distortion [0.0..=1.0] (configure with `--color-distortion-strength`)
+
+      --color-distortion-strength <N>
+          Distortion amplitude for `--color-distortion` (>= 0)
+          
+          [default: 20]
+
+      --color-space-glitch <MAG>
+          Transform colors in HSL space [0.0..=1.0] (PNG only; configure with `--hue-shift`, `--saturation-mult`, `--lightness-mult`)
+
+      --hue-shift <DEG>
+          Hue shift in degrees (0.0..=360.0) for `--color-space-glitch`
+          
+          [default: 0]
+
+      --saturation-mult <MULT>
+          Saturation multiplier (>= 0.0) for `--color-space-glitch`
+          
+          [default: 1]
+
+      --lightness-mult <MULT>
+          Lightness multiplier (>= 0.0) for `--color-space-glitch`
+          
+          [default: 1]
+
+      --chromatic-aberration <MAG>
+          Horizontally offset R/G/B channels [0.0..=1.0] (configure with `--r-offset`, `--g-offset`, `--b-offset`)
+
+      --r-offset <PX>
+          Red channel horizontal offset in pixels for `--chromatic-aberration`
+          
+          [default: 2]
+
+      --g-offset <PX>
+          Green channel horizontal offset in pixels for `--chromatic-aberration`
+          
+          [default: 0]
+
+      --b-offset <PX>
+          Blue channel horizontal offset in pixels for `--chromatic-aberration`
+          
+          [default: -2]
+
+      --invert
+          Invert all color channels
+
+      --brighten <STRENGTH>
+          Increase brightness by STRENGTH (saturating at bit-depth maximum)
+
+      --darken <STRENGTH>
+          Decrease brightness by STRENGTH (saturating at 0)
+
+      --shift-channels <R,G,B>
+          Shift R, G, B channels by signed offsets (`R,G,B`)
+
+PNG Prediction Filter Re-encoding:
+      --pre-process <FILTER>
+          Re-encode all PNG scanlines with a uniform prediction filter before applying glitch filters (PNG only)
+
+          Possible values:
+          - remove-filter:  Re-encodes all scanlines with [`FilterType::None`]
+          - sub-filter:     Re-encodes all scanlines with [`FilterType::Sub`]
+          - up-filter:      Re-encodes all scanlines with [`FilterType::Up`]
+          - average-filter: Re-encodes all scanlines with [`FilterType::Average`]
+          - paeth-filter:   Re-encodes all scanlines with [`FilterType::Paeth`]
+
+      --remove-filter
+          Re-encode all PNG scanlines with PNG prediction filter `None` (pipeline step, PNG only)
+
+      --sub
+          Re-encode all PNG scanlines with PNG prediction filter `Sub` (pipeline step, PNG only)
+          
+          [aliases: --sub-filter]
+
+      --up
+          Re-encode all PNG scanlines with PNG prediction filter `Up` (pipeline step, PNG only)
+          
+          [aliases: --up-filter]
+
+      --average
+          Re-encode all PNG scanlines with PNG prediction filter `Average` (pipeline step, PNG only)
+          
+          [aliases: --average-filter]
+
+      --paeth
+          Re-encode all PNG scanlines with PNG prediction filter `Paeth` (pipeline step, PNG only)
+          
+          [aliases: --paeth-filter]
+
+WebP Filters:
+      --macroblock-glitch <MAG>
+          Swap 16x16 macroblocks along VP8 boundaries [0.0..=1.0] (WebP only)
+
+      --alpha-glitch <STRATEGY>
+          Corrupt alpha channel using STRATEGY (WebP only)
+
+          Possible values:
+          - invert:    Inverts each alpha byte (`255 - a`)
+          - randomize: Replaces each alpha byte with a random `u8`
+          - zero:      Sets each alpha byte to `0` (fully transparent)
+          - one:       Sets each alpha byte to `255` (fully opaque)
+
+      --lossy-quality <QUALITY>
+          Lower WebP re-encoding quality for lossy artifacts [0.0..=100.0] (WebP only)
+
+Examples:
+  # Glitch a PNG or WebP image (writes to <input-stem>-glitched.<ext>)
+  png-glitch input.png -f sub-filter -f replace=0.05
+  png-glitch input.webp -f 'chromatic-aberration:magnitude=0.2,r=4,b=-4' -f lossy-artifact=15
+
+  # List all filters, their parameters, and default values
+  png-glitch --list-filters
+
+  # Run a repeatable YAML pipeline with a fixed seed
+  png-glitch input.png --config pipeline.yaml --seed 42 -o result.png --force
+
+  # Batch process a directory of PNG and WebP images
+  png-glitch ./images --batch-output ./glitched -f invert -f block-scramble=0.1

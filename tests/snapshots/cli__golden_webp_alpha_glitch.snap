@@ -1,0 +1,5 @@
+---
+source: tests/cli.rs
+expression: "golden_hash(\"small.webp\", \"alpha-glitch=invert\")"
+---
+5d5aa5046cfa3ba86cae91d4adc8e0e70c062239f10552069b6757fd767d63fd

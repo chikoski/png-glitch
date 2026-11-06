@@ -1,0 +1,5 @@
+---
+source: tests/cli.rs
+expression: "golden_hash(\"small.png\", \"brighten=30\")"
+---
+0194114125a1ea4064a6d12e16aafb6395eb79e05533e59503cbbe9ecbfb00da

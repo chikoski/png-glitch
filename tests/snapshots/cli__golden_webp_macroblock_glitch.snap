@@ -1,0 +1,5 @@
+---
+source: tests/cli.rs
+expression: "golden_hash(\"small.webp\", \"macroblock-glitch=0.5\")"
+---
+d8175bd20f86526b1c552f38f449e63f53dfc509137f6d5e927cead3bc775105
