@@ -2341,13 +2341,13 @@ impl WebpGlitchFilter for MacroblockGlitch {
                     for col_off in 0..MB {
                         let src_x = (sx * MB + col_off) as usize;
                         let dst_x = (dx * MB + col_off) as usize;
-                        if src_x < width as usize && dst_x < width as usize {
-                            if let (Some(ps), Some(pd)) =
+                        if src_x < width as usize
+                            && dst_x < width as usize
+                            && let (Some(ps), Some(pd)) =
                                 (line.get_pixel(src_x), line.get_pixel(dst_x))
-                            {
-                                line.set_pixel(src_x, pd);
-                                line.set_pixel(dst_x, ps);
-                            }
+                        {
+                            line.set_pixel(src_x, pd);
+                            line.set_pixel(dst_x, ps);
                         }
                     }
                 } else {
@@ -2361,13 +2361,13 @@ impl WebpGlitchFilter for MacroblockGlitch {
                     for col_off in 0..MB {
                         let src_x = (sx * MB + col_off) as usize;
                         let dst_x = (dx * MB + col_off) as usize;
-                        if src_x < width as usize && dst_x < width as usize {
-                            if let (Some(ps), Some(pd)) =
+                        if src_x < width as usize
+                            && dst_x < width as usize
+                            && let (Some(ps), Some(pd)) =
                                 (src_line.get_pixel(src_x), dst_line.get_pixel(dst_x))
-                            {
-                                src_line.set_pixel(src_x, pd);
-                                dst_line.set_pixel(dst_x, ps);
-                            }
+                        {
+                            src_line.set_pixel(src_x, pd);
+                            dst_line.set_pixel(dst_x, ps);
                         }
                     }
                 }

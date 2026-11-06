@@ -57,7 +57,7 @@ impl RiffContainer {
 
             pos += size;
             // パディング（奇数バイト時）
-            if size % 2 != 0 {
+            if !size.is_multiple_of(2) {
                 pos += 1;
             }
         }
