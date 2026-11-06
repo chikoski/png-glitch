@@ -130,6 +130,8 @@ The `png-glitch-recipe` crate provides a unified API for managing complex glitch
 - **`FilterConfig`:** A unified configuration enum that supports YAML serialization and deserialization.
 - **`add_from_config`:** A single method to apply complex effect stacks from external configuration files.
 
+The API stability and deprecation policy is in [docs/API_STABILITY.md](docs/API_STABILITY.md).
+
 ## Deep Dive Specifications
 
 For detailed information on specific subsystems, refer to the following documents in `crates/png-glitch/specs/`:

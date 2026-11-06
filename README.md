@@ -56,11 +56,11 @@ Multiple filters can be combined and are applied in the exact order they appear 
 | `--random-copy <COUNT>` | `random-copy` / `RandomCopy` | PNG only | `times` (`usize`) | Copies random scanline bytes `COUNT` times. |
 | `--substitute <INDEX:VALUE>` | `substitute` / `Substitute` | PNG only | `index` (`usize`), `value` (`u8`) | Substitutes a single byte in the middle scanline. |
 | `--change-filter-type <MAG>` | `change-filter-type` / `ChangeFilterType` | PNG only | `magnitude` (`0.0..=1.0`) | Randomly changes PNG filter types across scanlines. |
-| `--remove-filter` | `remove-filter` / `RemoveFilter` | PNG only | — | Forces all scanlines to PNG filter type `None`. |
-| `--sub` (`--sub-filter`) | `sub-filter` / `SubFilter` | PNG only | — | Forces all scanlines to PNG filter type `Sub`. |
-| `--up` (`--up-filter`) | `up-filter` / `UpFilter` | PNG only | — | Forces all scanlines to PNG filter type `Up`. |
-| `--average` (`--average-filter`) | `average-filter` / `AverageFilter` | PNG only | — | Forces all scanlines to PNG filter type `Average`. |
-| `--paeth` (`--paeth-filter`) | `paeth-filter` / `PaethFilter` | PNG only | — | Forces all scanlines to PNG filter type `Paeth`. |
+| `--remove-filter` | `remove-filter` / `RemoveFilter` | PNG only | — | Re-encodes all scanlines with PNG filter type `None` (recomputes the filtered values; it does not just change the filter-type tag). |
+| `--sub` (`--sub-filter`) | `sub-filter` / `SubFilter` | PNG only | — | Re-encodes all scanlines with PNG filter type `Sub` (recomputes the filtered values; it does not just change the filter-type tag). |
+| `--up` (`--up-filter`) | `up-filter` / `UpFilter` | PNG only | — | Re-encodes all scanlines with PNG filter type `Up` (recomputes the filtered values; it does not just change the filter-type tag). |
+| `--average` (`--average-filter`) | `average-filter` / `AverageFilter` | PNG only | — | Re-encodes all scanlines with PNG filter type `Average` (recomputes the filtered values; it does not just change the filter-type tag). |
+| `--paeth` (`--paeth-filter`) | `paeth-filter` / `PaethFilter` | PNG only | — | Re-encodes all scanlines with PNG filter type `Paeth` (recomputes the filtered values; it does not just change the filter-type tag). |
 | `--macroblock-glitch <MAG>` | `macroblock-glitch` / `MacroblockGlitch` | WebP only | `magnitude` (`0.0..=1.0`) | Corrupts 16x16 VP8 macroblocks by swapping, duplicating, or zeroing. |
 | `--alpha-glitch <STRATEGY>` | `alpha-glitch` / `AlphaGlitch` | WebP only | `magnitude=1.0`, `strategy=noise` (`noise` \| `invert` \| `shift` \| `zero`) | Corrupts the alpha channel of RGBA WebP images. |
 | `--lossy-quality <QUALITY>` | `lossy-artifact` / `LossyArtifact` | WebP only | `quality` (`0.0..=100.0`) | Re-encodes through lossy VP8 at low quality to introduce block artifacts. |

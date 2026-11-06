@@ -1,0 +1,53 @@
+//! Error type of this crate.
+
+use crate::*;
+
+/// Result type used by the fallible APIs of this crate.
+pub type Result<T> = std::result::Result<T, RecipeError>;
+
+/// Errors returned while loading, configuring or applying a recipe.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum RecipeError {
+    /// The image file could not be opened or parsed.
+    #[error("failed to open '{}'", .path.display())]
+    Open {
+        /// Path of the file that failed to open.
+        path: PathBuf,
+        /// Underlying PNG error.
+        #[source]
+        source: PngError,
+    },
+    /// The in-memory image data could not be parsed as a PNG.
+    #[error("Failed to parse PNG data")]
+    Parse(#[source] PngError),
+    /// The glitched image could not be encoded.
+    #[error("Failed to encode PNG")]
+    Encode(#[source] PngError),
+    /// The glitched image could not be written to a file.
+    #[error("failed to save '{}'", .path.display())]
+    Save {
+        /// Path of the file that failed to be written.
+        path: PathBuf,
+        /// Underlying PNG error.
+        #[source]
+        source: PngError,
+    },
+    /// A random specification (effect parameter) is out of range or otherwise invalid.
+    #[error("{0}")]
+    InvalidSpec(String),
+    /// A resolved recipe was executed on an image whose header differs from the one it was resolved for.
+    #[error("resolved recipe does not match the image: expected {expected:?}, got {actual:?}")]
+    HeaderMismatch {
+        /// Header the recipe was resolved for.
+        expected: ImageHeader,
+        /// Header of the image it was executed on.
+        actual: ImageHeader,
+    },
+    /// The effect exists but cannot be applied to PNG images.
+    #[error("Filter `{effect}` is a WebP-only filter and is not supported for PNG images")]
+    UnsupportedEffect {
+        /// Debug representation of the rejected effect.
+        effect: String,
+    },
+}

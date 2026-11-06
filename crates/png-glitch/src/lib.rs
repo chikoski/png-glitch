@@ -49,6 +49,17 @@ pub mod presets {
 /// PngGlitch is a crate to create a glitched PNG image.
 /// Please refer to ["The Art of PNG glitch"](https://ucnv.github.io/pnglitch/) for the description about what glitched PNG is.
 ///
+/// # Filter type: tag or values?
+///
+/// Two different operations are easy to confuse:
+///
+/// | Operation | What it does | Recomputes filtered values? |
+/// | :-------- | :----------- | :-------------------------- |
+/// | [`PngGlitch::set_filter_type`], [`ScanLine::set_filter_type`], [`effects::SetFilterTypes`] | overwrites the per-row filter-type byte (the tag) | no |
+/// | [`PngGlitch::encode`], [`PngGlitch::save`] | compresses the scan lines as they are and adds checksums | no |
+/// | [`PngGlitch::reencode_with`], [`effects::Refilter`] | removes the current filter, then applies another one | **yes** |
+/// | [`PngGlitch::remove_filter`], [`PngGlitch::apply_filter`] | the two halves of the above | **yes** |
+///
 /// # Available Effects
 ///
 /// The library provides several built-in effects in the [`effects`] module:
@@ -134,6 +145,10 @@ impl PngGlitch {
     }
 
     /// Creates a `PngGlitch` object from a byte buffer (`Vec<u8>` or `&[u8]`).
+    #[deprecated(
+        since = "0.8.0",
+        note = "use `PngGlitch::from_bytes`; removed before 1.0"
+    )]
     pub fn new(buffer: impl AsRef<[u8]>) -> Result<PngGlitch, PngError> {
         Self::from_bytes(buffer)
     }
@@ -249,7 +264,14 @@ impl PngGlitch {
         self
     }
 
-    /// Changes the PNG filter type of all scan lines (alias for [`Self::reencode_with`]).
+    /// Re-encodes all scan lines with the given filter type (alias for [`Self::reencode_with`]).
+    ///
+    /// Despite the name this recomputes every filtered value; it does not just change the tag.
+    /// Use [`Self::set_filter_type`] to overwrite only the tag.
+    #[deprecated(
+        since = "0.8.0",
+        note = "use `reencode_with` (recomputes values) or `set_filter_type` (tag only); removed before 1.0"
+    )]
     pub fn change_filter_type(&mut self, filter_type: FilterType) -> &mut Self {
         self.reencode_with(filter_type)
     }
