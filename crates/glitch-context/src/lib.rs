@@ -8,7 +8,7 @@
 use anyhow::{Context, Result, bail};
 #[cfg(feature = "clap")]
 use clap::ValueEnum;
-pub use png_glitch::presets::{Brighten, Darken, Invert, ShiftChannels};
+pub use png_glitch::effects::{Brighten, Darken, Invert, ShiftChannels};
 pub use png_glitch::{FilterType, Limits, ParseOptions, Pixel, PngError, PngGlitch, PngWarning};
 pub use rand;
 use rand::{Rng, RngCore, SeedableRng};

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### png-glitch
+
+#### Changed
+- Introduced the `Effect` trait (whole image, `&mut PngGlitch`) and the `LineEffect` helper trait (per scan line, parallel); every `LineEffect` is an `Effect`. `PngGlitch::apply` accepts any `Effect` (#126, ADR 0003).
+- Renamed the `presets` module to `effects` and `GlitchPreset` to `LineEffect`. The old paths remain as a `#[deprecated]` `presets` module for one release.
+
 ### Workspace
 
 #### Changed

@@ -108,7 +108,8 @@ Because `png-glitch` operates at both the PNG container level and the artistic e
 | Term | Crate | Meaning |
 | :--- | :--- | :--- |
 | **PNG Filter** (`FilterType`) | `png-glitch` | One of the 5 PNG scanline prediction algorithms (`None`, `Sub`, `Up`, `Average`, `Paeth`) from the PNG spec. Manipulated via `PngGlitch::reencode_with`, `set_filter_type`, `apply_filter`, and `remove_filter`. |
-| **Preset** (`GlitchPreset`) | `png-glitch::presets` | A deterministic, stateless per-scanline pixel transformation (`Invert`, `Brighten`, `Darken`, `ShiftChannels`) applied via `PngGlitch::apply`. |
+| **Effect** (`Effect`) | `png-glitch::effects` | A deterministic operation on a PNG, with parameters (`Invert`, `Brighten`, `Darken`, `ShiftChannels`), applied via `PngGlitch::apply`. Effects are infallible. Formerly called *preset* (`GlitchPreset`, `presets`; deprecated aliases kept for one release). |
+| **`LineEffect`** | `png-glitch::effects` | Helper trait for effects that transform each scan line independently. Every `LineEffect` is an `Effect` and runs in parallel per line. |
 | **Glitch Filter / Effect** (`GlitchFilter` / `Effect`) | `glitch-context` | A high-level glitch effect (possibly randomized with an RNG) queued into a `GlitchContext` via `add_filter`. |
 | **`png_glitch::Transpose`** | `png-glitch` | A deterministic operation trait (`PngGlitch::transpose(src, dst, lines)`) that swaps two contiguous blocks of scanlines. |
 | **`glitch_context::Transpose`** (`RandomTranspose`) | `glitch-context` | A randomized effect that iterates through scanlines and swaps rows with probability `magnitude`. Also exported as `RandomTranspose` to avoid ambiguity with `png_glitch::Transpose`. |
@@ -119,7 +120,7 @@ Unlike a standard image library that aims for fidelity, `png-glitch` treats the 
 ### Performance & Parallelism
 We use the `rayon` crate for high-performance processing:
 - **Batch Processing:** The CLI parallelizes processing of multiple images across all available CPU cores.
-- **Scanline Processing:** Most glitch presets (like `Invert` or `Brighten`) are parallelized at the scanline level using `par_foreach_scanline`.
+- **Scanline Processing:** Most line effects (like `Invert` or `Brighten`) are parallelized at the scanline level using `par_foreach_scanline`.
 - **Optimization:** Filters like `BlockScramble` are optimized to minimize memory allocation and redundant scanline pre-fetching.
 
 ### High-Level Orchestration

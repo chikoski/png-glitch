@@ -30,32 +30,43 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 
+/// Deterministic glitch effects (`Invert`, `Brighten`, `Darken`, `ShiftChannels`) and the
+/// [`Effect`](effects::Effect) / [`LineEffect`](effects::LineEffect) traits.
+pub mod effects;
 mod operation;
 mod png;
-/// Reusable scanline glitch presets (`Invert`, `Brighten`, `Darken`, `ShiftChannels`).
-pub mod presets;
+
+/// Old names of the [`effects`] module, kept for one release.
+#[deprecated(
+    since = "0.8.0",
+    note = "renamed to `effects`; \"preset\" now means a named recipe"
+)]
+pub mod presets {
+    pub use crate::effects::LineEffect as GlitchPreset;
+    pub use crate::effects::{Brighten, Darken, Invert, ShiftChannels};
+}
 
 /// PngGlitch is a crate to create a glitched PNG image.
 /// Please refer to ["The Art of PNG glitch"](https://ucnv.github.io/pnglitch/) for the description about what glitched PNG is.
 ///
-/// # Available Presets (Recipes)
+/// # Available Effects
 ///
-/// The library provides several built-in glitch recipes in the [`presets`] module:
-/// - [`presets::Invert`]: Inverts all color channels of each pixel.
-/// - [`presets::ShiftChannels`]: Shifts color channels (R, G, B) by specific amounts.
-/// - [`presets::Brighten`]: Increases image brightness (saturating at the bit-depth maximum).
-/// - [`presets::Darken`]: Decreases image brightness (saturating at 0).
+/// The library provides several built-in effects in the [`effects`] module:
+/// - [`effects::Invert`]: Inverts all color channels of each pixel.
+/// - [`effects::ShiftChannels`]: Shifts color channels (R, G, B) by specific amounts.
+/// - [`effects::Brighten`]: Increases image brightness (saturating at the bit-depth maximum).
+/// - [`effects::Darken`]: Decreases image brightness (saturating at 0).
 ///
 /// # Examples
 ///
-/// The following snippet shows how you can glitch "./etc/sample00.png" using a mix of presets and low-level manipulation.
+/// The following snippet shows how you can glitch "./etc/sample00.png" using a mix of effects and low-level manipulation.
 ///
 /// ```
 /// # use std::env;
 /// # env::set_current_dir(env::var("CARGO_MANIFEST_DIR").unwrap_or(".".to_string())).expect("");
 ///
 /// use png_glitch::{FilterType, PngGlitch, Pixel};
-/// use png_glitch::presets::{Invert, Brighten};
+/// use png_glitch::effects::{Invert, Brighten};
 ///
 /// let out_path = std::env::temp_dir().join("png_glitch_doctest_glitched.png");
 /// PngGlitch::open("./etc/sample00.png")
@@ -248,11 +259,11 @@ impl PngGlitch {
         self.foreach_scanline(|line| line.set_filter_type(filter_type))
     }
 
-    /// Applies a glitch preset (`GlitchPreset`) to all scan lines in parallel.
-    pub fn apply<P: presets::GlitchPreset + Sync + Send>(&mut self, preset: P) -> &mut Self {
-        self.par_foreach_scanline(|line| {
-            preset.apply_to_line(line);
-        });
+    /// Applies an [`Effect`](effects::Effect) to the image.
+    ///
+    /// Per-line effects ([`LineEffect`](effects::LineEffect)) run on all scan lines in parallel.
+    pub fn apply<P: effects::Effect>(&mut self, effect: P) -> &mut Self {
+        effect.apply_to(self);
         self
     }
 
@@ -426,8 +437,8 @@ mod test {
                     assert_eq!(png.data(), unfiltered_raw.as_slice());
 
                     // 3. Double Invert restores original pixels
-                    png.apply(presets::Invert);
-                    png.apply(presets::Invert);
+                    png.apply(effects::Invert);
+                    png.apply(effects::Invert);
                     assert_eq!(png.data(), unfiltered_raw.as_slice());
                 }
             }
@@ -461,10 +472,10 @@ mod test {
         let mut png = PngGlitch::from_bytes(bytes)?;
         let original_data = png.data().to_vec();
 
-        png.apply(presets::Invert);
+        png.apply(effects::Invert);
         assert_ne!(png.data(), original_data);
 
-        png.apply(presets::Invert);
+        png.apply(effects::Invert);
         assert_eq!(png.data(), original_data);
 
         let encoded = png.to_bytes()?;

@@ -1,23 +1,45 @@
-use crate::{Pixel, ScanLine};
+use crate::{Pixel, PngGlitch, ScanLine};
 
-/// A trait for defining reusable glitch effects.
-pub trait GlitchPreset {
+/// A deterministic operation on a PNG, with parameters.
+///
+/// An effect receives the whole image, so it can look at more than one scan line.
+/// Effects are infallible: out-of-range parameters are clamped or turn the effect
+/// into a no-op. Apply an effect with [`PngGlitch::apply`].
+///
+/// Effects that only transform one scan line at a time should implement [`LineEffect`]
+/// instead; every [`LineEffect`] is an [`Effect`] automatically.
+pub trait Effect {
+    /// Applies the effect to the whole image.
+    fn apply_to(&self, png: &mut PngGlitch);
+}
+
+/// A helper for implementing [`Effect`]s that transform each scan line independently.
+///
+/// Anything that implements `LineEffect` (and is `Sync + Send`) implements [`Effect`]
+/// automatically, and is applied to all scan lines in parallel.
+pub trait LineEffect {
     /// Applies the effect to a single scan line.
     fn apply_to_line(&self, line: &mut ScanLine);
 }
 
-/// A preset that inverts the colors of each pixel.
+impl<T: LineEffect + Sync + Send> Effect for T {
+    fn apply_to(&self, png: &mut PngGlitch) {
+        png.par_foreach_scanline(|line| self.apply_to_line(line));
+    }
+}
+
+/// A effect that inverts the colors of each pixel.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Invert;
 
 impl Invert {
-    /// Creates a new [`Invert`] preset.
+    /// Creates a new [`Invert`] effect.
     pub fn new() -> Self {
         Self
     }
 }
 
-impl GlitchPreset for Invert {
+impl LineEffect for Invert {
     fn apply_to_line(&self, line: &mut ScanLine) {
         line.process_pixels(|_, pixel| match pixel {
             Pixel::Gray(v) => Pixel::Gray(!v),
@@ -29,7 +51,7 @@ impl GlitchPreset for Invert {
     }
 }
 
-/// A preset that shifts the color channels of each pixel.
+/// A effect that shifts the color channels of each pixel.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ShiftChannels {
     /// Amount added to the red channel (`-32768..=32767`, wrapping).
@@ -47,7 +69,7 @@ impl ShiftChannels {
     }
 }
 
-impl GlitchPreset for ShiftChannels {
+impl LineEffect for ShiftChannels {
     fn apply_to_line(&self, line: &mut ScanLine) {
         let r_shift = self.r;
         let g_shift = self.g;
@@ -69,7 +91,7 @@ impl GlitchPreset for ShiftChannels {
     }
 }
 
-/// A preset that increases the brightness of each pixel (saturating at the bit-depth maximum).
+/// A effect that increases the brightness of each pixel (saturating at the bit-depth maximum).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Brighten {
     /// Brightness increment added to each channel (saturating at the bit-depth maximum).
@@ -89,7 +111,7 @@ impl Brighten {
     }
 }
 
-impl GlitchPreset for Brighten {
+impl LineEffect for Brighten {
     fn apply_to_line(&self, line: &mut ScanLine) {
         let strength = self.strength;
         let max_val = ((1u32 << line.bit_depth() as u32).saturating_sub(1)) as u16;
@@ -106,7 +128,7 @@ impl GlitchPreset for Brighten {
     }
 }
 
-/// A preset that decreases the brightness of each pixel (saturating at 0).
+/// A effect that decreases the brightness of each pixel (saturating at 0).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Darken {
     /// Brightness decrement subtracted from each channel (saturating at `0`).
@@ -126,7 +148,7 @@ impl Darken {
     }
 }
 
-impl GlitchPreset for Darken {
+impl LineEffect for Darken {
     fn apply_to_line(&self, line: &mut ScanLine) {
         let strength = self.strength;
         line.process_pixels(|_, pixel| {
@@ -178,5 +200,35 @@ mod tests {
         let mut line = ScanLine::new(&mut data, ColorType::TrueColor, 8, 1);
         Darken { strength: 10 }.apply_to_line(&mut line);
         assert_eq!(line.get_pixel(0).unwrap(), Pixel::RGB(90, 190, 0));
+    }
+}
+
+#[cfg(test)]
+mod effect_trait_tests {
+    use super::*;
+
+    struct FirstRowZero;
+    impl Effect for FirstRowZero {
+        fn apply_to(&self, png: &mut PngGlitch) {
+            if let Some(line) = png.scan_lines().first_mut() {
+                line.process_pixels(|_, p| match p {
+                    Pixel::RGBA(_, _, _, a) => Pixel::RGBA(0, 0, 0, a),
+                    other => other,
+                });
+            }
+        }
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn whole_image_effect_and_deprecated_alias_compile() {
+        fn takes_effect<E: Effect>(_: E) {}
+        takes_effect(FirstRowZero);
+        takes_effect(Invert);
+        struct Old;
+        impl crate::presets::GlitchPreset for Old {
+            fn apply_to_line(&self, _: &mut ScanLine) {}
+        }
+        takes_effect(Old);
     }
 }
