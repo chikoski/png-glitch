@@ -58,8 +58,8 @@ pub fn byte_in_previous_line(line: Option<&ScanLine>, index: usize, offset: usiz
         Some(line) => {
             let abs_index = index + line.pixel_data_offset() + offset;
             byte_at(line, abs_index)
-        },
-        _ => 0
+        }
+        _ => 0,
     }
 }
 
@@ -68,7 +68,12 @@ pub fn byte_in_previous_line(line: Option<&ScanLine>, index: usize, offset: usiz
 /// The `index` parameter is the index of the pixel.
 /// The `offset` parameter is the offset of the byte in the pixel.
 /// The `bpp` parameter is the number of bytes per pixel.
-pub fn byte_in_previous_pixel_in_previous_line(line: Option<&ScanLine>, index: usize, offset: usize, bpp: usize) -> u8 {
+pub fn byte_in_previous_pixel_in_previous_line(
+    line: Option<&ScanLine>,
+    index: usize,
+    offset: usize,
+    bpp: usize,
+) -> u8 {
     if index < bpp {
         0
     } else {
@@ -130,9 +135,18 @@ mod tests {
         let line1 = ScanLine::new(&mut data1, ColorType::GrayScale, 8, 3);
         let bpp = 1;
 
-        assert_eq!(byte_in_previous_pixel_in_previous_line(Some(&line1), 0, 0, bpp), 0);
-        assert_eq!(byte_in_previous_pixel_in_previous_line(Some(&line1), 1, 0, bpp), 10);
-        assert_eq!(byte_in_previous_pixel_in_previous_line(Some(&line1), 2, 0, bpp), 20);
+        assert_eq!(
+            byte_in_previous_pixel_in_previous_line(Some(&line1), 0, 0, bpp),
+            0
+        );
+        assert_eq!(
+            byte_in_previous_pixel_in_previous_line(Some(&line1), 1, 0, bpp),
+            10
+        );
+        assert_eq!(
+            byte_in_previous_pixel_in_previous_line(Some(&line1), 2, 0, bpp),
+            20
+        );
         assert_eq!(byte_in_previous_pixel_in_previous_line(None, 1, 0, bpp), 0);
     }
 }

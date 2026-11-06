@@ -13,9 +13,12 @@ const FIXTURE: &[u8] = include_bytes!("fixtures/small.png");
 fn golden_hash(yaml: &str) -> String {
     let config: FilterConfig = serde_saphyr::from_str(yaml).expect("valid filter config");
     let mut ctx = GlitchContext::new(FIXTURE, Some(SEED)).expect("fixture parses");
-    ctx.add_from_config(config).expect("filter is supported for PNG");
+    ctx.add_from_config(config)
+        .expect("filter is supported for PNG");
     ctx.execute();
-    blake3::hash(&ctx.buffer().expect("encodes")).to_hex().to_string()
+    blake3::hash(&ctx.buffer().expect("encodes"))
+        .to_hex()
+        .to_string()
 }
 
 macro_rules! golden {
@@ -27,18 +30,36 @@ macro_rules! golden {
     };
 }
 
-golden!(change_filter_type, "type: change-filter-type\nmagnitude: 0.3");
+golden!(
+    change_filter_type,
+    "type: change-filter-type\nmagnitude: 0.3"
+);
 golden!(replace, "type: replace\nmagnitude: 0.1");
 golden!(transpose, "type: transpose\nmagnitude: 0.3");
 golden!(set_zero, "type: set-zero\nmagnitude: 0.5");
 golden!(random_copy, "type: random-copy\ntimes: 5");
 golden!(substitute, "type: substitute\nindex: 3\nvalue: 255");
-golden!(pixel_sort, "type: pixel-sort\nmagnitude: 1.0\ncriterion: brightness");
-golden!(bitwise, "type: bitwise\nmagnitude: 0.2\nop: xor\nvalue: 255");
-golden!(channel_swap, "type: channel-swap\nmagnitude: 0.5\ntarget: br");
+golden!(
+    pixel_sort,
+    "type: pixel-sort\nmagnitude: 1.0\ncriterion: brightness"
+);
+golden!(
+    bitwise,
+    "type: bitwise\nmagnitude: 0.2\nop: xor\nvalue: 255"
+);
+golden!(
+    channel_swap,
+    "type: channel-swap\nmagnitude: 0.5\ntarget: br"
+);
 golden!(horizontal_shift, "type: horizontal-shift\nmagnitude: 0.3");
-golden!(block_scramble, "type: block-scramble\nmagnitude: 0.3\nblock_size: 8");
-golden!(color_distortion, "type: color-distortion\nmagnitude: 0.3\nstrength: 40");
+golden!(
+    block_scramble,
+    "type: block-scramble\nmagnitude: 0.3\nblock_size: 8"
+);
+golden!(
+    color_distortion,
+    "type: color-distortion\nmagnitude: 0.3\nstrength: 40"
+);
 golden!(
     color_space_glitch,
     "type: color-space-glitch\nmagnitude: 0.5\nhue_shift: 90.0"

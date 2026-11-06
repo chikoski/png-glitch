@@ -59,7 +59,12 @@ pub struct PixelBuffer {
 
 impl PixelBuffer {
     pub fn new(width: u32, height: u32, has_alpha: bool, data: Vec<u8>) -> Self {
-        Self { width, height, has_alpha, data }
+        Self {
+            width,
+            height,
+            has_alpha,
+            data,
+        }
     }
 
     pub fn channels(&self) -> usize {

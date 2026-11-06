@@ -90,4 +90,3 @@ mod tests {
         assert_eq!(indexed.a(), 0xFFFF);
     }
 }
-

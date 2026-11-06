@@ -1,9 +1,9 @@
 use crate::operation::{Encode, Scan, Transpose};
 use crate::png::parser::Header;
-pub use crate::png::parser::{Limits, ParseOptions};
 use crate::png::parser::Parser;
 use crate::png::parser::Terminator;
 use crate::png::parser::{Chunk, ChunkType};
+pub use crate::png::parser::{Limits, ParseOptions};
 pub use crate::png::png_error::{PngError, PngWarning};
 pub use crate::png::scan_line::Pixel;
 pub use crate::png::scan_line::ScanLine;

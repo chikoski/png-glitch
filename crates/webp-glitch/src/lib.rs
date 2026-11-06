@@ -30,7 +30,11 @@ impl WebpGlitch {
     pub fn new(data: Vec<u8>) -> Result<Self, WebpError> {
         let riff = RiffContainer::parse(&data)?;
         let pixels = decode_pixels(&data)?;
-        Ok(Self { riff, pixels, quality: 90.0 })
+        Ok(Self {
+            riff,
+            pixels,
+            quality: 90.0,
+        })
     }
 
     /// Returns the image width in pixels.
@@ -87,13 +91,10 @@ impl WebpGlitch {
         let stride = self.pixels.stride();
         let width = self.pixels.width;
         let has_alpha = self.pixels.has_alpha;
-        self.pixels
-            .data
-            .par_chunks_mut(stride)
-            .for_each(|row| {
-                let mut line = ScanLine::new(row, width, has_alpha);
-                f(&mut line);
-            });
+        self.pixels.data.par_chunks_mut(stride).for_each(|row| {
+            let mut line = ScanLine::new(row, width, has_alpha);
+            f(&mut line);
+        });
         self
     }
 
@@ -149,8 +150,7 @@ fn encode_pixels(buf: &PixelBuffer, quality: f32) -> Result<Vec<u8>, WebpError> 
             .ok_or_else(|| WebpError::EncodeError("failed to build RgbImage".into()))?;
         image::DynamicImage::ImageRgb8(rgb)
     };
-    let encoder = Encoder::from_image(&img)
-        .map_err(|e| WebpError::EncodeError(e.to_string()))?;
+    let encoder = Encoder::from_image(&img).map_err(|e| WebpError::EncodeError(e.to_string()))?;
     let webp_data = encoder.encode(quality);
     Ok(webp_data.to_vec())
 }
@@ -160,9 +160,7 @@ fn encode_pixels(buf: &PixelBuffer, quality: f32) -> Result<Vec<u8>, WebpError> 
 #[cfg(test)]
 fn make_test_webp(width: u32, height: u32) -> Vec<u8> {
     use webp::Encoder;
-    let pixels: Vec<u8> = (0..(width * height * 3))
-        .map(|i| (i % 256) as u8)
-        .collect();
+    let pixels: Vec<u8> = (0..(width * height * 3)).map(|i| (i % 256) as u8).collect();
     let img = image::RgbImage::from_raw(width, height, pixels).unwrap();
     let dyn_img = image::DynamicImage::ImageRgb8(img);
     let enc = Encoder::from_image(&dyn_img).unwrap();
@@ -262,6 +260,9 @@ mod tests {
         let high_q = glitch2.encode().expect("encode ok").len();
 
         // 低品質の方がファイルサイズが小さいはず
-        assert!(low_q <= high_q, "low quality should produce smaller or equal file");
+        assert!(
+            low_q <= high_q,
+            "low quality should produce smaller or equal file"
+        );
     }
 }

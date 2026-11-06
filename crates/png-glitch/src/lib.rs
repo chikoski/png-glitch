@@ -203,7 +203,12 @@ impl PngGlitch {
     }
 
     /// Applies the specified PNG prediction filter to scan lines in the specified region.
-    pub fn apply_filter_from(&mut self, filter_type: FilterType, from: u32, lines: u32) -> &mut Self {
+    pub fn apply_filter_from(
+        &mut self,
+        filter_type: FilterType,
+        from: u32,
+        lines: u32,
+    ) -> &mut Self {
         self.png.apply_filter_from(filter_type, from, lines);
         self
     }
@@ -369,12 +374,10 @@ mod test {
                 for width in [1u32, 2, 3, 4, 5, 6, 7, 8, 9, 17] {
                     let height = 5u32;
                     let src_bytes = build_synthetic_png(width, height, color_type, bit_depth);
-                    let expected_img = image::load_from_memory_with_format(
-                        &src_bytes,
-                        image::ImageFormat::Png,
-                    )
-                    .expect("synthetic PNG should decode with `image` crate")
-                    .into_rgba8();
+                    let expected_img =
+                        image::load_from_memory_with_format(&src_bytes, image::ImageFormat::Png)
+                            .expect("synthetic PNG should decode with `image` crate")
+                            .into_rgba8();
 
                     let mut png = PngGlitch::from_bytes(&src_bytes).unwrap();
                     let unfiltered_raw = png.data().to_vec();
@@ -507,12 +510,9 @@ mod test {
         let mut bad_crc = build_synthetic_png(2, 2, 2, 8);
         bad_crc[29] ^= 0xFF; // flip last byte of IHDR CRC
         let lenient = PngGlitch::from_bytes(&bad_crc).unwrap();
-        assert!(
-            lenient
-                .warnings()
-                .iter()
-                .any(|w| matches!(w, PngWarning::CrcMismatch { chunk_type, .. } if chunk_type == "IHDR"))
-        );
+        assert!(lenient.warnings().iter().any(
+            |w| matches!(w, PngWarning::CrcMismatch { chunk_type, .. } if chunk_type == "IHDR")
+        ));
         assert!(matches!(
             PngGlitch::from_bytes_with_options(&bad_crc, ParseOptions::strict()),
             Err(PngError::CrcMismatch { .. })
