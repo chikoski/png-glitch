@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### png-glitch-recipe `0.3.0`
 
+#### Added
+- `Recipe` (an ordered list of `FilterConfig` steps, independent of any image; `Clone`, `Debug`, `PartialEq`), `Recipe::resolve(&ImageHeader, seed)` → `ResolvedRecipe` (all random choices drawn, concrete `png-glitch` effects only), and `ResolvedRecipe::execute(&mut PngGlitch)` (deterministic, no RNG). One recipe can be reused for any number of images and seeds, and `Recipe::run` resolves and executes in one call (#68, ADR 0004).
+- `ImageHeader`, `ResolvedStep` and `RecipeError::HeaderMismatch`: executing a resolved recipe on an image whose header differs from the one it was resolved for is an error.
+- `GlitchContext` is unchanged for callers and now runs the same resolve/execute code, so seeded output is byte-identical (golden tests unchanged).
+
 #### Changed
 - **Breaking**: `glitch-context` was renamed to `png-glitch-recipe` (#128, ADR 0004). Replace `glitch-context` with `png-glitch-recipe` in `Cargo.toml` and `glitch_context` with `png_glitch_recipe` in `use` paths. CLI behaviour and seeded output are unchanged. A final `glitch-context` release that points to the new crate is published separately.
 - Each randomized effect now only draws its choices (rows, bytes, offsets) from the RNG, in the same order as before, and calls the matching deterministic `png-glitch` effect (#129). Seeded output is byte-identical (golden tests unchanged).
