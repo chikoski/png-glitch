@@ -13,26 +13,37 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-
+  lint:
+    name: Lint and docs
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v7
     - name: Check formatting
       run: cargo fmt --all --check
-    - name: Build
-      run: cargo build --workspace --all-targets --verbose
     - name: Run clippy
       run: cargo clippy --workspace --all-targets -- -D warnings
+    - name: Check documentation
+      run: cargo doc --workspace --no-deps
+
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+    - uses: actions/checkout@v7
+    - name: Build
+      run: cargo build --workspace --all-targets --verbose
     - name: Run tests
       run: cargo test --workspace --all-targets --verbose
     - name: Run tests (release, overflow checks on)
       run: cargo test --workspace --release --verbose
     - name: Run doc tests
       run: cargo test --workspace --doc --verbose
-    - name: Check documentation
-      run: cargo doc --workspace --no-deps
 
   msrv:
     name: MSRV (1.89)
