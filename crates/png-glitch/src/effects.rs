@@ -1,5 +1,12 @@
 use crate::{Pixel, PngGlitch, ScanLine};
 
+mod targeted;
+pub use targeted::{
+    BitOp, Bitwise, BlockSwap, ByteEdit, ChannelShift, CopyLines, HslShift, LineOffsets, LineShift,
+    OffsetColors, PixelSort, Refilter, SetBytes, SetFilterTypes, ShiftLines, SortCriterion,
+    Substitute, SwapBlocks, SwapChannels, SwapLines, SwapTarget,
+};
+
 /// A deterministic operation on a PNG, with parameters.
 ///
 /// An effect receives the whole image, so it can look at more than one scan line.

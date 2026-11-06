@@ -8,6 +8,7 @@
 
 #[cfg(feature = "clap")]
 use clap::ValueEnum;
+use png_glitch::effects as fx;
 pub use png_glitch::effects::{Brighten, Darken, Invert, ShiftChannels};
 pub use png_glitch::{FilterType, Limits, ParseOptions, Pixel, PngError, PngGlitch, PngWarning};
 pub use rand;
@@ -394,6 +395,19 @@ impl GlitchContext {
     }
 }
 
+/// Byte size of one scan line's filtered data (the same for every row).
+fn line_size(png: &mut PngGlitch) -> usize {
+    png.scan_lines().first().map_or(0, |line| line.size())
+}
+
+/// Decides, for each row in order, whether it is selected with probability `magnitude`.
+fn draw_rows(png: &PngGlitch, rng: &mut dyn RngCore, magnitude: f64) -> Vec<u32> {
+    let magnitude = clamp_magnitude(magnitude);
+    (0..png.height())
+        .filter(|_| rng.random_bool(magnitude))
+        .collect()
+}
+
 fn clamp_magnitude(m: f64) -> f64 {
     if m.is_nan() { 0.0 } else { m.clamp(0.0, 1.0) }
 }
@@ -686,18 +700,19 @@ impl ChangeFilterType {
 impl GlitchFilter for ChangeFilterType {
     fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
         let magnitude = clamp_magnitude(self.magnitude);
-        png.foreach_scanline(|scan_line| {
-            if rng.random_bool(magnitude) {
-                let filter_type = match rng.random_range(0..5) {
-                    0 => FilterType::None,
-                    1 => FilterType::Sub,
-                    2 => FilterType::Up,
-                    3 => FilterType::Average,
-                    _ => FilterType::Paeth,
-                };
-                scan_line.set_filter_type(filter_type);
-            }
-        });
+        let filter_types = (0..png.height())
+            .map(|_| {
+                rng.random_bool(magnitude)
+                    .then(|| match rng.random_range(0..5) {
+                        0 => FilterType::None,
+                        1 => FilterType::Sub,
+                        2 => FilterType::Up,
+                        3 => FilterType::Average,
+                        _ => FilterType::Paeth,
+                    })
+            })
+            .collect();
+        png.apply(fx::SetFilterTypes::new(filter_types));
     }
 }
 
@@ -714,7 +729,7 @@ impl RemoveFilter {
 
 impl GlitchFilter for RemoveFilter {
     fn apply(&self, png: &mut PngGlitch, _rng: &mut dyn RngCore) {
-        png.change_filter_type(FilterType::None);
+        png.apply(fx::Refilter::new(FilterType::None));
     }
 }
 
@@ -731,7 +746,7 @@ impl SubFilter {
 
 impl GlitchFilter for SubFilter {
     fn apply(&self, png: &mut PngGlitch, _rng: &mut dyn RngCore) {
-        png.change_filter_type(FilterType::Sub);
+        png.apply(fx::Refilter::new(FilterType::Sub));
     }
 }
 
@@ -748,7 +763,7 @@ impl UpFilter {
 
 impl GlitchFilter for UpFilter {
     fn apply(&self, png: &mut PngGlitch, _rng: &mut dyn RngCore) {
-        png.change_filter_type(FilterType::Up);
+        png.apply(fx::Refilter::new(FilterType::Up));
     }
 }
 
@@ -765,7 +780,7 @@ impl AverageFilter {
 
 impl GlitchFilter for AverageFilter {
     fn apply(&self, png: &mut PngGlitch, _rng: &mut dyn RngCore) {
-        png.change_filter_type(FilterType::Average);
+        png.apply(fx::Refilter::new(FilterType::Average));
     }
 }
 
@@ -782,7 +797,7 @@ impl PaethFilter {
 
 impl GlitchFilter for PaethFilter {
     fn apply(&self, png: &mut PngGlitch, _rng: &mut dyn RngCore) {
-        png.change_filter_type(FilterType::Paeth);
+        png.apply(fx::Refilter::new(FilterType::Paeth));
     }
 }
 
@@ -811,17 +826,18 @@ impl Replace {
 impl GlitchFilter for Replace {
     fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
         let magnitude = clamp_magnitude(self.magnitude);
-        png.foreach_scanline(|scan_line| {
-            let size = scan_line.size();
-            if size == 0 {
-                return;
+        let size = line_size(png);
+        let mut edits = Vec::new();
+        if size > 0 {
+            for line in 0..png.height() {
+                if rng.random_bool(magnitude) {
+                    let value: u8 = rng.random();
+                    let index = rng.random_range(0..size);
+                    edits.push(fx::ByteEdit { line, index, value });
+                }
             }
-            if rng.random_bool(magnitude) {
-                let val: u8 = rng.random();
-                let index = rng.random_range(0..size);
-                scan_line.update(index, val);
-            }
-        });
+        }
+        png.apply(fx::SetBytes::new(edits));
     }
 }
 
@@ -857,14 +873,14 @@ impl GlitchFilter for Transpose {
         if height <= 1 {
             return;
         }
+        let mut swaps = Vec::new();
         for i in 0..height {
             if rng.random_bool(magnitude) {
                 let target = rng.random_range(0..height);
-                if i != target {
-                    png.transpose(i, target, 1);
-                }
+                swaps.push((i, target));
             }
         }
+        png.apply(fx::SwapLines::new(swaps));
     }
 }
 
@@ -895,30 +911,14 @@ impl GlitchFilter for RandomCopy {
             return;
         }
         let times = self.times.min(MAX_RANDOM_COPY_TIMES);
-        let mut scan_lines = png.scan_lines();
-        let index_range = 0..height as usize;
-        for _ in 0..times {
-            let src_idx = rng.random_range(index_range.clone());
-            let dest_idx = rng.random_range(index_range.clone());
-
-            if src_idx == dest_idx {
-                continue;
-            }
-
-            let (filter_type, buffer) = {
-                let src = &mut scan_lines[src_idx];
-                let filter_type = src.filter_type();
-                let mut buffer = vec![0; src.size()];
-                use std::io::Read;
-                src.read_exact(&mut buffer).unwrap();
-                (filter_type, buffer)
-            };
-
-            let dest = &mut scan_lines[dest_idx];
-            use std::io::Write;
-            dest.write_all(&buffer).unwrap();
-            dest.set_filter_type(filter_type);
-        }
+        let copies = (0..times)
+            .map(|_| {
+                let src = rng.random_range(0..height);
+                let dst = rng.random_range(0..height);
+                (src, dst)
+            })
+            .collect();
+        png.apply(fx::CopyLines::new(copies));
     }
 }
 
@@ -940,11 +940,7 @@ impl Substitute {
 
 impl GlitchFilter for Substitute {
     fn apply(&self, png: &mut PngGlitch, _rng: &mut dyn RngCore) {
-        png.foreach_scanline(|scanline| {
-            if self.index < scanline.size() {
-                scanline.update(self.index, self.value);
-            }
-        });
+        png.apply(fx::Substitute::new(self.index, self.value));
     }
 }
 
@@ -973,16 +969,21 @@ impl SetZero {
 impl GlitchFilter for SetZero {
     fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
         let magnitude = clamp_magnitude(self.magnitude);
-        png.foreach_scanline(|scan_line| {
-            let size = scan_line.size();
-            if size == 0 {
-                return;
+        let size = line_size(png);
+        let mut edits = Vec::new();
+        if size > 0 {
+            for line in 0..png.height() {
+                if rng.random_bool(magnitude) {
+                    let index = rng.random_range(0..size);
+                    edits.push(fx::ByteEdit {
+                        line,
+                        index,
+                        value: 0,
+                    });
+                }
             }
-            if rng.random_bool(magnitude) {
-                let index = rng.random_range(0..size);
-                scan_line.update(index, 0);
-            }
-        });
+        }
+        png.apply(fx::SetBytes::new(edits));
     }
 }
 
@@ -1036,53 +1037,12 @@ impl PixelSort {
 
 impl GlitchFilter for PixelSort {
     fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
-        let magnitude = clamp_magnitude(self.magnitude);
-        png.foreach_scanline(|scan_line| {
-            if rng.random_bool(magnitude) {
-                let mut pixels = Vec::with_capacity(scan_line.pixels_count() as usize);
-                for i in 0..scan_line.pixels_count() as usize {
-                    if let Some(p) = scan_line.get_pixel(i) {
-                        pixels.push(p);
-                    }
-                }
-
-                pixels.sort_by(|a, b| {
-                    let val_a = self.get_value(a);
-                    let val_b = self.get_value(b);
-                    val_a
-                        .partial_cmp(&val_b)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                });
-
-                for (i, p) in pixels.into_iter().enumerate() {
-                    scan_line.set_pixel(i, p);
-                }
-            }
-        });
-    }
-}
-
-impl PixelSort {
-    fn get_value(&self, p: &Pixel) -> f64 {
-        match self.criterion {
-            SortCriterion::Brightness => (p.r() as f64 + p.g() as f64 + p.b() as f64) / 3.0,
-            SortCriterion::Hue => {
-                let r = p.r() as f64 / 65535.0;
-                let g = p.g() as f64 / 65535.0;
-                let b = p.b() as f64 / 65535.0;
-                let max = r.max(g).max(b);
-                let min = r.min(g).min(b);
-                if max == min {
-                    0.0
-                } else if max == r {
-                    (60.0 * ((g - b) / (max - min)) + 360.0) % 360.0
-                } else if max == g {
-                    (60.0 * ((b - r) / (max - min)) + 120.0) % 360.0
-                } else {
-                    (60.0 * ((r - g) / (max - min)) + 240.0) % 360.0
-                }
-            }
-        }
+        let rows = draw_rows(png, rng, self.magnitude);
+        let criterion = match self.criterion {
+            SortCriterion::Brightness => fx::SortCriterion::Brightness,
+            SortCriterion::Hue => fx::SortCriterion::Hue,
+        };
+        png.apply(fx::PixelSort::new(criterion, rows));
     }
 }
 
@@ -1148,21 +1108,13 @@ impl Bitwise {
 
 impl GlitchFilter for Bitwise {
     fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
-        let magnitude = clamp_magnitude(self.magnitude);
-        png.foreach_scanline(|scan_line| {
-            if rng.random_bool(magnitude) {
-                for i in 0..scan_line.size() {
-                    if let Some(b) = scan_line.index(i) {
-                        let new_b = match self.op {
-                            BitOp::And => b & self.value,
-                            BitOp::Or => b | self.value,
-                            BitOp::Xor => b ^ self.value,
-                        };
-                        scan_line.update(i, new_b);
-                    }
-                }
-            }
-        });
+        let rows = draw_rows(png, rng, self.magnitude);
+        let op = match self.op {
+            BitOp::And => fx::BitOp::And,
+            BitOp::Or => fx::BitOp::Or,
+            BitOp::Xor => fx::BitOp::Xor,
+        };
+        png.apply(fx::Bitwise::new(op, self.value, rows));
     }
 }
 
@@ -1219,24 +1171,13 @@ impl ChannelSwap {
 
 impl GlitchFilter for ChannelSwap {
     fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
-        let magnitude = clamp_magnitude(self.magnitude);
-        png.foreach_scanline(|scan_line| {
-            if rng.random_bool(magnitude) {
-                scan_line.process_pixels(|_, p| match p {
-                    Pixel::RGB(r, g, b) => match self.target {
-                        SwapTarget::Rg => Pixel::RGB(g, r, b),
-                        SwapTarget::Gb => Pixel::RGB(r, b, g),
-                        SwapTarget::Br => Pixel::RGB(b, g, r),
-                    },
-                    Pixel::RGBA(r, g, b, a) => match self.target {
-                        SwapTarget::Rg => Pixel::RGBA(g, r, b, a),
-                        SwapTarget::Gb => Pixel::RGBA(r, b, g, a),
-                        SwapTarget::Br => Pixel::RGBA(b, g, r, a),
-                    },
-                    _ => p,
-                });
-            }
-        });
+        let rows = draw_rows(png, rng, self.magnitude);
+        let target = match self.target {
+            SwapTarget::Rg => fx::SwapTarget::Rg,
+            SwapTarget::Gb => fx::SwapTarget::Gb,
+            SwapTarget::Br => fx::SwapTarget::Br,
+        };
+        png.apply(fx::SwapChannels::new(target, rows));
     }
 }
 
@@ -1265,24 +1206,17 @@ impl HorizontalShift {
 impl GlitchFilter for HorizontalShift {
     fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
         let magnitude = clamp_magnitude(self.magnitude);
-        png.foreach_scanline(|scan_line| {
-            let size = scan_line.size();
-            if size <= 1 {
-                return;
-            }
-            if rng.random_bool(magnitude) {
-                let shift = rng.random_range(0..size);
-                let mut buffer = vec![0; size];
-                for (i, byte) in buffer.iter_mut().enumerate().take(size) {
-                    *byte = scan_line.index(i).unwrap();
-                }
-
-                for (i, &byte) in buffer.iter().enumerate().take(size) {
-                    let new_idx = (i + shift) % size;
-                    scan_line.update(new_idx, byte);
+        let size = line_size(png);
+        let mut shifts = Vec::new();
+        if size > 1 {
+            for line in 0..png.height() {
+                if rng.random_bool(magnitude) {
+                    let shift = rng.random_range(0..size);
+                    shifts.push(fx::LineShift { line, shift });
                 }
             }
-        });
+        }
+        png.apply(fx::ShiftLines::new(shifts));
     }
 }
 
@@ -1340,65 +1274,19 @@ impl GlitchFilter for BlockScramble {
         let total_blocks = (num_blocks_x * num_blocks_y) as usize;
         let num_scrambles = (total_blocks as f64 * clamp_magnitude(self.magnitude)) as usize;
 
-        let mut scan_lines = png.scan_lines();
-
-        for _ in 0..num_scrambles {
-            let src_bx = rng.random_range(0..num_blocks_x);
-            let src_by = rng.random_range(0..num_blocks_y);
-            let dst_bx = rng.random_range(0..num_blocks_x);
-            let dst_by = rng.random_range(0..num_blocks_y);
-
-            if src_bx == dst_bx && src_by == dst_by {
-                continue;
-            }
-
-            // Swap blocks line by line
-            for y_off in 0..block_size {
-                let src_y = src_by * block_size + y_off;
-                let dst_y = dst_by * block_size + y_off;
-
-                if src_y >= height || dst_y >= height {
-                    continue;
+        let swaps = (0..num_scrambles)
+            .map(|_| {
+                let src_bx = rng.random_range(0..num_blocks_x);
+                let src_by = rng.random_range(0..num_blocks_y);
+                let dst_bx = rng.random_range(0..num_blocks_x);
+                let dst_by = rng.random_range(0..num_blocks_y);
+                fx::BlockSwap {
+                    src: (src_bx, src_by),
+                    dst: (dst_bx, dst_by),
                 }
-
-                if src_y == dst_y {
-                    let line = &mut scan_lines[src_y as usize];
-                    for x_off in 0..block_size {
-                        let src_x = src_bx * block_size + x_off;
-                        let dst_x = dst_bx * block_size + x_off;
-                        if src_x < width && dst_x < width {
-                            let p_src = line.get_pixel(src_x as usize);
-                            let p_dst = line.get_pixel(dst_x as usize);
-                            if let (Some(ps), Some(pd)) = (p_src, p_dst) {
-                                line.set_pixel(src_x as usize, pd);
-                                line.set_pixel(dst_x as usize, ps);
-                            }
-                        }
-                    }
-                } else {
-                    let (src_line, dst_line) = if src_y < dst_y {
-                        let (left, right) = scan_lines.split_at_mut(dst_y as usize);
-                        (&mut left[src_y as usize], &mut right[0])
-                    } else {
-                        let (left, right) = scan_lines.split_at_mut(src_y as usize);
-                        (&mut right[0], &mut left[dst_y as usize])
-                    };
-
-                    for x_off in 0..block_size {
-                        let src_x = src_bx * block_size + x_off;
-                        let dst_x = dst_bx * block_size + x_off;
-                        if src_x < width && dst_x < width {
-                            let p_src = src_line.get_pixel(src_x as usize);
-                            let p_dst = dst_line.get_pixel(dst_x as usize);
-                            if let (Some(ps), Some(pd)) = (p_src, p_dst) {
-                                src_line.set_pixel(src_x as usize, pd);
-                                dst_line.set_pixel(dst_x as usize, ps);
-                            }
-                        }
-                    }
-                }
-            }
-        }
+            })
+            .collect();
+        png.apply(fx::SwapBlocks::new(block_size, swaps));
     }
 }
 
@@ -1440,31 +1328,26 @@ impl GlitchFilter for ColorDistortion {
     fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
         let strength = self.strength.saturating_abs();
         let magnitude = clamp_magnitude(self.magnitude);
-        png.foreach_scanline(|scan_line| {
+        let pixels = if png.bit_depth() == 0 {
+            0
+        } else {
+            png.width() as usize
+        };
+        let mut lines = Vec::new();
+        for line in 0..png.height() {
             if rng.random_bool(magnitude) {
-                scan_line.process_pixels(|_, p| {
-                    let r_off = rng.random_range(-strength..=strength);
-                    let g_off = rng.random_range(-strength..=strength);
-                    let b_off = rng.random_range(-strength..=strength);
-                    match p {
-                        Pixel::RGB(r, g, b) => Pixel::RGB(
-                            r.wrapping_add_signed(r_off),
-                            g.wrapping_add_signed(g_off),
-                            b.wrapping_add_signed(b_off),
-                        ),
-                        Pixel::RGBA(r, g, b, a) => Pixel::RGBA(
-                            r.wrapping_add_signed(r_off),
-                            g.wrapping_add_signed(g_off),
-                            b.wrapping_add_signed(b_off),
-                            a,
-                        ),
-                        Pixel::Gray(v) => Pixel::Gray(v.wrapping_add_signed(r_off)),
-                        Pixel::GrayAlpha(v, a) => Pixel::GrayAlpha(v.wrapping_add_signed(r_off), a),
-                        _ => p,
-                    }
-                });
+                let offsets = (0..pixels)
+                    .map(|_| {
+                        let r = rng.random_range(-strength..=strength);
+                        let g = rng.random_range(-strength..=strength);
+                        let b = rng.random_range(-strength..=strength);
+                        [r, g, b]
+                    })
+                    .collect();
+                lines.push(fx::LineOffsets { line, offsets });
             }
-        });
+        }
+        png.apply(fx::OffsetColors::new(lines));
     }
 }
 
@@ -1522,117 +1405,14 @@ impl ColorSpaceGlitch {
 
 impl GlitchFilter for ColorSpaceGlitch {
     fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
-        let magnitude = clamp_magnitude(self.magnitude);
-        let hue_shift = if self.hue_shift.is_finite() {
-            self.hue_shift
-        } else {
-            0.0
-        };
-        let sat_mult = if self.saturation_mult.is_finite() && self.saturation_mult >= 0.0 {
-            self.saturation_mult
-        } else {
-            1.0
-        };
-        let light_mult = if self.lightness_mult.is_finite() && self.lightness_mult >= 0.0 {
-            self.lightness_mult
-        } else {
-            1.0
-        };
-        png.foreach_scanline(|scan_line| {
-            if rng.random_bool(magnitude) {
-                scan_line.process_pixels(|_, p| match p {
-                    Pixel::RGB(r, g, b) => {
-                        let (h, s, l) = rgb_to_hsl(r, g, b);
-                        let h = (h + hue_shift).rem_euclid(360.0);
-                        let s = (s * sat_mult).clamp(0.0, 1.0);
-                        let l = (l * light_mult).clamp(0.0, 1.0);
-                        let (r, g, b) = hsl_to_rgb(h, s, l);
-                        Pixel::RGB(r, g, b)
-                    }
-                    Pixel::RGBA(r, g, b, a) => {
-                        let (h, s, l) = rgb_to_hsl(r, g, b);
-                        let h = (h + hue_shift).rem_euclid(360.0);
-                        let s = (s * sat_mult).clamp(0.0, 1.0);
-                        let l = (l * light_mult).clamp(0.0, 1.0);
-                        let (r, g, b) = hsl_to_rgb(h, s, l);
-                        Pixel::RGBA(r, g, b, a)
-                    }
-                    _ => p,
-                });
-            }
-        });
+        let rows = draw_rows(png, rng, self.magnitude);
+        png.apply(fx::HslShift::new(
+            self.hue_shift,
+            self.saturation_mult,
+            self.lightness_mult,
+            rows,
+        ));
     }
-}
-
-fn rgb_to_hsl(r: u16, g: u16, b: u16) -> (f64, f64, f64) {
-    let r = r as f64 / 65535.0;
-    let g = g as f64 / 65535.0;
-    let b = b as f64 / 65535.0;
-    let max = r.max(g).max(b);
-    let min = r.min(g).min(b);
-    let l = (max + min) / 2.0;
-
-    if max == min {
-        (0.0, 0.0, l)
-    } else {
-        let d = max - min;
-        let s = if l > 0.5 {
-            d / (2.0 - max - min)
-        } else {
-            d / (max + min)
-        };
-        let h = if max == r {
-            (g - b) / d + (if g < b { 6.0 } else { 0.0 })
-        } else if max == g {
-            (b - r) / d + 2.0
-        } else {
-            (r - g) / d + 4.0
-        };
-        (h * 60.0, s, l)
-    }
-}
-
-fn hsl_to_rgb(h: f64, s: f64, l: f64) -> (u16, u16, u16) {
-    let h = h / 360.0;
-    let (r, g, b) = if s == 0.0 {
-        (l, l, l)
-    } else {
-        let q = if l < 0.5 {
-            l * (1.0 + s)
-        } else {
-            l + s - l * s
-        };
-        let p = 2.0 * l - q;
-        (
-            hue_to_rgb(p, q, h + 1.0 / 3.0),
-            hue_to_rgb(p, q, h),
-            hue_to_rgb(p, q, h - 1.0 / 3.0),
-        )
-    };
-    (
-        (r * 65535.0) as u16,
-        (g * 65535.0) as u16,
-        (b * 65535.0) as u16,
-    )
-}
-
-fn hue_to_rgb(p: f64, q: f64, mut t: f64) -> f64 {
-    if t < 0.0 {
-        t += 1.0;
-    }
-    if t > 1.0 {
-        t -= 1.0;
-    }
-    if t < 1.0 / 6.0 {
-        return p + (q - p) * 6.0 * t;
-    }
-    if t < 1.0 / 2.0 {
-        return q;
-    }
-    if t < 2.0 / 3.0 {
-        return p + (q - p) * (2.0 / 3.0 - t) * 6.0;
-    }
-    p
 }
 
 /// Filter that creates chromatic aberration by horizontally shifting R, G, and B channels.
@@ -1679,50 +1459,16 @@ impl ChromaticAberration {
 
 impl GlitchFilter for ChromaticAberration {
     fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
-        let width = png.width() as usize;
-        if width == 0 {
+        if png.width() == 0 {
             return;
         }
-        let magnitude = clamp_magnitude(self.magnitude);
-        png.foreach_scanline(|scan_line| {
-            if rng.random_bool(magnitude) {
-                let mut r_channel = Vec::with_capacity(width);
-                let mut g_channel = Vec::with_capacity(width);
-                let mut b_channel = Vec::with_capacity(width);
-                let mut alpha = Vec::with_capacity(width);
-
-                for x in 0..width {
-                    if let Some(p) = scan_line.get_pixel(x) {
-                        r_channel.push(p.r());
-                        g_channel.push(p.g());
-                        b_channel.push(p.b());
-                        alpha.push(p.a());
-                    }
-                }
-
-                scan_line.process_pixels(|x, p| {
-                    let get_val = |chan: &Vec<u16>, offset: i32| {
-                        let nx = (x as i64 + i64::from(offset)).rem_euclid(width as i64) as usize;
-                        chan[nx]
-                    };
-
-                    match p {
-                        Pixel::RGB(_, _, _) => Pixel::RGB(
-                            get_val(&r_channel, self.r_offset),
-                            get_val(&g_channel, self.g_offset),
-                            get_val(&b_channel, self.b_offset),
-                        ),
-                        Pixel::RGBA(_, _, _, _) => Pixel::RGBA(
-                            get_val(&r_channel, self.r_offset),
-                            get_val(&g_channel, self.g_offset),
-                            get_val(&b_channel, self.b_offset),
-                            alpha[x],
-                        ),
-                        _ => p,
-                    }
-                });
-            }
-        });
+        let rows = draw_rows(png, rng, self.magnitude);
+        png.apply(fx::ChannelShift::new(
+            self.r_offset,
+            self.g_offset,
+            self.b_offset,
+            rows,
+        ));
     }
 }
 
