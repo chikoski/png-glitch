@@ -6,6 +6,12 @@
 //! dispatch between PNG and WebP live in the CLI.
 #![warn(missing_docs)]
 
+#[macro_use]
+mod resolve;
+
+use resolve::{BuiltinFilter, Resolve};
+pub use resolve::{ImageHeader, Recipe, ResolvedRecipe, ResolvedStep};
+
 #[cfg(feature = "clap")]
 use clap::ValueEnum;
 use png_glitch::effects as fx;
@@ -52,6 +58,14 @@ pub enum RecipeError {
     /// A random specification (effect parameter) is out of range or otherwise invalid.
     #[error("{0}")]
     InvalidSpec(String),
+    /// A resolved recipe was executed on an image whose header differs from the one it was resolved for.
+    #[error("resolved recipe does not match the image: expected {expected:?}, got {actual:?}")]
+    HeaderMismatch {
+        /// Header the recipe was resolved for.
+        expected: ImageHeader,
+        /// Header of the image it was executed on.
+        actual: ImageHeader,
+    },
     /// The effect exists but cannot be applied to PNG images.
     #[error("Filter `{effect}` is a WebP-only filter and is not supported for PNG images")]
     UnsupportedEffect {
@@ -224,186 +238,152 @@ impl GlitchContext {
     /// Returns an error if the filter configuration is not supported for PNG images
     /// (for example, WebP-only filters such as `MacroblockGlitch`, `AlphaGlitch`, or `LossyArtifact`).
     pub fn add_from_config(&mut self, config: FilterConfig) -> Result<()> {
-        match config {
-            FilterConfig::ChangeFilterType { magnitude } => {
-                self.add_filter(ChangeFilterType::new(magnitude));
-            }
-            FilterConfig::Replace { magnitude } => {
-                self.add_filter(Replace::new(magnitude));
-            }
-            FilterConfig::Transpose { magnitude } => {
-                self.add_filter(Transpose::new(magnitude));
-            }
-            FilterConfig::SetZero { magnitude } => {
-                self.add_filter(SetZero::new(magnitude));
-            }
-            FilterConfig::RandomCopy { times } => {
-                if times > MAX_RANDOM_COPY_TIMES {
-                    bail_spec!(
-                        "random-copy `times` must be <= {MAX_RANDOM_COPY_TIMES}, got {times}"
-                    );
-                }
-                self.add_filter(RandomCopy::new(times));
-            }
-            FilterConfig::Substitute { index, value } => {
-                self.add_filter(Substitute::new(index, value));
-            }
-            FilterConfig::PixelSort {
-                magnitude,
-                criterion,
-            } => {
-                let mut f = PixelSort::new(magnitude);
-                if let Some(c) = criterion {
-                    f.criterion = c;
-                }
-                self.add_filter(f);
-            }
-            FilterConfig::Bitwise {
-                magnitude,
-                op,
-                value,
-            } => {
-                let mut f = Bitwise::new(magnitude);
-                if let Some(o) = op {
-                    f.op = o;
-                }
-                if let Some(v) = value {
-                    f.value = v;
-                }
-                self.add_filter(f);
-            }
-            FilterConfig::ChannelSwap { magnitude, target } => {
-                let mut f = ChannelSwap::new(magnitude);
-                if let Some(t) = target {
-                    f.target = t;
-                }
-                self.add_filter(f);
-            }
-            FilterConfig::HorizontalShift { magnitude } => {
-                self.add_filter(HorizontalShift::new(magnitude));
-            }
-            FilterConfig::BlockScramble {
-                magnitude,
-                block_size,
-            } => {
-                let mut f = BlockScramble::new(magnitude);
-                if let Some(bs) = block_size {
-                    f.block_size = bs;
-                }
-                self.add_filter(f);
-            }
-            FilterConfig::ColorDistortion {
-                magnitude,
-                strength,
-            } => {
-                let mut f = ColorDistortion::new(magnitude);
-                if let Some(s) = strength {
-                    if s < 0 {
-                        bail_spec!("color-distortion `strength` must be >= 0, got {s}");
-                    }
-                    f.strength = s;
-                }
-                self.add_filter(f);
-            }
-            FilterConfig::ColorSpaceGlitch {
-                magnitude,
-                hue_shift,
-                saturation_mult,
-                lightness_mult,
-            } => {
-                let mut f = ColorSpaceGlitch::new(magnitude);
-                if let Some(h) = hue_shift {
-                    if !h.is_finite() {
-                        bail_spec!(
-                            "color-space-glitch `hue_shift` must be a finite number, got {h}"
-                        );
-                    }
-                    f.hue_shift = h;
-                }
-                if let Some(s) = saturation_mult {
-                    if !s.is_finite() || s < 0.0 {
-                        bail_spec!(
-                            "color-space-glitch `saturation_mult` must be a finite number >= 0.0, got {s}"
-                        );
-                    }
-                    f.saturation_mult = s;
-                }
-                if let Some(l) = lightness_mult {
-                    if !l.is_finite() || l < 0.0 {
-                        bail_spec!(
-                            "color-space-glitch `lightness_mult` must be a finite number >= 0.0, got {l}"
-                        );
-                    }
-                    f.lightness_mult = l;
-                }
-                self.add_filter(f);
-            }
-            FilterConfig::ChromaticAberration {
-                magnitude,
-                r_offset,
-                g_offset,
-                b_offset,
-            } => {
-                let mut f = ChromaticAberration::new(magnitude);
-                if let Some(r) = r_offset {
-                    f.r_offset = r;
-                }
-                if let Some(g) = g_offset {
-                    f.g_offset = g;
-                }
-                if let Some(b) = b_offset {
-                    f.b_offset = b;
-                }
-                self.add_filter(f);
-            }
-            FilterConfig::Invert => {
-                self.add_filter(Invert);
-            }
-            FilterConfig::Brighten { strength } => {
-                self.add_filter(Brighten::new(strength));
-            }
-            FilterConfig::Darken { strength } => {
-                self.add_filter(Darken::new(strength));
-            }
-            FilterConfig::ShiftChannels { r, g, b } => {
-                self.add_filter(ShiftChannels::new(r, g, b));
-            }
-            FilterConfig::RemoveFilter => {
-                self.add_filter(RemoveFilter);
-            }
-            FilterConfig::SubFilter => {
-                self.add_filter(SubFilter);
-            }
-            FilterConfig::UpFilter => {
-                self.add_filter(UpFilter);
-            }
-            FilterConfig::AverageFilter => {
-                self.add_filter(AverageFilter);
-            }
-            FilterConfig::PaethFilter => {
-                self.add_filter(PaethFilter);
-            }
-            FilterConfig::MacroblockGlitch { .. }
-            | FilterConfig::AlphaGlitch { .. }
-            | FilterConfig::LossyArtifact { .. } => {
-                return Err(RecipeError::UnsupportedEffect {
-                    effect: format!("{config:?}"),
-                });
-            }
-        }
+        self.add_filter(filter_from_config(config)?);
         Ok(())
     }
 }
 
-/// Byte size of one scan line's filtered data (the same for every row).
-fn line_size(png: &mut PngGlitch) -> usize {
-    png.scan_lines().first().map_or(0, |line| line.size())
+/// Builds the filter a [`FilterConfig`] step describes, validating its parameters.
+fn filter_from_config(config: FilterConfig) -> Result<Box<dyn BuiltinFilter>> {
+    Ok(match config {
+        FilterConfig::ChangeFilterType { magnitude } => Box::new(ChangeFilterType::new(magnitude)),
+        FilterConfig::Replace { magnitude } => Box::new(Replace::new(magnitude)),
+        FilterConfig::Transpose { magnitude } => Box::new(Transpose::new(magnitude)),
+        FilterConfig::SetZero { magnitude } => Box::new(SetZero::new(magnitude)),
+        FilterConfig::RandomCopy { times } => {
+            if times > MAX_RANDOM_COPY_TIMES {
+                bail_spec!("random-copy `times` must be <= {MAX_RANDOM_COPY_TIMES}, got {times}");
+            }
+            Box::new(RandomCopy::new(times))
+        }
+        FilterConfig::Substitute { index, value } => Box::new(Substitute::new(index, value)),
+        FilterConfig::PixelSort {
+            magnitude,
+            criterion,
+        } => {
+            let mut f = PixelSort::new(magnitude);
+            if let Some(c) = criterion {
+                f.criterion = c;
+            }
+            Box::new(f)
+        }
+        FilterConfig::Bitwise {
+            magnitude,
+            op,
+            value,
+        } => {
+            let mut f = Bitwise::new(magnitude);
+            if let Some(o) = op {
+                f.op = o;
+            }
+            if let Some(v) = value {
+                f.value = v;
+            }
+            Box::new(f)
+        }
+        FilterConfig::ChannelSwap { magnitude, target } => {
+            let mut f = ChannelSwap::new(magnitude);
+            if let Some(t) = target {
+                f.target = t;
+            }
+            Box::new(f)
+        }
+        FilterConfig::HorizontalShift { magnitude } => Box::new(HorizontalShift::new(magnitude)),
+        FilterConfig::BlockScramble {
+            magnitude,
+            block_size,
+        } => {
+            let mut f = BlockScramble::new(magnitude);
+            if let Some(bs) = block_size {
+                f.block_size = bs;
+            }
+            Box::new(f)
+        }
+        FilterConfig::ColorDistortion {
+            magnitude,
+            strength,
+        } => {
+            let mut f = ColorDistortion::new(magnitude);
+            if let Some(s) = strength {
+                if s < 0 {
+                    bail_spec!("color-distortion `strength` must be >= 0, got {s}");
+                }
+                f.strength = s;
+            }
+            Box::new(f)
+        }
+        FilterConfig::ColorSpaceGlitch {
+            magnitude,
+            hue_shift,
+            saturation_mult,
+            lightness_mult,
+        } => {
+            let mut f = ColorSpaceGlitch::new(magnitude);
+            if let Some(h) = hue_shift {
+                if !h.is_finite() {
+                    bail_spec!("color-space-glitch `hue_shift` must be a finite number, got {h}");
+                }
+                f.hue_shift = h;
+            }
+            if let Some(s) = saturation_mult {
+                if !s.is_finite() || s < 0.0 {
+                    bail_spec!(
+                        "color-space-glitch `saturation_mult` must be a finite number >= 0.0, got {s}"
+                    );
+                }
+                f.saturation_mult = s;
+            }
+            if let Some(l) = lightness_mult {
+                if !l.is_finite() || l < 0.0 {
+                    bail_spec!(
+                        "color-space-glitch `lightness_mult` must be a finite number >= 0.0, got {l}"
+                    );
+                }
+                f.lightness_mult = l;
+            }
+            Box::new(f)
+        }
+        FilterConfig::ChromaticAberration {
+            magnitude,
+            r_offset,
+            g_offset,
+            b_offset,
+        } => {
+            let mut f = ChromaticAberration::new(magnitude);
+            if let Some(r) = r_offset {
+                f.r_offset = r;
+            }
+            if let Some(g) = g_offset {
+                f.g_offset = g;
+            }
+            if let Some(b) = b_offset {
+                f.b_offset = b;
+            }
+            Box::new(f)
+        }
+        FilterConfig::Invert => Box::new(Invert),
+        FilterConfig::Brighten { strength } => Box::new(Brighten::new(strength)),
+        FilterConfig::Darken { strength } => Box::new(Darken::new(strength)),
+        FilterConfig::ShiftChannels { r, g, b } => Box::new(ShiftChannels::new(r, g, b)),
+        FilterConfig::RemoveFilter => Box::new(RemoveFilter),
+        FilterConfig::SubFilter => Box::new(SubFilter),
+        FilterConfig::UpFilter => Box::new(UpFilter),
+        FilterConfig::AverageFilter => Box::new(AverageFilter),
+        FilterConfig::PaethFilter => Box::new(PaethFilter),
+        FilterConfig::MacroblockGlitch { .. }
+        | FilterConfig::AlphaGlitch { .. }
+        | FilterConfig::LossyArtifact { .. } => {
+            return Err(RecipeError::UnsupportedEffect {
+                effect: format!("{config:?}"),
+            });
+        }
+    })
 }
 
 /// Decides, for each row in order, whether it is selected with probability `magnitude`.
-fn draw_rows(png: &PngGlitch, rng: &mut dyn RngCore, magnitude: f64) -> Vec<u32> {
+fn draw_rows(header: &ImageHeader, rng: &mut dyn RngCore, magnitude: f64) -> Vec<u32> {
     let magnitude = clamp_magnitude(magnitude);
-    (0..png.height())
+    (0..header.height)
         .filter(|_| rng.random_bool(magnitude))
         .collect()
 }
@@ -697,10 +677,10 @@ impl ChangeFilterType {
     }
 }
 
-impl GlitchFilter for ChangeFilterType {
-    fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
+impl Resolve for ChangeFilterType {
+    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
         let magnitude = clamp_magnitude(self.magnitude);
-        let filter_types = (0..png.height())
+        let filter_types = (0..header.height)
             .map(|_| {
                 rng.random_bool(magnitude)
                     .then(|| match rng.random_range(0..5) {
@@ -712,7 +692,7 @@ impl GlitchFilter for ChangeFilterType {
                     })
             })
             .collect();
-        png.apply(fx::SetFilterTypes::new(filter_types));
+        ResolvedStep::SetFilterTypes(fx::SetFilterTypes::new(filter_types))
     }
 }
 
@@ -727,9 +707,9 @@ impl RemoveFilter {
     }
 }
 
-impl GlitchFilter for RemoveFilter {
-    fn apply(&self, png: &mut PngGlitch, _rng: &mut dyn RngCore) {
-        png.apply(fx::Refilter::new(FilterType::None));
+impl Resolve for RemoveFilter {
+    fn resolve(&self, _header: &ImageHeader, _rng: &mut dyn RngCore) -> ResolvedStep {
+        ResolvedStep::Refilter(fx::Refilter::new(FilterType::None))
     }
 }
 
@@ -744,9 +724,9 @@ impl SubFilter {
     }
 }
 
-impl GlitchFilter for SubFilter {
-    fn apply(&self, png: &mut PngGlitch, _rng: &mut dyn RngCore) {
-        png.apply(fx::Refilter::new(FilterType::Sub));
+impl Resolve for SubFilter {
+    fn resolve(&self, _header: &ImageHeader, _rng: &mut dyn RngCore) -> ResolvedStep {
+        ResolvedStep::Refilter(fx::Refilter::new(FilterType::Sub))
     }
 }
 
@@ -761,9 +741,9 @@ impl UpFilter {
     }
 }
 
-impl GlitchFilter for UpFilter {
-    fn apply(&self, png: &mut PngGlitch, _rng: &mut dyn RngCore) {
-        png.apply(fx::Refilter::new(FilterType::Up));
+impl Resolve for UpFilter {
+    fn resolve(&self, _header: &ImageHeader, _rng: &mut dyn RngCore) -> ResolvedStep {
+        ResolvedStep::Refilter(fx::Refilter::new(FilterType::Up))
     }
 }
 
@@ -778,9 +758,9 @@ impl AverageFilter {
     }
 }
 
-impl GlitchFilter for AverageFilter {
-    fn apply(&self, png: &mut PngGlitch, _rng: &mut dyn RngCore) {
-        png.apply(fx::Refilter::new(FilterType::Average));
+impl Resolve for AverageFilter {
+    fn resolve(&self, _header: &ImageHeader, _rng: &mut dyn RngCore) -> ResolvedStep {
+        ResolvedStep::Refilter(fx::Refilter::new(FilterType::Average))
     }
 }
 
@@ -795,9 +775,9 @@ impl PaethFilter {
     }
 }
 
-impl GlitchFilter for PaethFilter {
-    fn apply(&self, png: &mut PngGlitch, _rng: &mut dyn RngCore) {
-        png.apply(fx::Refilter::new(FilterType::Paeth));
+impl Resolve for PaethFilter {
+    fn resolve(&self, _header: &ImageHeader, _rng: &mut dyn RngCore) -> ResolvedStep {
+        ResolvedStep::Refilter(fx::Refilter::new(FilterType::Paeth))
     }
 }
 
@@ -823,13 +803,13 @@ impl Replace {
     }
 }
 
-impl GlitchFilter for Replace {
-    fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
+impl Resolve for Replace {
+    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
         let magnitude = clamp_magnitude(self.magnitude);
-        let size = line_size(png);
+        let size = header.line_size();
         let mut edits = Vec::new();
         if size > 0 {
-            for line in 0..png.height() {
+            for line in 0..header.height {
                 if rng.random_bool(magnitude) {
                     let value: u8 = rng.random();
                     let index = rng.random_range(0..size);
@@ -837,7 +817,7 @@ impl GlitchFilter for Replace {
                 }
             }
         }
-        png.apply(fx::SetBytes::new(edits));
+        ResolvedStep::SetBytes(fx::SetBytes::new(edits))
     }
 }
 
@@ -866,12 +846,12 @@ impl Transpose {
 /// Alias for [`Transpose`] to distinguish the randomized glitch effect from [`png_glitch::Transpose`].
 pub type RandomTranspose = Transpose;
 
-impl GlitchFilter for Transpose {
-    fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
+impl Resolve for Transpose {
+    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
         let magnitude = clamp_magnitude(self.magnitude);
-        let height = png.height();
+        let height = header.height;
         if height <= 1 {
-            return;
+            return ResolvedStep::Noop;
         }
         let mut swaps = Vec::new();
         for i in 0..height {
@@ -880,7 +860,7 @@ impl GlitchFilter for Transpose {
                 swaps.push((i, target));
             }
         }
-        png.apply(fx::SwapLines::new(swaps));
+        ResolvedStep::SwapLines(fx::SwapLines::new(swaps))
     }
 }
 
@@ -904,11 +884,11 @@ impl RandomCopy {
     }
 }
 
-impl GlitchFilter for RandomCopy {
-    fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
-        let height = png.height();
+impl Resolve for RandomCopy {
+    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
+        let height = header.height;
         if height <= 1 {
-            return;
+            return ResolvedStep::Noop;
         }
         let times = self.times.min(MAX_RANDOM_COPY_TIMES);
         let copies = (0..times)
@@ -918,7 +898,7 @@ impl GlitchFilter for RandomCopy {
                 (src, dst)
             })
             .collect();
-        png.apply(fx::CopyLines::new(copies));
+        ResolvedStep::CopyLines(fx::CopyLines::new(copies))
     }
 }
 
@@ -938,9 +918,9 @@ impl Substitute {
     }
 }
 
-impl GlitchFilter for Substitute {
-    fn apply(&self, png: &mut PngGlitch, _rng: &mut dyn RngCore) {
-        png.apply(fx::Substitute::new(self.index, self.value));
+impl Resolve for Substitute {
+    fn resolve(&self, _header: &ImageHeader, _rng: &mut dyn RngCore) -> ResolvedStep {
+        ResolvedStep::Substitute(fx::Substitute::new(self.index, self.value))
     }
 }
 
@@ -966,13 +946,13 @@ impl SetZero {
     }
 }
 
-impl GlitchFilter for SetZero {
-    fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
+impl Resolve for SetZero {
+    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
         let magnitude = clamp_magnitude(self.magnitude);
-        let size = line_size(png);
+        let size = header.line_size();
         let mut edits = Vec::new();
         if size > 0 {
-            for line in 0..png.height() {
+            for line in 0..header.height {
                 if rng.random_bool(magnitude) {
                     let index = rng.random_range(0..size);
                     edits.push(fx::ByteEdit {
@@ -983,7 +963,7 @@ impl GlitchFilter for SetZero {
                 }
             }
         }
-        png.apply(fx::SetBytes::new(edits));
+        ResolvedStep::SetBytes(fx::SetBytes::new(edits))
     }
 }
 
@@ -1035,14 +1015,14 @@ impl PixelSort {
     }
 }
 
-impl GlitchFilter for PixelSort {
-    fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
-        let rows = draw_rows(png, rng, self.magnitude);
+impl Resolve for PixelSort {
+    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
+        let rows = draw_rows(header, rng, self.magnitude);
         let criterion = match self.criterion {
             SortCriterion::Brightness => fx::SortCriterion::Brightness,
             SortCriterion::Hue => fx::SortCriterion::Hue,
         };
-        png.apply(fx::PixelSort::new(criterion, rows));
+        ResolvedStep::PixelSort(fx::PixelSort::new(criterion, rows))
     }
 }
 
@@ -1106,15 +1086,15 @@ impl Bitwise {
     }
 }
 
-impl GlitchFilter for Bitwise {
-    fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
-        let rows = draw_rows(png, rng, self.magnitude);
+impl Resolve for Bitwise {
+    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
+        let rows = draw_rows(header, rng, self.magnitude);
         let op = match self.op {
             BitOp::And => fx::BitOp::And,
             BitOp::Or => fx::BitOp::Or,
             BitOp::Xor => fx::BitOp::Xor,
         };
-        png.apply(fx::Bitwise::new(op, self.value, rows));
+        ResolvedStep::Bitwise(fx::Bitwise::new(op, self.value, rows))
     }
 }
 
@@ -1169,15 +1149,15 @@ impl ChannelSwap {
     }
 }
 
-impl GlitchFilter for ChannelSwap {
-    fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
-        let rows = draw_rows(png, rng, self.magnitude);
+impl Resolve for ChannelSwap {
+    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
+        let rows = draw_rows(header, rng, self.magnitude);
         let target = match self.target {
             SwapTarget::Rg => fx::SwapTarget::Rg,
             SwapTarget::Gb => fx::SwapTarget::Gb,
             SwapTarget::Br => fx::SwapTarget::Br,
         };
-        png.apply(fx::SwapChannels::new(target, rows));
+        ResolvedStep::SwapChannels(fx::SwapChannels::new(target, rows))
     }
 }
 
@@ -1203,20 +1183,20 @@ impl HorizontalShift {
     }
 }
 
-impl GlitchFilter for HorizontalShift {
-    fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
+impl Resolve for HorizontalShift {
+    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
         let magnitude = clamp_magnitude(self.magnitude);
-        let size = line_size(png);
+        let size = header.line_size();
         let mut shifts = Vec::new();
         if size > 1 {
-            for line in 0..png.height() {
+            for line in 0..header.height {
                 if rng.random_bool(magnitude) {
                     let shift = rng.random_range(0..size);
                     shifts.push(fx::LineShift { line, shift });
                 }
             }
         }
-        png.apply(fx::ShiftLines::new(shifts));
+        ResolvedStep::ShiftLines(fx::ShiftLines::new(shifts))
     }
 }
 
@@ -1254,21 +1234,21 @@ impl BlockScramble {
     }
 }
 
-impl GlitchFilter for BlockScramble {
-    fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
-        let width = png.width();
-        let height = png.height();
+impl Resolve for BlockScramble {
+    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
+        let width = header.width;
+        let height = header.height;
         let block_size = self.block_size;
 
         if width == 0 || height == 0 || block_size == 0 {
-            return;
+            return ResolvedStep::Noop;
         }
 
         let num_blocks_x = width / block_size;
         let num_blocks_y = height / block_size;
 
         if num_blocks_x == 0 || num_blocks_y == 0 {
-            return;
+            return ResolvedStep::Noop;
         }
 
         let total_blocks = (num_blocks_x * num_blocks_y) as usize;
@@ -1286,7 +1266,7 @@ impl GlitchFilter for BlockScramble {
                 }
             })
             .collect();
-        png.apply(fx::SwapBlocks::new(block_size, swaps));
+        ResolvedStep::SwapBlocks(fx::SwapBlocks::new(block_size, swaps))
     }
 }
 
@@ -1324,17 +1304,17 @@ impl ColorDistortion {
     }
 }
 
-impl GlitchFilter for ColorDistortion {
-    fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
+impl Resolve for ColorDistortion {
+    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
         let strength = self.strength.saturating_abs();
         let magnitude = clamp_magnitude(self.magnitude);
-        let pixels = if png.bit_depth() == 0 {
+        let pixels = if header.bit_depth == 0 {
             0
         } else {
-            png.width() as usize
+            header.width as usize
         };
         let mut lines = Vec::new();
-        for line in 0..png.height() {
+        for line in 0..header.height {
             if rng.random_bool(magnitude) {
                 let offsets = (0..pixels)
                     .map(|_| {
@@ -1347,7 +1327,7 @@ impl GlitchFilter for ColorDistortion {
                 lines.push(fx::LineOffsets { line, offsets });
             }
         }
-        png.apply(fx::OffsetColors::new(lines));
+        ResolvedStep::OffsetColors(fx::OffsetColors::new(lines))
     }
 }
 
@@ -1403,15 +1383,15 @@ impl ColorSpaceGlitch {
     }
 }
 
-impl GlitchFilter for ColorSpaceGlitch {
-    fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
-        let rows = draw_rows(png, rng, self.magnitude);
-        png.apply(fx::HslShift::new(
+impl Resolve for ColorSpaceGlitch {
+    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
+        let rows = draw_rows(header, rng, self.magnitude);
+        ResolvedStep::HslShift(fx::HslShift::new(
             self.hue_shift,
             self.saturation_mult,
             self.lightness_mult,
             rows,
-        ));
+        ))
     }
 }
 
@@ -1457,44 +1437,70 @@ impl ChromaticAberration {
     }
 }
 
-impl GlitchFilter for ChromaticAberration {
-    fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
-        if png.width() == 0 {
-            return;
+impl Resolve for ChromaticAberration {
+    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
+        if header.width == 0 {
+            return ResolvedStep::Noop;
         }
-        let rows = draw_rows(png, rng, self.magnitude);
-        png.apply(fx::ChannelShift::new(
+        let rows = draw_rows(header, rng, self.magnitude);
+        ResolvedStep::ChannelShift(fx::ChannelShift::new(
             self.r_offset,
             self.g_offset,
             self.b_offset,
             rows,
-        ));
+        ))
     }
 }
 
-impl GlitchFilter for Invert {
-    fn apply(&self, png: &mut PngGlitch, _rng: &mut dyn RngCore) {
-        png.apply(*self);
+impl Resolve for Invert {
+    fn resolve(&self, __header: &ImageHeader, _rng: &mut dyn RngCore) -> ResolvedStep {
+        ResolvedStep::Invert(*self)
     }
 }
 
-impl GlitchFilter for Brighten {
-    fn apply(&self, png: &mut PngGlitch, _rng: &mut dyn RngCore) {
-        png.apply(*self);
+impl Resolve for Brighten {
+    fn resolve(&self, __header: &ImageHeader, _rng: &mut dyn RngCore) -> ResolvedStep {
+        ResolvedStep::Brighten(*self)
     }
 }
 
-impl GlitchFilter for Darken {
-    fn apply(&self, png: &mut PngGlitch, _rng: &mut dyn RngCore) {
-        png.apply(*self);
+impl Resolve for Darken {
+    fn resolve(&self, __header: &ImageHeader, _rng: &mut dyn RngCore) -> ResolvedStep {
+        ResolvedStep::Darken(*self)
     }
 }
 
-impl GlitchFilter for ShiftChannels {
-    fn apply(&self, png: &mut PngGlitch, _rng: &mut dyn RngCore) {
-        png.apply(*self);
+impl Resolve for ShiftChannels {
+    fn resolve(&self, __header: &ImageHeader, _rng: &mut dyn RngCore) -> ResolvedStep {
+        ResolvedStep::ShiftChannels(*self)
     }
 }
+
+impl_glitch_filter_via_resolve!(
+    ChangeFilterType,
+    RemoveFilter,
+    SubFilter,
+    UpFilter,
+    AverageFilter,
+    PaethFilter,
+    Replace,
+    Transpose,
+    RandomCopy,
+    Substitute,
+    SetZero,
+    PixelSort,
+    Bitwise,
+    ChannelSwap,
+    HorizontalShift,
+    BlockScramble,
+    ColorDistortion,
+    ColorSpaceGlitch,
+    ChromaticAberration,
+    Invert,
+    Brighten,
+    Darken,
+    ShiftChannels,
+);
 
 // PixelFilter implementations for the shared presets
 
