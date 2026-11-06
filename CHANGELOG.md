@@ -13,10 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Introduced the `Effect` trait (whole image, `&mut PngGlitch`) and the `LineEffect` helper trait (per scan line, parallel); every `LineEffect` is an `Effect`. `PngGlitch::apply` accepts any `Effect` (#126, ADR 0003).
 - Renamed the `presets` module to `effects` and `GlitchPreset` to `LineEffect`. The old paths remain as a `#[deprecated]` `presets` module for one release.
 
+#### Added
+- Deterministic effects whose random choices are explicit parameters (#129, ADR 0003/0004): `Refilter`, `SetFilterTypes`, `SetBytes`, `Substitute`, `SwapLines`, `CopyLines`, `ShiftLines`, `PixelSort`, `Bitwise`, `SwapChannels`, `OffsetColors`, `HslShift`, `ChannelShift` and `SwapBlocks`. They need no `rand` and give the same bytes for the same image and parameters.
+- `FilterType` now implements `Eq`.
+
 ### png-glitch-recipe `0.3.0`
 
 #### Changed
 - **Breaking**: `glitch-context` was renamed to `png-glitch-recipe` (#128, ADR 0004). Replace `glitch-context` with `png-glitch-recipe` in `Cargo.toml` and `glitch_context` with `png_glitch_recipe` in `use` paths. CLI behaviour and seeded output are unchanged. A final `glitch-context` release that points to the new crate is published separately.
+- Each randomized effect now only draws its choices (rows, bytes, offsets) from the RNG, in the same order as before, and calls the matching deterministic `png-glitch` effect (#129). Seeded output is byte-identical (golden tests unchanged).
 - **Breaking**: `anyhow` was removed from the library. Fallible functions now return `png_glitch_recipe::Result<T>`, whose error is the new typed, `#[non_exhaustive]` `RecipeError` (`Open`, `Parse`, `Encode`, `Save`, `InvalidSpec`, `UnsupportedEffect`). Error messages are unchanged.
 
 ### glitch-context (now `png-glitch-recipe`)
