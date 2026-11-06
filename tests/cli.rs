@@ -419,6 +419,8 @@ golden!(
 fn help_output_snapshot() {
     let out = cmd().arg("--help").assert().success();
     let text = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+    // On Windows clap prints the executable name with its `.exe` suffix.
+    let text = text.replace("png-glitch.exe", "png-glitch");
     assert_snapshot!(text);
 }
 
