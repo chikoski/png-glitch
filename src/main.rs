@@ -1,7 +1,7 @@
 use anyhow::{Context, bail};
 use clap::{ArgMatches, CommandFactory, FromArgMatches};
-use glitch_context::{FilterConfig, ParseOptions};
 use indicatif::{ProgressBar, ProgressStyle};
+use png_glitch_recipe::{FilterConfig, ParseOptions};
 use rayon::prelude::*;
 use std::fs;
 use std::path::{Path, PathBuf};

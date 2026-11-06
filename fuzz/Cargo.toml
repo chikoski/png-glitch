@@ -14,7 +14,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 png-glitch = { path = "../crates/png-glitch" }
-glitch-context = { path = "../crates/glitch-context" }
+png-glitch-recipe = { path = "../crates/png-glitch-recipe" }
 webp-glitch = { path = "../crates/webp-glitch" }
 webp-glitch-context = { path = "../crates/webp-glitch-context" }
 

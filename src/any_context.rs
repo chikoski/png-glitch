@@ -1,10 +1,10 @@
 //! Format detection and dispatch between PNG and WebP.
 //!
 //! The CLI is the only place that needs both formats, so the format-agnostic wrapper lives here
-//! rather than in `glitch-context` or `webp-glitch-context`.
+//! rather than in `png-glitch-recipe` or `webp-glitch-context`.
 
 use anyhow::{Context, Result, bail};
-use glitch_context::{FilterConfig, GlitchContext, ParseOptions, PngWarning, PreProcess};
+use png_glitch_recipe::{FilterConfig, GlitchContext, ParseOptions, PngWarning, PreProcess};
 use std::path::Path;
 use webp_glitch_context::WebpGlitchContext;
 
@@ -129,7 +129,7 @@ impl AnyGlitchContext {
     /// supported for the underlying image format.
     pub fn add_from_config(&mut self, config: FilterConfig) -> Result<()> {
         match self {
-            Self::Png(ctx) => ctx.add_from_config(config),
+            Self::Png(ctx) => ctx.add_from_config(config).map_err(Into::into),
             Self::Webp(ctx) => ctx.add_from_config(config),
         }
     }
@@ -159,7 +159,7 @@ impl AnyGlitchContext {
     #[cfg(test)]
     pub fn buffer(&self) -> Result<Vec<u8>> {
         match self {
-            Self::Png(ctx) => ctx.buffer(),
+            Self::Png(ctx) => ctx.buffer().map_err(Into::into),
             Self::Webp(ctx) => ctx.buffer(),
         }
     }
@@ -167,7 +167,7 @@ impl AnyGlitchContext {
     /// Saves the glitched image to `path`.
     pub fn save(&self, path: impl AsRef<Path>) -> Result<()> {
         match self {
-            Self::Png(ctx) => ctx.save(path),
+            Self::Png(ctx) => ctx.save(path).map_err(Into::into),
             Self::Webp(ctx) => ctx.save(path),
         }
     }

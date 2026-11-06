@@ -6,7 +6,7 @@ PngSuite
 !docs/gallery/*.png
 !crates/png-glitch/etc/sample00*.png
 !tests/fixtures/*.png
-!crates/glitch-context/tests/fixtures/*.png
+!crates/png-glitch-recipe/tests/fixtures/*.png
 .vscode/
 **/*.cwasm
 **/bindings.rs

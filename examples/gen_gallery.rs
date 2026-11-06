@@ -1,5 +1,5 @@
 use anyhow::Result;
-use glitch_context::{
+use png_glitch_recipe::{
     AverageFilter, BitOp, Bitwise, BlockScramble, Brighten, ChangeFilterType, ChromaticAberration,
     ColorDistortion, ColorSpaceGlitch, GlitchContext, GlitchFilter, HorizontalShift, Invert,
     PaethFilter, RandomCopy, Replace, SetZero, ShiftChannels, SubFilter, Transpose, UpFilter,

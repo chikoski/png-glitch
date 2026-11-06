@@ -1,5 +1,0 @@
----
-source: crates/glitch-context/tests/golden.rs
-expression: "golden_hash(\"type: pixel-sort\\nmagnitude: 1.0\\ncriterion: brightness\")"
----
-63d2818e422ad18c9068a865e84c0ea8c33e2729eb7d392bd79300d34b1f0040

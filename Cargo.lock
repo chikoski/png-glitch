@@ -430,24 +430,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "glitch-context"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "blake3",
- "clap",
- "crc32fast",
- "fdeflate",
- "image",
- "insta",
- "png-glitch",
- "rand",
- "rand_chacha",
- "serde",
- "serde-saphyr",
-]
-
-[[package]]
 name = "glob"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -666,11 +648,11 @@ dependencies = [
  "assert_cmd",
  "blake3",
  "clap",
- "glitch-context",
  "indicatif",
  "insta",
  "log",
  "png-glitch",
+ "png-glitch-recipe",
  "predicates",
  "rand",
  "rayon",
@@ -679,6 +661,24 @@ dependencies = [
  "tempfile",
  "walkdir",
  "webp-glitch-context",
+]
+
+[[package]]
+name = "png-glitch-recipe"
+version = "0.3.0"
+dependencies = [
+ "blake3",
+ "clap",
+ "crc32fast",
+ "fdeflate",
+ "image",
+ "insta",
+ "png-glitch",
+ "rand",
+ "rand_chacha",
+ "serde",
+ "serde-saphyr",
+ "thiserror",
 ]
 
 [[package]]
@@ -1142,8 +1142,8 @@ name = "webp-glitch-context"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "glitch-context",
  "image",
+ "png-glitch-recipe",
  "webp",
  "webp-glitch",
 ]

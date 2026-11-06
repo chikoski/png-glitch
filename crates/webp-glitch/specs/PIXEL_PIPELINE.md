@@ -1,6 +1,6 @@
 # ピクセルパイプラインと ScanLine API
 
-WebP グリッチの中心となる「デコード → 操作 → 再エンコード」パイプラインと、`glitch-context` との統合方法を定義する。
+WebP グリッチの中心となる「デコード → 操作 → 再エンコード」パイプラインと、`png-glitch-recipe` との統合方法を定義する。
 
 ## パイプライン概要
 
@@ -153,13 +153,13 @@ impl WebpGlitch {
 }
 ```
 
-## `glitch-context` フィルターとの統合
+## `png-glitch-recipe` フィルターとの統合
 
-`glitch-context` の `GlitchFilter` トレイトは `PngGlitch` を受け取るため、`WebpGlitch` には直接適用できない。統合のために 2 つのアプローチを検討する:
+`png-glitch-recipe` の `GlitchFilter` トレイトは `PngGlitch` を受け取るため、`WebpGlitch` には直接適用できない。統合のために 2 つのアプローチを検討する:
 
 ### アプローチ A: `WebpGlitchFilter` トレイト (推奨)
 
-`webp-glitch` 側に新しいトレイトを定義し、`glitch-context` に `impl WebpGlitchFilter for <各フィルター>` を追加する。
+`webp-glitch` 側に新しいトレイトを定義し、`png-glitch-recipe` に `impl WebpGlitchFilter for <各フィルター>` を追加する。
 
 ```rust
 // webp-glitch/src/lib.rs
@@ -168,10 +168,10 @@ pub trait WebpGlitchFilter {
 }
 ```
 
-`glitch-context` で実装例:
+`png-glitch-recipe` で実装例:
 
 ```rust
-// glitch-context/src/lib.rs
+// png-glitch-recipe/src/lib.rs
 impl WebpGlitchFilter for PixelSort {
     fn apply(&self, webp: &mut WebpGlitch, rng: &mut ChaCha8Rng) {
         webp.foreach_scanline(|scan_line| {
@@ -187,7 +187,7 @@ impl WebpGlitchFilter for PixelSort {
 
 ## `WebpGlitchContext`
 
-`GlitchContext` に相当するコンテキスト管理構造体。`glitch-context` クレートに追加する。
+`GlitchContext` に相当するコンテキスト管理構造体。`png-glitch-recipe` クレートに追加する。
 
 ```rust
 pub struct WebpGlitchContext {

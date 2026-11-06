@@ -1,0 +1,5 @@
+---
+source: crates/png-glitch-recipe/tests/golden.rs
+expression: "golden_hash(\"type: bitwise\\nmagnitude: 0.2\\nop: xor\\nvalue: 255\")"
+---
+f4ffc139504271df2e384bee103d399053496de895a7302d84acb904796f5ff9

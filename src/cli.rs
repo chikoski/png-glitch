@@ -1,5 +1,5 @@
 use clap::Parser;
-use glitch_context::{
+use png_glitch_recipe::{
     AlphaGlitchStrategy, BitOp, FilterConfig, MAX_RANDOM_COPY_TIMES, PreProcess, SortCriterion,
     SwapTarget,
 };

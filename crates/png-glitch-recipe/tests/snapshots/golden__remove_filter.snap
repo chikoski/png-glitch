@@ -1,0 +1,5 @@
+---
+source: crates/png-glitch-recipe/tests/golden.rs
+expression: "golden_hash(\"type: remove-filter\")"
+---
+218d53e4f38dd9ab87817bfb8b4a6f75cea202fac565478980c4fa339a760f28

@@ -1,5 +1,0 @@
----
-source: crates/glitch-context/tests/golden.rs
-expression: "golden_hash(\"type: invert\")"
----
-c7624d689a05dee6d47c99d17e3ede24c618c3de013c033df11baa0d0a909536

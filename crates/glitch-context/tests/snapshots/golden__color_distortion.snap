@@ -1,5 +1,0 @@
----
-source: crates/glitch-context/tests/golden.rs
-expression: "golden_hash(\"type: color-distortion\\nmagnitude: 0.3\\nstrength: 40\")"
----
-e40dbfe6ea3e7eefd7908b54a0ed34ac2672803819f25d6686048dd780b5bfa1

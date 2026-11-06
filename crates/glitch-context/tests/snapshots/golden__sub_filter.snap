@@ -1,5 +1,0 @@
----
-source: crates/glitch-context/tests/golden.rs
-expression: "golden_hash(\"type: sub-filter\")"
----
-b72a4a2355eb55ffe9bfcc95eaac0ab13138950823c672011654ee9cf637ced8

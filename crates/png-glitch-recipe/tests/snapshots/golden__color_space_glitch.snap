@@ -1,0 +1,5 @@
+---
+source: crates/png-glitch-recipe/tests/golden.rs
+expression: "golden_hash(\"type: color-space-glitch\\nmagnitude: 0.5\\nhue_shift: 90.0\")"
+---
+5ea286c6d7052d2c3fba7dc1c438a2e65ba55f66ed0ab82f0890a248328882c8

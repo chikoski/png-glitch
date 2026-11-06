@@ -12,7 +12,7 @@ Describe the feature or glitch filter you would like to see.
 ## Target scope
 - [ ] `png-glitch` (core PNG library)
 - [ ] `webp-glitch` (core WebP library)
-- [ ] `glitch-context` (high-level filter pipeline / YAML config)
+- [ ] `png-glitch-recipe` (high-level filter pipeline / YAML config)
 - [ ] `png-glitch-cli` (CLI flags / batch processing)
 
 ## Proposed CLI / API design

@@ -2,8 +2,8 @@
 //! and runs every chunk-level mutation on the result.
 #![no_main]
 use libfuzzer_sys::fuzz_target;
-use glitch_context::rand::SeedableRng;
-use glitch_context::rand_chacha::ChaCha8Rng;
+use png_glitch_recipe::rand::SeedableRng;
+use png_glitch_recipe::rand_chacha::ChaCha8Rng;
 use webp_glitch::riff::RiffContainer;
 
 fuzz_target!(|data: &[u8]| {
