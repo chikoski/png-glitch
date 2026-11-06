@@ -1,10 +1,10 @@
 # 0003. Where high-level effects live
 
-- **Status:** Proposed (Q1, Q4 and Q5 decided; Q2, Q3, Q6 open)
+- **Status:** Accepted
 - **Date:** 2026-11-06
 - **Issue:** #63 (part of epic #62; blocks #64; affects #65, #66, #73)
 
-> This ADR is partly decided. Q1, Q4 and Q5 record the maintainer's decisions (Q5 through [ADR 0004](0004-png-glitch-and-recipe-crates.md)). The remaining questions list options and a **recommendation**; they are settled on the pull request, and the status changes to Accepted once all are decided.
+> All six questions are decided. Q2, Q3 and Q6 rest on two premises stated below (*Premises for Q2, Q3 and Q6*); Q5 follows from [ADR 0004](0004-png-glitch-and-recipe-crates.md).
 
 ## Context
 
@@ -61,7 +61,21 @@ For the PR #35 effects this means:
 
 Reproducibility is then the caller's responsibility: the library guarantees that the same image and the same parameters give the same bytes.
 
-### Q2. One abstraction or several? — open
+### Premises for Q2, Q3 and Q6
+
+1. **A preset is a kind of recipe:** a named recipe shipped with the library (#80). It is data, and lives in `png-glitch-recipe` (ADR 0004).
+2. **A deterministic operation on a PNG belongs in `png-glitch`.** Whether it processes one row or the whole image is an implementation and performance detail, not a conceptual difference.
+
+It follows that today's `GlitchPreset`s (`Invert`, `Brighten`, `Darken`, `ShiftChannels`) are not presets: they are deterministic operations, so they are `png-glitch` **effects** that were misnamed. A preset whose steps are all concrete is still a preset (data), and stays in `png-glitch-recipe`; premise 2 applies to operations as code. Composing effects in code needs no preset: call `PngGlitch::apply` repeatedly.
+
+| Concept | What it is | Crate | Deterministic? |
+| :------ | :--------- | :---- | :------------- |
+| **Effect** | Code: a deterministic operation on a PNG, with parameters | `png-glitch` | Always |
+| **Recipe** | Data: an ordered list of steps that refer to effects; each parameter is a value or a random specification | `png-glitch-recipe` | May contain random specifications |
+| **Resolved recipe** | Data: a recipe whose parameters are all concrete | `png-glitch-recipe` | Yes |
+| **Preset** | Data: a named recipe shipped with the library | `png-glitch-recipe` | May contain random specifications |
+
+### Q2. One abstraction or several? — **decided**
 
 Some PR #35 effects need more than one row (vertical `pixel_sort`, 2D `rgb_shift` offsets, `degrade` blocking), so the per-line `GlitchPreset::apply_to_line` is not enough for all of them.
 
@@ -69,15 +83,24 @@ Some PR #35 effects need more than one row (vertical `pixel_sort`, 2D `rgb_shift
 - **B. One trait with two levels.** One effect trait that receives the whole image (`&mut PngGlitch`), plus a per-line trait (today's `GlitchPreset`) that automatically implements it and keeps the parallel per-line path. Each effect is a struct whose fields are its parameters, with `Default`, `new` and `with_*` builders. `PngGlitch::apply` accepts either.
 - **C. Only whole-image.** Replace `GlitchPreset` with a whole-image trait. Simpler, but per-line effects lose automatic parallelism.
 
-**Recommendation: B.** There is no `GlitchPresets` trait and no `xxx_default()` methods; `RgbShift::default()` plays that role. User-implemented random effects (Q4) implement the same trait, so they compose with built-in ones through `PngGlitch::apply`.
+**Decision: B, with one public concept.** The public concept is the **effect**: a trait whose implementations receive the whole image (`&mut PngGlitch`). The per-line trait is a helper for implementing effects: anything that implements it implements the effect trait automatically and keeps the parallel per-line path. It is not a separate concept for users.
 
-### Q3. Naming — open
+- There is no `GlitchPresets` trait and no `xxx_default()` methods; `RgbShift::default()` plays that role.
+- User-implemented random effects (Q4) implement the same trait, so they compose with built-in ones through `PngGlitch::apply`.
+- Methods on `PngGlitch` (`transpose`, `set_filter_type`, …) stay as the primitives effects are built from. **Every operation a recipe step can refer to is also available as an effect struct**, because an effect holds its parameters as a value and a recipe needs that.
+
+### Q3. Naming — **decided**
 
 - **A. Keep "preset"** for everything, including the whole-image effects.
 - **B. "Effect"** for the whole-image trait and its implementations (`Scanlines`, `RgbShift`, `PixelSort`, `Degrade`, …). Keep "preset" for the per-line trait until #73.
 - **C. As B, and rename the per-line trait now.**
 
-**Recommendation: B.** It avoids PR #35's second, different meaning of "preset". The final names, including whether the per-line trait keeps the name `GlitchPreset`, are part of the API tidy-up in #73. "Recipe" stays reserved for a named combination of effects (#69, #80).
+**Decision: C, with "effect".** Given the premises, "preset" means only a named recipe, in `png-glitch-recipe`. In `png-glitch`:
+
+- `GlitchPreset` is renamed to an effect name, and the `presets` module to `effects`. The deprecated old names are kept for one release.
+- The unit is called **effect**, not "operation". This matches the existing glossary and the `Effect` alias in `glitch-context`, and keeps "operation" free for the internal `operation` module (`Encode`, `Scan`).
+
+This removes the double meaning of "preset" (#22, PR #35). The exact identifiers (for example `Effect` and `LineEffect`) are settled in #73.
 
 ### Q5. Overlap with the existing `glitch-context` effects — **decided**
 
@@ -88,26 +111,36 @@ Some PR #35 effects need more than one row (vertical `pixel_sort`, 2D `rgb_shift
 
 **Decision: B**, as a consequence of [ADR 0004](0004-png-glitch-and-recipe-crates.md). Every randomized `glitch-context` effect is split into a deterministic operation in `png-glitch` and a random specification in `png-glitch-recipe`. Overlapping effects share one deterministic core: `pixel_sort` and `PixelSort` become one `png-glitch` effect, and so do `rgb_shift` and `ChromaticAberration`.
 
-### Q6. Errors — open
+### Q6. Errors — **decided**
 
 - **A. Keep `PresetError`** as a second error type.
 - **B. No new error type; effects are infallible.** Out-of-range parameters are clamped or become a no-op, as `CONTRIBUTING.md` guideline 1 already requires. Validation that must report failure, if any, uses `PngError`.
 
-**Recommendation: B.** It is consistent with `PngGlitch::apply` and the existing presets, and keeps one typed error per crate. `PresetError` is not ported.
+**Decision: B, one typed error per crate.**
+
+| Crate | Error | Raised by |
+| :---- | :---- | :-------- |
+| `png-glitch` | `PngError` | Parsing and encoding. Effects are infallible: out-of-range parameters are clamped or become a no-op. |
+| `png-glitch-recipe` | `RecipeError` (new; replaces `anyhow`) | Loading a recipe (YAML, unknown effect), validating random specifications, resolving, and executing a resolved recipe on an image whose header differs from the one it was resolved for |
+
+`PresetError` is not ported: a preset is a recipe, so its errors are `RecipeError`s.
 
 ## Related decision
 
 The future of `glitch-context`, and with it where the CLI's randomized effects, `FilterConfig` (YAML) and `--seed` go, is decided in [ADR 0004](0004-png-glitch-and-recipe-crates.md): it becomes `png-glitch-recipe`, which resolves a recipe and a seed into concrete parameters and executes them on `png-glitch`.
 
-## Decision (so far)
+## Decision
 
 High-level effects live in `png-glitch`, which stays free of `rand`. Every library effect is deterministic. Randomness is the caller's: random choices are explicit parameters. The project's own randomized effects draw those parameters in `png-glitch-recipe` (ADR 0004); effects that are random by nature and have no recipe step (such as noise) are implemented by users, with an example showing how.
+
+There is one public concept in `png-glitch`, the **effect**; today's `GlitchPreset`s are effects and are renamed accordingly. "Preset" means a named recipe in `png-glitch-recipe`. Effects are infallible; `png-glitch` has `PngError` and `png-glitch-recipe` has `RecipeError`.
 
 ## Consequences
 
 - **#64** ports `rgb_shift`, `pixel_sort`, and the deterministic parts of `scanlines` and `degrade` into `png-glitch`, and adds a random-noise example. Recipe steps and CLI flags for them are added in `png-glitch-recipe` (ADR 0004).
 - **#65, #66** (`datamosh`, `corrupt_blocks`) are designed as deterministic `png-glitch` effects whose targets (blocks, rows, offsets) are explicit parameters. `corrupt_blocks` corrupts scan-line data, not the compressed stream (ADR 0002, consequence 7).
 - **#62** is updated: the "high-level preset API" becomes "deterministic high-level effects in png-glitch".
-- **#73** decides the final names (Q3).
+- **#73** renames `GlitchPreset` / `presets` (with deprecated aliases for one release) and fixes the exact identifiers (Q3), and replaces `anyhow` with `RecipeError` (Q6).
+- **#80** (built-in recipes) is where presets in the new sense are added.
 - **#77** decides how regions and masks are expressed; PR #35's `Region` is not ported on its own.
 - `png-glitch`'s guarantee becomes "same image and parameters → same bytes". A seed-based guarantee (#58) applies only where a caller, such as the CLI, owns the RNG.

@@ -38,6 +38,15 @@ After ADR 0003, responsibility 1 moves to `png-glitch`. Responsibilities 2 to 6 
 
 `glitch-context` becomes **`png-glitch-recipe`**: the layer that turns a recipe and a seed into deterministic calls on `png-glitch` (options A + B). WebP moves to a separate crate (not C). D is left to a later ADR. E is rejected because the CLI is not the only consumer.
 
+### Concepts
+
+| Concept | What it is | Crate |
+| :------ | :--------- | :---- |
+| **Effect** | Code: a deterministic operation on a PNG, with parameters ([ADR 0003](0003-home-of-high-level-effects.md), Q2) | `png-glitch` |
+| **Recipe** | Data: an ordered list of steps that refer to effects; each parameter is a concrete value or a random specification | `png-glitch-recipe` |
+| **Resolved recipe** | Data: a recipe whose parameters are all concrete | `png-glitch-recipe` |
+| **Preset** | Data: a named recipe shipped with the library (#80). Presets stay here even when all their steps are concrete: they are data, not operations | `png-glitch-recipe` |
+
 ### `png-glitch`: deterministic effects on a PNG
 
 - The PNG model (IHDR plus the filtered scan-line stream), parsing and encoding.
@@ -56,6 +65,11 @@ It depends on `png-glitch` only (plus `rand`, `rand_chacha`, `serde`), and has t
 2. **Execute: `ResolvedRecipe` + image → glitched image.**
    - A `ResolvedRecipe` has only concrete parameters. It is serializable, so it can be printed and embedded in the output (#69).
    - Executing calls the `png-glitch` effects in order. It is deterministic and uses no RNG.
+   - A resolved recipe records the header it was resolved for. Executing it on an image with a different header is a `RecipeError`, not a silent clamp, so that a recipe embedded in an output (#69) always reproduces that output.
+
+**Serialization.** `png-glitch` stays free of `serde`, and Rust's orphan rule prevents `png-glitch-recipe` from implementing `Serialize` for `png-glitch` types. `png-glitch-recipe` therefore defines its own serializable parameter types for recipe steps and converts them into `png-glitch` effect structs when executing. These types are needed anyway, because a recipe parameter can be a random specification rather than a value. `png-glitch` does not get an optional `serde` feature.
+
+**Errors.** `png-glitch-recipe` has one typed error, `RecipeError`, which replaces `anyhow` (ADR 0003, Q6).
 
 A `ResolvedRecipe` reproduces its output without a seed and without `rand`, so reproducibility no longer depends on the RNG implementation. A seed reproduces the output only as long as the RNG's value stream stays the same.
 
