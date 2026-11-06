@@ -1,4 +1,23 @@
 //! Low-level library for parsing, manipulating, and re-encoding PNG scanlines to create glitch art.
+//!
+//! # Design principles
+//!
+//! png-glitch produces PNGs whose **format is valid but whose data is strange**, and enjoys the
+//! changes that a standard PNG decoder produces from that data.
+//!
+//! - Glitches change only the **scan-line layer**: each row's filter-type byte and its filtered
+//!   bytes. The compressed layer (IDAT/zlib and checksums) is regenerated cleanly on every save,
+//!   so the output is always a valid PNG.
+//! - The look comes from the decoder reconstructing rows according to the PNG specification:
+//!   prediction errors propagate right (Sub), down (Up) and diagonally (Average, Paeth).
+//! - Setting a row's filter type ([`PngGlitch::set_filter_type`]) only overwrites the tag.
+//!   Operations that recompute filtered values ([`PngGlitch::remove_filter`],
+//!   [`PngGlitch::apply_filter`], [`PngGlitch::reencode_with`]) bake the glitches so far into
+//!   pixels and start a new generation.
+//!
+//! See [Design principles](https://github.com/chikoski/png-glitch/blob/master/DEVELOPER_GUIDE.md#design-principles)
+//! and [ADR 0002](https://github.com/chikoski/png-glitch/blob/master/docs/adr/0002-design-principles.md)
+//! for the full text.
 #![warn(missing_docs)]
 
 pub use crate::operation::Transpose;
