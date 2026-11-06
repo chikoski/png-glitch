@@ -180,11 +180,16 @@ impl Effect for CopyLines {
             if src == dst || src >= lines.len() || dst >= lines.len() {
                 continue;
             }
-            let filter_type = lines[src].filter_type();
-            let buffer: Vec<u8> = (0..lines[src].size())
-                .map(|i| lines[src].index(i).unwrap_or(0))
+            let Some(source) = lines.get(src) else {
+                continue;
+            };
+            let filter_type = source.filter_type();
+            let buffer: Vec<u8> = (0..source.size())
+                .map(|i| source.index(i).unwrap_or(0))
                 .collect();
-            let dest = &mut lines[dst];
+            let Some(dest) = lines.get_mut(dst) else {
+                continue;
+            };
             for (i, &byte) in buffer.iter().enumerate() {
                 dest.update(i, byte);
             }
@@ -758,7 +763,9 @@ impl Effect for SwapBlocks {
                 }
 
                 if src_y == dst_y {
-                    let line = &mut scan_lines[src_y as usize];
+                    let Some(line) = scan_lines.get_mut(src_y as usize) else {
+                        continue;
+                    };
                     for x_off in 0..block_size {
                         let src_x = src_bx * block_size + x_off;
                         let dst_x = dst_bx * block_size + x_off;
@@ -772,12 +779,16 @@ impl Effect for SwapBlocks {
                         }
                     }
                 } else {
+                    let (low, high) = (src_y.min(dst_y) as usize, src_y.max(dst_y) as usize);
+                    let (left, right) = scan_lines.split_at_mut(high);
+                    let (Some(low_line), Some(high_line)) = (left.get_mut(low), right.first_mut())
+                    else {
+                        continue;
+                    };
                     let (src_line, dst_line) = if src_y < dst_y {
-                        let (left, right) = scan_lines.split_at_mut(dst_y as usize);
-                        (&mut left[src_y as usize], &mut right[0])
+                        (low_line, high_line)
                     } else {
-                        let (left, right) = scan_lines.split_at_mut(src_y as usize);
-                        (&mut right[0], &mut left[dst_y as usize])
+                        (high_line, low_line)
                     };
 
                     for x_off in 0..block_size {

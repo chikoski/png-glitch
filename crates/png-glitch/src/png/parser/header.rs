@@ -66,24 +66,42 @@ impl Header {
         self.metadata.bit_depth
     }
 
-    fn parse_width(chunk: &Chunk) -> u32 {
-        u32::from_be_bytes([chunk.data[0], chunk.data[1], chunk.data[2], chunk.data[3]])
+    /// Reads byte `index` of the IHDR data; a short IHDR is an error, never a panic.
+    fn byte(chunk: &Chunk, index: usize) -> Result<u8, PngError> {
+        chunk
+            .data
+            .get(index)
+            .copied()
+            .ok_or(PngError::TooShortInput)
     }
 
-    fn parse_height(chunk: &Chunk) -> u32 {
-        u32::from_be_bytes([chunk.data[4], chunk.data[5], chunk.data[6], chunk.data[7]])
+    fn be_u32(chunk: &Chunk, index: usize) -> Result<u32, PngError> {
+        Ok(u32::from_be_bytes([
+            Self::byte(chunk, index)?,
+            Self::byte(chunk, index + 1)?,
+            Self::byte(chunk, index + 2)?,
+            Self::byte(chunk, index + 3)?,
+        ]))
     }
 
-    fn parse_bit_depth(chunk: &Chunk) -> u8 {
-        chunk.data[8]
+    fn parse_width(chunk: &Chunk) -> Result<u32, PngError> {
+        Self::be_u32(chunk, 0)
+    }
+
+    fn parse_height(chunk: &Chunk) -> Result<u32, PngError> {
+        Self::be_u32(chunk, 4)
+    }
+
+    fn parse_bit_depth(chunk: &Chunk) -> Result<u8, PngError> {
+        Self::byte(chunk, 8)
     }
 
     fn parse_color_type(chunk: &Chunk) -> Result<ColorType, PngError> {
-        ColorType::try_from(chunk.data[9])
+        ColorType::try_from(Self::byte(chunk, 9)?)
     }
 
     fn parse_compression_method(chunk: &Chunk) -> Result<u8, PngError> {
-        let method = chunk.data[10];
+        let method = Self::byte(chunk, 10)?;
         if method == 0 {
             Ok(method)
         } else {
@@ -92,7 +110,7 @@ impl Header {
     }
 
     fn parse_filter_method(chunk: &Chunk) -> Result<u8, PngError> {
-        let method = chunk.data[11];
+        let method = Self::byte(chunk, 11)?;
         if method == 0 {
             Ok(method)
         } else {
@@ -101,7 +119,7 @@ impl Header {
     }
 
     fn parse_interlace_method(chunk: &Chunk) -> Result<u8, PngError> {
-        let method = chunk.data[12];
+        let method = Self::byte(chunk, 12)?;
         if method == 0 {
             Ok(method)
         } else {
@@ -127,14 +145,14 @@ impl TryFrom<Chunk> for Header {
         Header::parse_filter_method(&chunk)?;
         Header::parse_interlace_method(&chunk)?;
 
-        let width = Header::parse_width(&chunk);
-        let height = Header::parse_height(&chunk);
+        let width = Header::parse_width(&chunk)?;
+        let height = Header::parse_height(&chunk)?;
         if width == 0 || height == 0 || width > MAX_PNG_DIMENSION || height > MAX_PNG_DIMENSION {
             return Err(PngError::InvalidDimensions { width, height });
         }
 
         let color_type = Header::parse_color_type(&chunk)?;
-        let bit_depth = Header::parse_bit_depth(&chunk);
+        let bit_depth = Header::parse_bit_depth(&chunk)?;
         if !color_type.is_valid_bit_depth(bit_depth) {
             return Err(PngError::InvalidBitDepth {
                 color_type: color_type.code(),

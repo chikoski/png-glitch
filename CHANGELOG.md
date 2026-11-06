@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### All library crates (panic-free code, #57)
+
+#### Changed
+- `#![forbid(unsafe_code)]` in `png-glitch`, `png-glitch-recipe`, `webp-glitch` and `webp-glitch-context`, so the "100% safe Rust" claim is a compiler guarantee.
+- Outside tests, `clippy::unwrap_used`, `expect_used`, `panic` and `indexing_slicing` are denied. Sites that could be reached from file bytes or caller arguments now use checked access: IHDR parsing, chunk types, the PNG signature and chunk walk, the RIFF walk (chunk sizes use saturating arithmetic), `ScanLine` lookups in the new effects, and the WebP macroblock / chromatic-aberration filters.
+- The pixel and filter hot paths (`png/scan_line.rs`, `png/scan_line/filter/*`, `png.rs`, `webp-glitch/src/scan_line.rs`) keep a documented file-level `allow(clippy::indexing_slicing)`; converting them is tracked in #140.
+
 ### png-glitch
 
 #### Changed

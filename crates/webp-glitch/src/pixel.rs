@@ -92,8 +92,9 @@ impl PixelBuffer {
         let stride = self.stride();
         let width = self.width;
         let has_alpha = self.has_alpha;
-        let start = y as usize * stride;
-        let end = start + stride;
-        Some(ScanLine::new(&mut self.data[start..end], width, has_alpha))
+        let start = (y as usize).checked_mul(stride)?;
+        let end = start.checked_add(stride)?;
+        let row = self.data.get_mut(start..end)?;
+        Some(ScanLine::new(row, width, has_alpha))
     }
 }

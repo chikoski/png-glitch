@@ -96,19 +96,20 @@ impl Parser {
 
     /// Parses a PNG file using the specified [`ParseOptions`].
     pub fn parse_with_options(buffer: &[u8], options: ParseOptions) -> Result<Png, PngError> {
-        if buffer.starts_with(SIGNATURE) {
-            let mut parser = Self::new(options);
-            parser.parse_chunks(&buffer[8..])?;
-            parser.build()
-        } else {
-            Err(PngError::InvalidSignature)
+        match buffer.strip_prefix(SIGNATURE) {
+            Some(rest) => {
+                let mut parser = Self::new(options);
+                parser.parse_chunks(rest)?;
+                parser.build()
+            }
+            None => Err(PngError::InvalidSignature),
         }
     }
 
     fn parse_chunks(&mut self, buffer: &[u8]) -> Result<(), PngError> {
         let mut index = 0;
-        while index < buffer.len() {
-            let chunk = Chunk::parse(&buffer[index..])?;
+        while let Some(rest) = buffer.get(index..).filter(|rest| !rest.is_empty()) {
+            let chunk = Chunk::parse(rest)?;
             index = index
                 .checked_add(chunk.consumed_size())
                 .ok_or(PngError::TooShortInput)?;
@@ -145,17 +146,16 @@ impl Parser {
         let height = header.height() as usize;
         for row in 0..height {
             let filter_idx = row * stride;
-            if let Some(&filter_byte) = data.get(filter_idx)
-                && filter_byte > 4
-            {
+            if let Some(filter_byte) = data.get_mut(filter_idx).filter(|b| **b > 4) {
+                let bad = *filter_byte;
                 if self.options.strict {
                     return Err(PngError::InvalidFilterType);
                 }
                 self.warnings.push(PngWarning::InvalidFilterByte {
                     row: row as u32,
-                    byte: filter_byte,
+                    byte: bad,
                 });
-                data[filter_idx] = 0;
+                *filter_byte = 0;
             }
         }
 

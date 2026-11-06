@@ -9,6 +9,16 @@
 //! `png-glitch-recipe`. Because of Rust's orphan rule they are applied to WebP through the local
 //! wrapper [`ForWebp`], e.g. `ctx.add_filter(ForWebp(PixelSort::new(0.5)))`.
 #![warn(missing_docs)]
+#![forbid(unsafe_code)]
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::indexing_slicing
+    )
+)]
 
 use anyhow::{Context, bail};
 use png_glitch_recipe::rand::{Rng, RngCore, SeedableRng};
@@ -488,9 +498,9 @@ impl WebpGlitchFilter for ForWebp<ChromaticAberration> {
                         a_ch.push(p.a());
                     }
                 }
-                let get = |ch: &Vec<u8>, off: i32, x: usize| {
+                let get = |ch: &[u8], off: i32, x: usize| {
                     let nx = (x as i64 + i64::from(off)).rem_euclid(width as i64) as usize;
-                    ch[nx]
+                    ch.get(nx).copied().unwrap_or(0)
                 };
                 line.process_pixels(|x, p| {
                     let r = get(&r_ch, this.r_offset, x);
@@ -498,7 +508,9 @@ impl WebpGlitchFilter for ForWebp<ChromaticAberration> {
                     let b = get(&b_ch, this.b_offset, x);
                     match p {
                         WebpPixel::RGB(_, _, _) => WebpPixel::RGB(r, g, b),
-                        WebpPixel::RGBA(_, _, _, _) => WebpPixel::RGBA(r, g, b, a_ch[x]),
+                        WebpPixel::RGBA(_, _, _, _) => {
+                            WebpPixel::RGBA(r, g, b, a_ch.get(x).copied().unwrap_or(0))
+                        }
                     }
                 });
             }
@@ -561,7 +573,9 @@ impl WebpGlitchFilter for MacroblockGlitch {
                     continue;
                 }
                 if src_y == dst_y {
-                    let line = &mut lines[src_y as usize];
+                    let Some(line) = lines.get_mut(src_y as usize) else {
+                        continue;
+                    };
                     for col_off in 0..MB {
                         let src_x = (sx * MB + col_off) as usize;
                         let dst_x = (dx * MB + col_off) as usize;
@@ -575,12 +589,16 @@ impl WebpGlitchFilter for MacroblockGlitch {
                         }
                     }
                 } else {
+                    let (low, high) = (src_y.min(dst_y) as usize, src_y.max(dst_y) as usize);
+                    let (left, right) = lines.split_at_mut(high);
+                    let (Some(low_line), Some(high_line)) = (left.get_mut(low), right.first_mut())
+                    else {
+                        continue;
+                    };
                     let (src_line, dst_line) = if src_y < dst_y {
-                        let (left, right) = lines.split_at_mut(dst_y as usize);
-                        (&mut left[src_y as usize], &mut right[0])
+                        (low_line, high_line)
                     } else {
-                        let (left, right) = lines.split_at_mut(src_y as usize);
-                        (&mut right[0], &mut left[dst_y as usize])
+                        (high_line, low_line)
                     };
                     for col_off in 0..MB {
                         let src_x = (sx * MB + col_off) as usize;
