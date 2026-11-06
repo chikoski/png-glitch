@@ -3,8 +3,8 @@
 //! The CLI is the only place that needs both formats, so the format-agnostic wrapper lives here
 //! rather than in `png-glitch-recipe` or `webp-glitch-context`.
 
-use anyhow::{Context, Result, bail};
-use png_glitch_recipe::{FilterConfig, GlitchContext, ParseOptions, PngWarning, PreProcess};
+use anyhow::{Context, Result};
+use png_glitch_recipe::{FilterConfig, GlitchContext, ParseOptions, PngWarning};
 use std::path::Path;
 use webp_glitch_context::WebpGlitchContext;
 
@@ -92,7 +92,7 @@ impl AnyGlitchContext {
                 data, seed, options,
             )?)),
             Some(ImageFormat::Webp) => Ok(Self::Webp(WebpGlitchContext::new(data, seed)?)),
-            None => bail!("unrecognized image format (expected PNG or WebP magic bytes)"),
+            None => anyhow::bail!("unrecognized image format (expected PNG or WebP magic bytes)"),
         }
     }
 
@@ -134,19 +134,6 @@ impl AnyGlitchContext {
         }
     }
 
-    /// Applies a PNG pre-process filter, or returns an error if the underlying image is WebP.
-    pub fn pre_process(&mut self, pre_process: PreProcess) -> Result<()> {
-        match self {
-            Self::Png(ctx) => {
-                ctx.pre_process(pre_process);
-                Ok(())
-            }
-            Self::Webp(_) => {
-                bail!("Pre-process filter `{pre_process:?}` is only supported for PNG images")
-            }
-        }
-    }
-
     /// Executes all queued filters and drains the filter queue.
     pub fn execute(&mut self) {
         match self {
@@ -156,7 +143,6 @@ impl AnyGlitchContext {
     }
 
     /// Encodes the glitched image into a byte vector.
-    #[cfg(test)]
     pub fn buffer(&self) -> Result<Vec<u8>> {
         match self {
             Self::Png(ctx) => ctx.buffer().map_err(Into::into),

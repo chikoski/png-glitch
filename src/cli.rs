@@ -915,6 +915,22 @@ pub struct Cli {
     #[arg(long, value_name = "FILE")]
     pub config: Option<String>,
 
+    /// Print the effective recipe (flags, `-f` and `--config` merged, in order) and the seed as YAML to stderr
+    #[arg(long, help_heading = "Recipe")]
+    pub print_recipe: bool,
+
+    /// Save the effective recipe as YAML to FILE; it can be fed back with `--config FILE --seed SEED`
+    #[arg(long, value_name = "FILE", help_heading = "Recipe")]
+    pub save_recipe: Option<String>,
+
+    /// Embed the effective recipe and seed in the output PNG (an `iTXt` chunk; PNG only)
+    #[arg(long, help_heading = "Recipe")]
+    pub embed_recipe: bool,
+
+    /// Print the recipe embedded in INPUT (written by `--embed-recipe`) and exit
+    #[arg(long, help_heading = "Recipe")]
+    pub show_recipe: bool,
+
     /// Add a filter step to the pipeline (repeatable, applied in order; see `--list-filters`)
     #[arg(
         short = 'f',

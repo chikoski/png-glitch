@@ -531,3 +531,133 @@ fn batch_output_is_independent_of_thread_count() {
         );
     }
 }
+
+// ------------------------------------------------------------------- recipes
+
+fn run(input: &Path, output: &Path, args: &[&str]) {
+    cmd()
+        .arg(input)
+        .arg("-o")
+        .arg(output)
+        .args(["--seed", SEED])
+        .args(args)
+        .assert()
+        .success();
+}
+
+#[test]
+fn saved_recipe_reproduces_the_output_byte_for_byte() {
+    let dir = TempDir::new().unwrap();
+    let input = copy_fixture(&dir, "small.png");
+    let first = dir.path().join("first.png");
+    let again = dir.path().join("again.png");
+    let recipe = dir.path().join("recipe.yaml");
+
+    run(
+        &input,
+        &first,
+        &[
+            "--pre-process",
+            "sub-filter",
+            "--replace",
+            "0.2",
+            "-f",
+            "pixel-sort:magnitude=0.3,criterion=hue",
+            "--invert",
+            "--save-recipe",
+            recipe.to_str().unwrap(),
+        ],
+    );
+    let text = fs::read_to_string(&recipe).unwrap();
+    assert!(text.starts_with(&format!("# seed: {SEED}\n")), "{text}");
+
+    run(&input, &again, &["--config", recipe.to_str().unwrap()]);
+    assert_eq!(fs::read(&first).unwrap(), fs::read(&again).unwrap());
+}
+
+#[test]
+fn print_recipe_goes_to_stderr_in_order() {
+    let dir = TempDir::new().unwrap();
+    let input = copy_fixture(&dir, "small.png");
+    cmd()
+        .arg(&input)
+        .arg("-o")
+        .arg(dir.path().join("out.png"))
+        .args([
+            "--seed",
+            SEED,
+            "--print-recipe",
+            "-f",
+            "replace=0.1",
+            "-f",
+            "invert",
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("# seed: 12345"))
+        .stderr(predicate::str::is_match("(?s)Replace.*Invert").unwrap());
+}
+
+#[test]
+fn embedded_recipe_can_be_shown_and_survives_a_rerun() {
+    let dir = TempDir::new().unwrap();
+    let input = copy_fixture(&dir, "small.png");
+    let out = dir.path().join("embedded.png");
+    run(&input, &out, &["--replace", "0.2", "--embed-recipe"]);
+
+    let shown = cmd().arg(&out).arg("--show-recipe").output().unwrap();
+    assert!(shown.status.success());
+    let text = String::from_utf8(shown.stdout).unwrap();
+    assert!(
+        text.contains("# seed: 12345") && text.contains("Replace"),
+        "{text}"
+    );
+
+    // The embedded text is itself a valid recipe that reproduces the image.
+    let recipe = dir.path().join("recipe.yaml");
+    fs::write(&recipe, &text).unwrap();
+    let again = dir.path().join("again.png");
+    run(
+        &input,
+        &again,
+        &["--config", recipe.to_str().unwrap(), "--embed-recipe"],
+    );
+    assert_eq!(fs::read(&out).unwrap(), fs::read(&again).unwrap());
+
+    // Re-running on the glitched output still decodes and replaces the recipe.
+    let rerun = dir.path().join("rerun.png");
+    run(&out, &rerun, &["--invert", "--embed-recipe"]);
+    let shown = cmd().arg(&rerun).arg("--show-recipe").output().unwrap();
+    let text = String::from_utf8(shown.stdout).unwrap();
+    assert!(
+        text.contains("Invert") && !text.contains("Replace"),
+        "{text}"
+    );
+    assert_eq!(text.matches("# seed").count(), 1);
+}
+
+#[test]
+fn show_recipe_without_embedded_recipe_fails() {
+    let dir = TempDir::new().unwrap();
+    let input = copy_fixture(&dir, "small.png");
+    cmd()
+        .arg(&input)
+        .arg("--show-recipe")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("no embedded recipe"));
+}
+
+#[test]
+fn embed_recipe_is_rejected_for_webp() {
+    let dir = TempDir::new().unwrap();
+    let input = copy_fixture(&dir, "small.webp");
+    cmd()
+        .arg(&input)
+        .arg("-o")
+        .arg(dir.path().join("out.webp"))
+        .args(["--seed", SEED, "--invert", "--embed-recipe"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--embed-recipe"));
+}

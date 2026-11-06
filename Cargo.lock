@@ -648,6 +648,7 @@ dependencies = [
  "assert_cmd",
  "blake3",
  "clap",
+ "crc32fast",
  "indicatif",
  "insta",
  "log",

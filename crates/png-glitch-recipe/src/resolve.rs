@@ -251,6 +251,18 @@ impl Recipe {
         self.then_step(FixedStep(ResolvedEffect::new(effect)))
     }
 
+    /// The built-in steps as [`FilterConfig`]s, or `None` if the recipe has a user-defined step
+    /// (code cannot be written out as data).
+    pub fn configs(&self) -> Option<Vec<FilterConfig>> {
+        self.steps
+            .iter()
+            .map(|step| match step {
+                Step::Config(config) => Some(config.clone()),
+                Step::Custom(_) => None,
+            })
+            .collect()
+    }
+
     /// The steps, in execution order.
     pub fn steps(&self) -> &[Step] {
         &self.steps
@@ -332,5 +344,34 @@ impl ResolvedRecipe {
             step.execute(png);
         }
         Ok(())
+    }
+}
+
+/// On-disk form of a [`Recipe`]: `filters: [...]`, the same shape as the CLI's `--config` file.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RecipeData {
+    filters: Vec<FilterConfig>,
+}
+
+impl serde::Serialize for Recipe {
+    /// Serializes as `filters: [...]`. Fails if the recipe has a user-defined step.
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        let filters = self.configs().ok_or_else(|| {
+            serde::ser::Error::custom("a recipe with user-defined steps cannot be serialized")
+        })?;
+        RecipeData { filters }.serialize(serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Recipe {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        let data = RecipeData::deserialize(deserializer)?;
+        Ok(Recipe::from_configs(data.filters))
     }
 }

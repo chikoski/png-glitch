@@ -31,6 +31,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Each randomized effect now only draws its choices (rows, bytes, offsets) from the RNG, in the same order as before, and calls the matching deterministic `png-glitch` effect (#129). Seeded output is byte-identical (golden tests unchanged).
 - **Breaking**: `anyhow` was removed from the library. Fallible functions now return `png_glitch_recipe::Result<T>`, whose error is the new typed, `#[non_exhaustive]` `RecipeError` (`Open`, `Parse`, `Encode`, `Save`, `InvalidSpec`, `UnsupportedEffect`). Error messages are unchanged.
 
+### png-glitch-recipe (shareable recipes, #69)
+
+#### Added
+- `FilterConfig` and the `SortCriterion` / `BitOp` / `SwapTarget` / `AlphaGlitchStrategy` / `PreProcess` enums implement `Serialize`; `FilterConfig` implements `Display`, which renders the `-f` spec syntax (`pixel-sort:magnitude=0.2,criterion=hue`). Both formats round-trip. `None` options are omitted when serializing.
+- `Recipe` implements `Serialize` / `Deserialize` in the same `filters: [...]` shape as the CLI's `--config` file; `Recipe::configs()` returns the steps as data, or `None` when the recipe has a user-defined step (code cannot be serialized).
+
+### png-glitch-cli (shareable recipes, #69)
+
+#### Added
+- `--print-recipe`, `--save-recipe <FILE>`, `--embed-recipe` (PNG `iTXt` chunk `png-glitch-recipe`; replaces an earlier recipe chunk on re-runs) and `--show-recipe`. The saved text starts with a `# seed: N` comment, so `--config FILE --seed N` reproduces the output byte for byte.
+- `--pre-process` is now part of the effective recipe (it is written out as the equivalent first step).
+- Not included yet: embedding in WebP, and serializing a `ResolvedRecipe` (it holds `png-glitch` effects, which have no `serde` by design; see ADR 0004).
+
 ### glitch-context (now `png-glitch-recipe`)
 
 #### Changed
