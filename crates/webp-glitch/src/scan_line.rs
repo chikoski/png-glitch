@@ -9,7 +9,11 @@ pub struct ScanLine<'a> {
 
 impl<'a> ScanLine<'a> {
     pub(crate) fn new(data: &'a mut [u8], width: u32, has_alpha: bool) -> Self {
-        Self { data, width, has_alpha }
+        Self {
+            data,
+            width,
+            has_alpha,
+        }
     }
 
     pub fn pixels_count(&self) -> u32 {

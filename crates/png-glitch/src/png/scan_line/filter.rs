@@ -1,17 +1,17 @@
 use crate::{FilterType, ScanLine};
 
+mod average;
+mod byte;
 mod paeth;
 mod sub;
 mod up;
-mod byte;
-mod average;
 
 /// The function removes a filter from a scan line.
 /// The `line` parameter is the scan line to remove the filter from.
 /// The `previous` parameter is the previous scan line.
 pub fn remove(line: &mut ScanLine, previous_line: Option<&ScanLine>) {
     match line.filter_type() {
-        FilterType::None => {},
+        FilterType::None => {}
         FilterType::Sub => sub::remove(line),
         FilterType::Up => up::remove(line, previous_line),
         FilterType::Average => average::remove(line, previous_line),
@@ -54,13 +54,19 @@ mod tests {
             let current_copy = current_data.clone();
 
             let previous_line = ScanLine::new(&mut previous_data, ColorType::TrueColorAlpha, 8, 2);
-            let mut current_line = ScanLine::new(&mut current_data, ColorType::TrueColorAlpha, 8, 2);
+            let mut current_line =
+                ScanLine::new(&mut current_data, ColorType::TrueColorAlpha, 8, 2);
 
             apply(filter_type, &mut current_line, Some(&previous_line));
             current_line.data[0] = filter_type.into();
             remove(&mut current_line, Some(&previous_line));
 
-            assert_eq!(current_line.data[1..], current_copy[1..], "Failed for {:?}", filter_type);
+            assert_eq!(
+                current_line.data[1..],
+                current_copy[1..],
+                "Failed for {:?}",
+                filter_type
+            );
         }
     }
 }

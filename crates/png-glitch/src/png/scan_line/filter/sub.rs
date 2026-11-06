@@ -1,7 +1,7 @@
+use crate::ScanLine;
 use crate::png::scan_line::filter::byte::{
     add_without_overflow, byte_in_pixel, byte_in_previous_pixel, sub_without_overflow,
 };
-use crate::ScanLine;
 
 /// The function applies the sub filter to a scan line.
 /// The `line` parameter is the scan line to apply the filter to.
@@ -59,12 +59,7 @@ mod test {
     fn test_unit() {
         let mut original = vec![1, 0, 1, 2, 255, 1, 1, 1, 255];
         let original_copy = original.clone();
-        let mut scanline = ScanLine::new(
-            &mut original,
-            ColorType::TrueColorAlpha,
-            8,
-            2,
-        );
+        let mut scanline = ScanLine::new(&mut original, ColorType::TrueColorAlpha, 8, 2);
         apply(&mut scanline);
         remove(&mut scanline);
         for (before, after) in original_copy.iter().zip(original.iter()) {

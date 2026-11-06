@@ -24,6 +24,8 @@ image.workspace = true
 fdeflate.workspace = true
 crc32fast.workspace = true
 webp.workspace = true
+blake3 = "1.8.7"
+insta = "1.49.0"
 
 [features]
 default = ["webp", "clap"]

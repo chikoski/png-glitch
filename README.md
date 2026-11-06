@@ -86,6 +86,12 @@ Accepted values: `remove-filter`, `sub-filter`, `up-filter`, `average-filter`, `
 | `-c`, `--config <FILE>` | Load filter pipeline from a YAML configuration file. |
 | `--list-filters` | List all available filters, parameters, defaults, and format support. |
 
+#### Reproducibility guarantee
+
+For the same input, the same filter recipe, the same seed and the same **minor** version, the output is byte-identical on every platform and with any thread count. A change to seeded output is a breaking change for this guarantee and is listed under a "Seeded output changes" heading in [CHANGELOG.md](CHANGELOG.md).
+
+The guarantee is enforced by golden hashes (`tests/cli.rs`, `crates/glitch-context/tests/golden.rs`) and by tests that compare `RAYON_NUM_THREADS=1` with `8`. Output is **not** guaranteed to be identical across minor versions, or when the seed is omitted (a random seed is chosen and printed to stderr).
+
 ## Batch Processing
 
 To glitch multiple PNG and WebP images at once, provide a directory as `<INPUT>` and use the `--batch-output` flag. This uses **parallel processing** while preserving subdirectory structure:

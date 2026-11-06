@@ -5,13 +5,11 @@
 //! images via [`AnyGlitchContext`] / [`open_any`].
 #![warn(missing_docs)]
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 #[cfg(feature = "clap")]
 use clap::ValueEnum;
 pub use png_glitch::presets::{Brighten, Darken, Invert, ShiftChannels};
-pub use png_glitch::{
-    FilterType, Limits, ParseOptions, Pixel, PngError, PngGlitch, PngWarning,
-};
+pub use png_glitch::{FilterType, Limits, ParseOptions, Pixel, PngError, PngGlitch, PngWarning};
 pub use rand;
 use rand::{Rng, RngCore, SeedableRng};
 pub use rand_chacha;
@@ -84,13 +82,9 @@ impl GlitchContext {
     }
 
     /// Creates a new [`GlitchContext`] from a byte slice using custom PNG [`ParseOptions`].
-    pub fn new_with_options(
-        data: &[u8],
-        seed: Option<u64>,
-        options: ParseOptions,
-    ) -> Result<Self> {
-        let png =
-            PngGlitch::from_bytes_with_options(data, options).context("Failed to parse PNG data")?;
+    pub fn new_with_options(data: &[u8], seed: Option<u64>, options: ParseOptions) -> Result<Self> {
+        let png = PngGlitch::from_bytes_with_options(data, options)
+            .context("Failed to parse PNG data")?;
         let rng = match seed {
             Some(s) => ChaCha8Rng::seed_from_u64(s),
             None => ChaCha8Rng::from_os_rng(),
@@ -194,9 +188,7 @@ impl GlitchContext {
             }
             FilterConfig::RandomCopy { times } => {
                 if times > MAX_RANDOM_COPY_TIMES {
-                    bail!(
-                        "random-copy `times` must be <= {MAX_RANDOM_COPY_TIMES}, got {times}"
-                    );
+                    bail!("random-copy `times` must be <= {MAX_RANDOM_COPY_TIMES}, got {times}");
                 }
                 self.add_filter(RandomCopy::new(times));
             }
@@ -350,11 +342,7 @@ impl GlitchContext {
 }
 
 fn clamp_magnitude(m: f64) -> f64 {
-    if m.is_nan() {
-        0.0
-    } else {
-        m.clamp(0.0, 1.0)
-    }
+    if m.is_nan() { 0.0 } else { m.clamp(0.0, 1.0) }
 }
 
 fn deserialize_magnitude<'de, D>(deserializer: D) -> std::result::Result<f64, D::Error>
@@ -433,7 +421,11 @@ pub enum FilterConfig {
         magnitude: f64,
     },
     /// Swaps random scanlines.
-    #[serde(alias = "transpose", alias = "random-transpose", alias = "RandomTranspose")]
+    #[serde(
+        alias = "transpose",
+        alias = "random-transpose",
+        alias = "RandomTranspose"
+    )]
     Transpose {
         /// Probability (`0.0..=1.0`) of swapping each scanline with another random scanline.
         #[serde(deserialize_with = "deserialize_magnitude")]
@@ -591,13 +583,21 @@ pub enum FilterConfig {
     #[serde(alias = "alpha-glitch", alias = "alpha_glitch")]
     AlphaGlitch {
         /// Probability (`0.0..=1.0`) of corrupting each scanline's alpha channel (defaults to `1.0`).
-        #[serde(default = "default_alpha_magnitude", deserialize_with = "deserialize_magnitude")]
+        #[serde(
+            default = "default_alpha_magnitude",
+            deserialize_with = "deserialize_magnitude"
+        )]
         magnitude: f64,
         /// Optional alpha corruption strategy (defaults to [`AlphaGlitchStrategy::Invert`]).
         strategy: Option<AlphaGlitchStrategy>,
     },
     /// Lowers WebP re-encoding quality (`0.0..=100.0`) to introduce lossy compression artifacts (WebP only).
-    #[serde(alias = "lossy-artifact", alias = "lossy_artifact", alias = "lossy-quality", alias = "lossy_quality")]
+    #[serde(
+        alias = "lossy-artifact",
+        alias = "lossy_artifact",
+        alias = "lossy-quality",
+        alias = "lossy_quality"
+    )]
     LossyArtifact {
         /// Re-encoding quality in `0.0..=100.0`.
         quality: f32,
@@ -996,7 +996,9 @@ impl GlitchFilter for PixelSort {
                 pixels.sort_by(|a, b| {
                     let val_a = self.get_value(a);
                     let val_b = self.get_value(b);
-                    val_a.partial_cmp(&val_b).unwrap_or(std::cmp::Ordering::Equal)
+                    val_a
+                        .partial_cmp(&val_b)
+                        .unwrap_or(std::cmp::Ordering::Equal)
                 });
 
                 for (i, p) in pixels.into_iter().enumerate() {
@@ -1010,9 +1012,7 @@ impl GlitchFilter for PixelSort {
 impl PixelSort {
     fn get_value(&self, p: &Pixel) -> f64 {
         match self.criterion {
-            SortCriterion::Brightness => {
-                (p.r() as f64 + p.g() as f64 + p.b() as f64) / 3.0
-            }
+            SortCriterion::Brightness => (p.r() as f64 + p.g() as f64 + p.b() as f64) / 3.0,
             SortCriterion::Hue => {
                 let r = p.r() as f64 / 65535.0;
                 let g = p.g() as f64 / 65535.0;
@@ -1487,26 +1487,24 @@ impl GlitchFilter for ColorSpaceGlitch {
         };
         png.foreach_scanline(|scan_line| {
             if rng.random_bool(magnitude) {
-                scan_line.process_pixels(|_, p| {
-                    match p {
-                        Pixel::RGB(r, g, b) => {
-                            let (h, s, l) = rgb_to_hsl(r, g, b);
-                            let h = (h + hue_shift).rem_euclid(360.0);
-                            let s = (s * sat_mult).clamp(0.0, 1.0);
-                            let l = (l * light_mult).clamp(0.0, 1.0);
-                            let (r, g, b) = hsl_to_rgb(h, s, l);
-                            Pixel::RGB(r, g, b)
-                        }
-                        Pixel::RGBA(r, g, b, a) => {
-                            let (h, s, l) = rgb_to_hsl(r, g, b);
-                            let h = (h + hue_shift).rem_euclid(360.0);
-                            let s = (s * sat_mult).clamp(0.0, 1.0);
-                            let l = (l * light_mult).clamp(0.0, 1.0);
-                            let (r, g, b) = hsl_to_rgb(h, s, l);
-                            Pixel::RGBA(r, g, b, a)
-                        }
-                        _ => p,
+                scan_line.process_pixels(|_, p| match p {
+                    Pixel::RGB(r, g, b) => {
+                        let (h, s, l) = rgb_to_hsl(r, g, b);
+                        let h = (h + hue_shift).rem_euclid(360.0);
+                        let s = (s * sat_mult).clamp(0.0, 1.0);
+                        let l = (l * light_mult).clamp(0.0, 1.0);
+                        let (r, g, b) = hsl_to_rgb(h, s, l);
+                        Pixel::RGB(r, g, b)
                     }
+                    Pixel::RGBA(r, g, b, a) => {
+                        let (h, s, l) = rgb_to_hsl(r, g, b);
+                        let h = (h + hue_shift).rem_euclid(360.0);
+                        let s = (s * sat_mult).clamp(0.0, 1.0);
+                        let l = (l * light_mult).clamp(0.0, 1.0);
+                        let (r, g, b) = hsl_to_rgb(h, s, l);
+                        Pixel::RGBA(r, g, b, a)
+                    }
+                    _ => p,
                 });
             }
         });
@@ -1525,7 +1523,11 @@ fn rgb_to_hsl(r: u16, g: u16, b: u16) -> (f64, f64, f64) {
         (0.0, 0.0, l)
     } else {
         let d = max - min;
-        let s = if l > 0.5 { d / (2.0 - max - min) } else { d / (max + min) };
+        let s = if l > 0.5 {
+            d / (2.0 - max - min)
+        } else {
+            d / (max + min)
+        };
         let h = if max == r {
             (g - b) / d + (if g < b { 6.0 } else { 0.0 })
         } else if max == g {
@@ -1542,7 +1544,11 @@ fn hsl_to_rgb(h: f64, s: f64, l: f64) -> (u16, u16, u16) {
     let (r, g, b) = if s == 0.0 {
         (l, l, l)
     } else {
-        let q = if l < 0.5 { l * (1.0 + s) } else { l + s - l * s };
+        let q = if l < 0.5 {
+            l * (1.0 + s)
+        } else {
+            l + s - l * s
+        };
         let p = 2.0 * l - q;
         (
             hue_to_rgb(p, q, h + 1.0 / 3.0),
@@ -1558,11 +1564,21 @@ fn hsl_to_rgb(h: f64, s: f64, l: f64) -> (u16, u16, u16) {
 }
 
 fn hue_to_rgb(p: f64, q: f64, mut t: f64) -> f64 {
-    if t < 0.0 { t += 1.0; }
-    if t > 1.0 { t -= 1.0; }
-    if t < 1.0 / 6.0 { return p + (q - p) * 6.0 * t; }
-    if t < 1.0 / 2.0 { return q; }
-    if t < 2.0 / 3.0 { return p + (q - p) * (2.0 / 3.0 - t) * 6.0; }
+    if t < 0.0 {
+        t += 1.0;
+    }
+    if t > 1.0 {
+        t -= 1.0;
+    }
+    if t < 1.0 / 6.0 {
+        return p + (q - p) * 6.0 * t;
+    }
+    if t < 1.0 / 2.0 {
+        return q;
+    }
+    if t < 2.0 / 3.0 {
+        return p + (q - p) * (2.0 / 3.0 - t) * 6.0;
+    }
     p
 }
 
@@ -1692,14 +1708,24 @@ impl PixelFilter for Invert {
 impl PixelFilter for Brighten {
     fn apply_pixel(&self, r: u8, g: u8, b: u8, a: u8) -> (u8, u8, u8, u8) {
         let s = self.strength.min(255) as u8;
-        (r.saturating_add(s), g.saturating_add(s), b.saturating_add(s), a)
+        (
+            r.saturating_add(s),
+            g.saturating_add(s),
+            b.saturating_add(s),
+            a,
+        )
     }
 }
 
 impl PixelFilter for Darken {
     fn apply_pixel(&self, r: u8, g: u8, b: u8, a: u8) -> (u8, u8, u8, u8) {
         let s = self.strength.min(255) as u8;
-        (r.saturating_sub(s), g.saturating_sub(s), b.saturating_sub(s), a)
+        (
+            r.saturating_sub(s),
+            g.saturating_sub(s),
+            b.saturating_sub(s),
+            a,
+        )
     }
 }
 
@@ -1718,18 +1744,33 @@ impl<F: PixelFilter> GlitchFilter for PixelFilterAdapter<F> {
             let max_val = ((1u32 << line.bit_depth() as u32) - 1) as u16;
             line.process_pixels(|_, pixel| {
                 let scale_down = |v: u16| -> u8 {
-                    if max_val == 255 { v as u8 } else { (v as u32 * 255 / max_val as u32) as u8 }
+                    if max_val == 255 {
+                        v as u8
+                    } else {
+                        (v as u32 * 255 / max_val as u32) as u8
+                    }
                 };
                 let scale_up = |v: u8| -> u16 {
-                    if max_val == 255 { v as u16 } else { (v as u32 * max_val as u32 / 255) as u16 }
+                    if max_val == 255 {
+                        v as u16
+                    } else {
+                        (v as u32 * max_val as u32 / 255) as u16
+                    }
                 };
                 match pixel {
                     Pixel::RGB(r, g, b) => {
-                        let (nr, ng, nb, _) = self.0.apply_pixel(scale_down(r), scale_down(g), scale_down(b), 255);
+                        let (nr, ng, nb, _) =
+                            self.0
+                                .apply_pixel(scale_down(r), scale_down(g), scale_down(b), 255);
                         Pixel::RGB(scale_up(nr), scale_up(ng), scale_up(nb))
                     }
                     Pixel::RGBA(r, g, b, a) => {
-                        let (nr, ng, nb, na) = self.0.apply_pixel(scale_down(r), scale_down(g), scale_down(b), scale_down(a));
+                        let (nr, ng, nb, na) = self.0.apply_pixel(
+                            scale_down(r),
+                            scale_down(g),
+                            scale_down(b),
+                            scale_down(a),
+                        );
                         Pixel::RGBA(scale_up(nr), scale_up(ng), scale_up(nb), scale_up(na))
                     }
                     Pixel::Gray(v) => {
@@ -1775,7 +1816,11 @@ impl WebpGlitchContext {
             Some(s) => ChaCha8Rng::seed_from_u64(s),
             None => ChaCha8Rng::from_os_rng(),
         };
-        Ok(Self { webp, filters: Vec::new(), rng })
+        Ok(Self {
+            webp,
+            filters: Vec::new(),
+            rng,
+        })
     }
 
     /// Creates a new [`WebpGlitchContext`] from a byte slice.
@@ -1785,7 +1830,11 @@ impl WebpGlitchContext {
             Some(s) => ChaCha8Rng::seed_from_u64(s),
             None => ChaCha8Rng::from_os_rng(),
         };
-        Ok(Self { webp, filters: Vec::new(), rng })
+        Ok(Self {
+            webp,
+            filters: Vec::new(),
+            rng,
+        })
     }
 
     /// Resets the internal RNG with the given `seed` (or a fresh OS seed if `None`).
@@ -1830,10 +1879,14 @@ impl WebpGlitchContext {
     }
 
     /// Returns the width of the image in pixels.
-    pub fn width(&self) -> u32 { self.webp.width() }
+    pub fn width(&self) -> u32 {
+        self.webp.width()
+    }
 
     /// Returns the height of the image in pixels.
-    pub fn height(&self) -> u32 { self.webp.height() }
+    pub fn height(&self) -> u32 {
+        self.webp.height()
+    }
 
     /// Adds a filter from a [`FilterConfig`] definition.
     ///
@@ -1949,16 +2002,14 @@ impl WebpGlitchContext {
 impl<F: PixelFilter> WebpGlitchFilter for PixelFilterAdapter<F> {
     fn apply(&self, webp: &mut WebpGlitch, _rng: &mut dyn RngCore) {
         webp.foreach_scanline(|line| {
-            line.process_pixels(|_, p| {
-                match p {
-                    WebpPixel::RGB(r, g, b) => {
-                        let (nr, ng, nb, _) = self.0.apply_pixel(r, g, b, 255);
-                        WebpPixel::RGB(nr, ng, nb)
-                    }
-                    WebpPixel::RGBA(r, g, b, a) => {
-                        let (nr, ng, nb, na) = self.0.apply_pixel(r, g, b, a);
-                        WebpPixel::RGBA(nr, ng, nb, na)
-                    }
+            line.process_pixels(|_, p| match p {
+                WebpPixel::RGB(r, g, b) => {
+                    let (nr, ng, nb, _) = self.0.apply_pixel(r, g, b, 255);
+                    WebpPixel::RGB(nr, ng, nb)
+                }
+                WebpPixel::RGBA(r, g, b, a) => {
+                    let (nr, ng, nb, na) = self.0.apply_pixel(r, g, b, a);
+                    WebpPixel::RGBA(nr, ng, nb, na)
                 }
             });
         });
@@ -1986,7 +2037,9 @@ impl WebpGlitchFilter for WebpInvert {
 
 /// WebP version of the [`Brighten`] filter.
 #[cfg(feature = "webp")]
-#[deprecated(note = "Use `PixelFilterAdapter(Brighten { strength })` instead, which works on both PNG and WebP.")]
+#[deprecated(
+    note = "Use `PixelFilterAdapter(Brighten { strength })` instead, which works on both PNG and WebP."
+)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct WebpBrighten {
     /// Brightness increment added to each channel (saturating at `255`).
@@ -2018,7 +2071,9 @@ impl WebpGlitchFilter for WebpBrighten {
 
 /// WebP version of the [`ShiftChannels`] filter.
 #[cfg(feature = "webp")]
-#[deprecated(note = "Use `PixelFilterAdapter(ShiftChannels { r, g, b })` instead, which works on both PNG and WebP.")]
+#[deprecated(
+    note = "Use `PixelFilterAdapter(ShiftChannels { r, g, b })` instead, which works on both PNG and WebP."
+)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct WebpShiftChannels {
     /// Signed offset added to the red channel.
@@ -2059,9 +2114,8 @@ impl WebpGlitchFilter for PixelSort {
         webp.foreach_scanline(|line| {
             if rng.random_bool(magnitude) {
                 let count = line.pixels_count() as usize;
-                let mut pixels: Vec<WebpPixel> = (0..count)
-                    .filter_map(|x| line.get_pixel(x))
-                    .collect();
+                let mut pixels: Vec<WebpPixel> =
+                    (0..count).filter_map(|x| line.get_pixel(x)).collect();
                 pixels.sort_by(|a, b| {
                     let val = |p: &WebpPixel| match self.criterion {
                         SortCriterion::Brightness => {
@@ -2177,12 +2231,9 @@ impl WebpGlitchFilter for ColorDistortion {
                         WebpPixel::RGB(r, g, b) => {
                             WebpPixel::RGB(shift(r, r_off), shift(g, g_off), shift(b, b_off))
                         }
-                        WebpPixel::RGBA(r, g, b, a) => WebpPixel::RGBA(
-                            shift(r, r_off),
-                            shift(g, g_off),
-                            shift(b, b_off),
-                            a,
-                        ),
+                        WebpPixel::RGBA(r, g, b, a) => {
+                            WebpPixel::RGBA(shift(r, r_off), shift(g, g_off), shift(b, b_off), a)
+                        }
                     }
                 });
             }
@@ -2290,13 +2341,13 @@ impl WebpGlitchFilter for MacroblockGlitch {
                     for col_off in 0..MB {
                         let src_x = (sx * MB + col_off) as usize;
                         let dst_x = (dx * MB + col_off) as usize;
-                        if src_x < width as usize && dst_x < width as usize {
-                            if let (Some(ps), Some(pd)) =
+                        if src_x < width as usize
+                            && dst_x < width as usize
+                            && let (Some(ps), Some(pd)) =
                                 (line.get_pixel(src_x), line.get_pixel(dst_x))
-                            {
-                                line.set_pixel(src_x, pd);
-                                line.set_pixel(dst_x, ps);
-                            }
+                        {
+                            line.set_pixel(src_x, pd);
+                            line.set_pixel(dst_x, ps);
                         }
                     }
                 } else {
@@ -2310,13 +2361,13 @@ impl WebpGlitchFilter for MacroblockGlitch {
                     for col_off in 0..MB {
                         let src_x = (sx * MB + col_off) as usize;
                         let dst_x = (dx * MB + col_off) as usize;
-                        if src_x < width as usize && dst_x < width as usize {
-                            if let (Some(ps), Some(pd)) =
+                        if src_x < width as usize
+                            && dst_x < width as usize
+                            && let (Some(ps), Some(pd)) =
                                 (src_line.get_pixel(src_x), dst_line.get_pixel(dst_x))
-                            {
-                                src_line.set_pixel(src_x, pd);
-                                dst_line.set_pixel(dst_x, ps);
-                            }
+                        {
+                            src_line.set_pixel(src_x, pd);
+                            dst_line.set_pixel(dst_x, ps);
                         }
                     }
                 }
@@ -2468,8 +2519,8 @@ impl AnyGlitchContext {
         options: ParseOptions,
     ) -> Result<Self> {
         let path = path.as_ref();
-        let data = std::fs::read(path)
-            .with_context(|| format!("failed to open '{}'", path.display()))?;
+        let data =
+            std::fs::read(path).with_context(|| format!("failed to open '{}'", path.display()))?;
         let format = detect_format(&data).or_else(|| {
             let ext = path.extension()?.to_str()?;
             if ext.eq_ignore_ascii_case("webp") {
@@ -2592,7 +2643,9 @@ impl AnyGlitchContext {
                 Ok(())
             }
             #[cfg(feature = "webp")]
-            Self::Webp(_) => bail!("Pre-process filter `{pre_process:?}` is only supported for PNG images"),
+            Self::Webp(_) => {
+                bail!("Pre-process filter `{pre_process:?}` is only supported for PNG images")
+            }
         }
     }
 
@@ -2729,13 +2782,19 @@ mod test {
         ctx.add_filter(PixelFilterAdapter(Invert));
         ctx.execute();
         let buffer = ctx.buffer()?;
-        assert!(!buffer.is_empty(), "PixelFilterAdapter(Invert) should produce output");
+        assert!(
+            !buffer.is_empty(),
+            "PixelFilterAdapter(Invert) should produce output"
+        );
 
         let mut ctx2 = GlitchContext::new(bytes, None)?;
         ctx2.add_filter(PixelFilterAdapter(Brighten::new(20)));
         ctx2.execute();
         let buffer2 = ctx2.buffer()?;
-        assert!(!buffer2.is_empty(), "PixelFilterAdapter(Brighten) should produce output");
+        assert!(
+            !buffer2.is_empty(),
+            "PixelFilterAdapter(Brighten) should produce output"
+        );
 
         Ok(())
     }
@@ -2944,11 +3003,7 @@ mod test {
             FilterConfig::Invert,
             FilterConfig::Brighten { strength: 10 },
             FilterConfig::Darken { strength: 10 },
-            FilterConfig::ShiftChannels {
-                r: 5,
-                g: -5,
-                b: 10,
-            },
+            FilterConfig::ShiftChannels { r: 5, g: -5, b: 10 },
             FilterConfig::RemoveFilter,
             FilterConfig::SubFilter,
             FilterConfig::UpFilter,
@@ -2961,28 +3016,27 @@ mod test {
     fn test_all_png_filters_across_color_types_and_bit_depths() -> Result<()> {
         let palette: Vec<u8> = (0..=255).flat_map(|i: u8| [i, 255 - i, i / 2]).collect();
         let formats: &[(u8, u8, Option<&[u8]>)] = &[
-            (0, 1, None),             // Grayscale 1-bit
-            (0, 2, None),             // Grayscale 2-bit
-            (0, 4, None),             // Grayscale 4-bit
-            (0, 8, None),             // Grayscale 8-bit
-            (0, 16, None),            // Grayscale 16-bit
-            (2, 8, None),             // RGB 8-bit
-            (2, 16, None),            // RGB 16-bit
-            (3, 1, Some(&palette)),   // Indexed 1-bit
-            (3, 2, Some(&palette)),   // Indexed 2-bit
-            (3, 4, Some(&palette)),   // Indexed 4-bit
-            (3, 8, Some(&palette)),   // Indexed 8-bit
-            (4, 8, None),             // GrayAlpha 8-bit
-            (4, 16, None),            // GrayAlpha 16-bit
-            (6, 8, None),             // RGBA 8-bit
-            (6, 16, None),            // RGBA 16-bit
+            (0, 1, None),           // Grayscale 1-bit
+            (0, 2, None),           // Grayscale 2-bit
+            (0, 4, None),           // Grayscale 4-bit
+            (0, 8, None),           // Grayscale 8-bit
+            (0, 16, None),          // Grayscale 16-bit
+            (2, 8, None),           // RGB 8-bit
+            (2, 16, None),          // RGB 16-bit
+            (3, 1, Some(&palette)), // Indexed 1-bit
+            (3, 2, Some(&palette)), // Indexed 2-bit
+            (3, 4, Some(&palette)), // Indexed 4-bit
+            (3, 8, Some(&palette)), // Indexed 8-bit
+            (4, 8, None),           // GrayAlpha 8-bit
+            (4, 16, None),          // GrayAlpha 16-bit
+            (6, 8, None),           // RGBA 8-bit
+            (6, 16, None),          // RGBA 16-bit
         ];
 
         for &(color_type, bit_depth, plte) in formats {
             let png_bytes = build_synthetic_png(16, 16, color_type, bit_depth, plte);
             for cfg in all_png_filter_configs(1.0) {
-                let is_raw_filter_override =
-                    matches!(cfg, FilterConfig::ChangeFilterType { .. });
+                let is_raw_filter_override = matches!(cfg, FilterConfig::ChangeFilterType { .. });
                 let mut ctx = GlitchContext::new(&png_bytes, Some(99))?;
                 ctx.add_from_config(cfg)?;
                 ctx.execute();
@@ -2992,8 +3046,9 @@ mod test {
                 // Verify round-trip decoding with standard `image` decoder for all filters
                 // that preserve valid PNG filter type bytes.
                 if !is_raw_filter_override {
-                    let decoded = image::load_from_memory_with_format(&out, image::ImageFormat::Png)
-                        .expect("glitched PNG should decode cleanly");
+                    let decoded =
+                        image::load_from_memory_with_format(&out, image::ImageFormat::Png)
+                            .expect("glitched PNG should decode cleanly");
                     assert_eq!((decoded.width(), decoded.height()), (16, 16));
                 }
             }
@@ -3078,7 +3133,10 @@ mod test {
         let a2 = run_with_seed(2026)?;
         let b = run_with_seed(2027)?;
         assert_eq!(a1, a2, "same seed must produce identical output bytes");
-        assert_ne!(a1, b, "different seeds should produce different output bytes");
+        assert_ne!(
+            a1, b,
+            "different seeds should produce different output bytes"
+        );
         Ok(())
     }
 

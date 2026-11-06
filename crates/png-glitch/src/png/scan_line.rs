@@ -92,20 +92,33 @@ impl<'a> ScanLine<'a> {
         let slice = &self.data[offset..offset + bpp];
         match (self.color_type, self.bit_depth) {
             (ColorType::GrayScale, 8) => Some(Pixel::Gray(slice[0] as u16)),
-            (ColorType::GrayScale, 16) => Some(Pixel::Gray(u16::from_be_bytes([slice[0], slice[1]]))),
-            (ColorType::TrueColor, 8) => Some(Pixel::RGB(slice[0] as u16, slice[1] as u16, slice[2] as u16)),
+            (ColorType::GrayScale, 16) => {
+                Some(Pixel::Gray(u16::from_be_bytes([slice[0], slice[1]])))
+            }
+            (ColorType::TrueColor, 8) => Some(Pixel::RGB(
+                slice[0] as u16,
+                slice[1] as u16,
+                slice[2] as u16,
+            )),
             (ColorType::TrueColor, 16) => Some(Pixel::RGB(
                 u16::from_be_bytes([slice[0], slice[1]]),
                 u16::from_be_bytes([slice[2], slice[3]]),
                 u16::from_be_bytes([slice[4], slice[5]]),
             )),
             (ColorType::IndexColor, 8) => Some(Pixel::Indexed(slice[0])),
-            (ColorType::GrayScaleAlpha, 8) => Some(Pixel::GrayAlpha(slice[0] as u16, slice[1] as u16)),
+            (ColorType::GrayScaleAlpha, 8) => {
+                Some(Pixel::GrayAlpha(slice[0] as u16, slice[1] as u16))
+            }
             (ColorType::GrayScaleAlpha, 16) => Some(Pixel::GrayAlpha(
                 u16::from_be_bytes([slice[0], slice[1]]),
                 u16::from_be_bytes([slice[2], slice[3]]),
             )),
-            (ColorType::TrueColorAlpha, 8) => Some(Pixel::RGBA(slice[0] as u16, slice[1] as u16, slice[2] as u16, slice[3] as u16)),
+            (ColorType::TrueColorAlpha, 8) => Some(Pixel::RGBA(
+                slice[0] as u16,
+                slice[1] as u16,
+                slice[2] as u16,
+                slice[3] as u16,
+            )),
             (ColorType::TrueColorAlpha, 16) => Some(Pixel::RGBA(
                 u16::from_be_bytes([slice[0], slice[1]]),
                 u16::from_be_bytes([slice[2], slice[3]]),
@@ -344,9 +357,12 @@ impl<'a> ScanLine<'a> {
                     u16::from_be_bytes([slice[0], slice[1]]),
                     u16::from_be_bytes([slice[2], slice[3]]),
                 ),
-                (ColorType::TrueColorAlpha, 8) => {
-                    Pixel::RGBA(slice[0] as u16, slice[1] as u16, slice[2] as u16, slice[3] as u16)
-                }
+                (ColorType::TrueColorAlpha, 8) => Pixel::RGBA(
+                    slice[0] as u16,
+                    slice[1] as u16,
+                    slice[2] as u16,
+                    slice[3] as u16,
+                ),
                 (ColorType::TrueColorAlpha, 16) => Pixel::RGBA(
                     u16::from_be_bytes([slice[0], slice[1]]),
                     u16::from_be_bytes([slice[2], slice[3]]),
@@ -460,12 +476,7 @@ mod test {
         }
 
         fn scan_line(&mut self) -> ScanLine<'_> {
-            ScanLine::new(
-                &mut self.buffer,
-                ColorType::TrueColorAlpha,
-                8,
-                1,
-            )
+            ScanLine::new(&mut self.buffer, ColorType::TrueColorAlpha, 8, 1)
         }
     }
 
@@ -548,12 +559,7 @@ mod test {
         fn test_change_filter_type() {
             let mut buffer = vec![0, 1, 2, 3, 4, 5];
             {
-                let mut scan_line = ScanLine::new(
-                    &mut buffer,
-                    ColorType::GrayScale,
-                    8,
-                    5,
-                );
+                let mut scan_line = ScanLine::new(&mut buffer, ColorType::GrayScale, 8, 5);
 
                 scan_line.change_filter_type(FilterType::Sub, None);
                 assert_eq!(FilterType::Sub, scan_line.filter_type());
@@ -562,12 +568,7 @@ mod test {
             assert_eq!(encoded_sub, &buffer[1..]);
 
             {
-                let mut scan_line = ScanLine::new(
-                    &mut buffer,
-                    ColorType::GrayScale,
-                    8,
-                    5,
-                );
+                let mut scan_line = ScanLine::new(&mut buffer, ColorType::GrayScale, 8, 5);
                 scan_line.change_filter_type(FilterType::None, None);
                 assert_eq!(FilterType::None, scan_line.filter_type());
             }
@@ -583,12 +584,7 @@ mod test {
         fn test_get_set_pixel_rgba8() {
             let mut buffer = vec![0, 10, 20, 30, 40, 50, 60, 70, 80];
             {
-                let mut scan_line = ScanLine::new(
-                    &mut buffer,
-                    ColorType::TrueColorAlpha,
-                    8,
-                    2,
-                );
+                let mut scan_line = ScanLine::new(&mut buffer, ColorType::TrueColorAlpha, 8, 2);
 
                 let p = scan_line.get_pixel(0).unwrap();
                 assert_eq!(p, Pixel::RGBA(10, 20, 30, 40));
@@ -599,12 +595,7 @@ mod test {
             assert_eq!(buffer[4], 130);
 
             {
-                let scan_line = ScanLine::new(
-                    &mut buffer,
-                    ColorType::TrueColorAlpha,
-                    8,
-                    2,
-                );
+                let scan_line = ScanLine::new(&mut buffer, ColorType::TrueColorAlpha, 8, 2);
                 let p2 = scan_line.get_pixel(1).unwrap();
                 assert_eq!(p2, Pixel::RGBA(50, 60, 70, 80));
             }
@@ -614,12 +605,7 @@ mod test {
         fn test_get_set_pixel_gray8() {
             let mut buffer = vec![0, 10, 20, 30];
             {
-                let mut scan_line = ScanLine::new(
-                    &mut buffer,
-                    ColorType::GrayScale,
-                    8,
-                    3,
-                );
+                let mut scan_line = ScanLine::new(&mut buffer, ColorType::GrayScale, 8, 3);
 
                 let p = scan_line.get_pixel(1).unwrap();
                 assert_eq!(p, Pixel::Gray(20));

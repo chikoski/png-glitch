@@ -1,6 +1,6 @@
+use crate::ScanLine;
 use crate::png::scan_line::filter::byte;
 use crate::png::scan_line::filter::byte::{add_without_overflow, sub_without_overflow};
-use crate::ScanLine;
 
 /// The function removes the average filter from a scan line.
 /// The `line` parameter is the scan line to remove the filter from.
@@ -30,7 +30,10 @@ fn filter(current: u8, left: u8, previous: u8) -> u8 {
     sub_without_overflow(current, average as u8)
 }
 
-fn scan<F>(line: &mut ScanLine, previous: Option<&ScanLine>, callback: F) where F: Fn(u8, u8, u8) -> u8{
+fn scan<F>(line: &mut ScanLine, previous: Option<&ScanLine>, callback: F)
+where
+    F: Fn(u8, u8, u8) -> u8,
+{
     let bpp = line.bytes_per_pixel();
     let range = line.pixel_data_offset()..line.data.len();
     let pixels = range.step_by(bpp);
@@ -38,13 +41,17 @@ fn scan<F>(line: &mut ScanLine, previous: Option<&ScanLine>, callback: F) where 
         for offset in 0..bpp {
             let current = byte::byte_in_pixel(line, pixel, offset);
             let left = byte::byte_in_previous_pixel(line, pixel, offset, bpp);
-            let previous = byte::byte_in_previous_line(previous, pixel - line.pixel_data_offset(), offset);
+            let previous =
+                byte::byte_in_previous_line(previous, pixel - line.pixel_data_offset(), offset);
             line.data[pixel + offset] = callback(current, left, previous);
         }
     }
 }
 
-fn scan_rev<F>(line: &mut ScanLine, previous: Option<&ScanLine>, callback: F) where F: Fn(u8, u8, u8) -> u8{
+fn scan_rev<F>(line: &mut ScanLine, previous: Option<&ScanLine>, callback: F)
+where
+    F: Fn(u8, u8, u8) -> u8,
+{
     let bpp = line.bytes_per_pixel();
     let range = line.pixel_data_offset()..line.data.len();
     let pixels = range.rev().step_by(bpp);
@@ -53,7 +60,8 @@ fn scan_rev<F>(line: &mut ScanLine, previous: Option<&ScanLine>, callback: F) wh
             let index = pixel - offset;
             let current = byte::byte_in_pixel(line, index, 0);
             let left = byte::byte_in_previous_pixel(line, index, 0, bpp);
-            let previous = byte::byte_in_previous_line(previous, index - line.pixel_data_offset(), 0);
+            let previous =
+                byte::byte_in_previous_line(previous, index - line.pixel_data_offset(), 0);
 
             line.data[pixel - offset] = callback(current, left, previous);
         }

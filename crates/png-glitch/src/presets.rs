@@ -19,14 +19,12 @@ impl Invert {
 
 impl GlitchPreset for Invert {
     fn apply_to_line(&self, line: &mut ScanLine) {
-        line.process_pixels(|_, pixel| {
-            match pixel {
-                Pixel::Gray(v) => Pixel::Gray(!v),
-                Pixel::GrayAlpha(v, a) => Pixel::GrayAlpha(!v, a),
-                Pixel::RGB(r, g, b) => Pixel::RGB(!r, !g, !b),
-                Pixel::RGBA(r, g, b, a) => Pixel::RGBA(!r, !g, !b, a),
-                Pixel::Indexed(v) => Pixel::Indexed(!v),
-            }
+        line.process_pixels(|_, pixel| match pixel {
+            Pixel::Gray(v) => Pixel::Gray(!v),
+            Pixel::GrayAlpha(v, a) => Pixel::GrayAlpha(!v, a),
+            Pixel::RGB(r, g, b) => Pixel::RGB(!r, !g, !b),
+            Pixel::RGBA(r, g, b, a) => Pixel::RGBA(!r, !g, !b, a),
+            Pixel::Indexed(v) => Pixel::Indexed(!v),
         });
     }
 }
@@ -54,21 +52,19 @@ impl GlitchPreset for ShiftChannels {
         let r_shift = self.r;
         let g_shift = self.g;
         let b_shift = self.b;
-        line.process_pixels(|_, pixel| {
-            match pixel {
-                Pixel::RGB(r, g, b) => Pixel::RGB(
-                    r.wrapping_add_signed(r_shift),
-                    g.wrapping_add_signed(g_shift),
-                    b.wrapping_add_signed(b_shift),
-                ),
-                Pixel::RGBA(r, g, b, a) => Pixel::RGBA(
-                    r.wrapping_add_signed(r_shift),
-                    g.wrapping_add_signed(g_shift),
-                    b.wrapping_add_signed(b_shift),
-                    a,
-                ),
-                _ => pixel,
-            }
+        line.process_pixels(|_, pixel| match pixel {
+            Pixel::RGB(r, g, b) => Pixel::RGB(
+                r.wrapping_add_signed(r_shift),
+                g.wrapping_add_signed(g_shift),
+                b.wrapping_add_signed(b_shift),
+            ),
+            Pixel::RGBA(r, g, b, a) => Pixel::RGBA(
+                r.wrapping_add_signed(r_shift),
+                g.wrapping_add_signed(g_shift),
+                b.wrapping_add_signed(b_shift),
+                a,
+            ),
+            _ => pixel,
         });
     }
 }
@@ -103,9 +99,7 @@ impl GlitchPreset for Brighten {
                 Pixel::Gray(v) => Pixel::Gray(brighten(v)),
                 Pixel::GrayAlpha(v, a) => Pixel::GrayAlpha(brighten(v), a),
                 Pixel::RGB(r, g, b) => Pixel::RGB(brighten(r), brighten(g), brighten(b)),
-                Pixel::RGBA(r, g, b, a) => {
-                    Pixel::RGBA(brighten(r), brighten(g), brighten(b), a)
-                }
+                Pixel::RGBA(r, g, b, a) => Pixel::RGBA(brighten(r), brighten(g), brighten(b), a),
                 Pixel::Indexed(v) => Pixel::Indexed(v.saturating_add(strength as u8)),
             }
         });

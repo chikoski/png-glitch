@@ -1,0 +1,5 @@
+---
+source: crates/glitch-context/tests/golden.rs
+expression: "golden_hash(\"type: random-copy\\ntimes: 5\")"
+---
+eccb6a3778cab57f0aefa0831290456b528bf507908991042a5c6a3448a6354d

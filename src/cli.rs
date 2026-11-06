@@ -1,7 +1,7 @@
 use clap::Parser;
 use glitch_context::{
-    AlphaGlitchStrategy, BitOp, FilterConfig, PreProcess, SortCriterion, SwapTarget,
-    MAX_RANDOM_COPY_TIMES,
+    AlphaGlitchStrategy, BitOp, FilterConfig, MAX_RANDOM_COPY_TIMES, PreProcess, SortCriterion,
+    SwapTarget,
 };
 use serde::Deserialize;
 
@@ -250,7 +250,7 @@ pub fn parse_filter_spec(spec: &str) -> Result<FilterConfig, String> {
                             other => {
                                 return Err(format!(
                                     "unknown parameter `{other}` for `random-copy` (expected `times`)"
-                                ))
+                                ));
                             }
                         }
                     }
@@ -278,13 +278,17 @@ pub fn parse_filter_spec(spec: &str) -> Result<FilterConfig, String> {
                             other => {
                                 return Err(format!(
                                     "unknown parameter `{other}` for `{norm}` (expected `strength`)"
-                                ))
+                                ));
                             }
                         }
                     }
                     strength.ok_or_else(|| format!("missing `strength` for `{norm}`"))?
                 }
-                _ => return Err(format!("`{norm}` requires a strength (e.g. `-f {norm}=20`)")),
+                _ => {
+                    return Err(format!(
+                        "`{norm}` requires a strength (e.g. `-f {norm}=20`)"
+                    ));
+                }
             };
             if norm == "brighten" {
                 Ok(FilterConfig::Brighten { strength })
@@ -322,7 +326,7 @@ pub fn parse_filter_spec(spec: &str) -> Result<FilterConfig, String> {
                                 other => {
                                     return Err(format!(
                                         "unknown parameter `{other}` for `substitute` (expected `index`, `value`)"
-                                    ))
+                                    ));
                                 }
                             }
                         }
@@ -335,7 +339,7 @@ pub fn parse_filter_spec(spec: &str) -> Result<FilterConfig, String> {
                 _ => {
                     return Err(
                         "`substitute` requires `INDEX:VALUE` (e.g. `-f substitute=10:255`)".into(),
-                    )
+                    );
                 }
             };
             Ok(FilterConfig::Substitute { index, value })
@@ -357,24 +361,18 @@ pub fn parse_filter_spec(spec: &str) -> Result<FilterConfig, String> {
                         for (k, v) in parse_kv_pairs(&norm, rest)? {
                             match k {
                                 "r" => {
-                                    r = v
-                                        .parse::<i16>()
-                                        .map_err(|e| format!("invalid `r`: {e}"))?
+                                    r = v.parse::<i16>().map_err(|e| format!("invalid `r`: {e}"))?
                                 }
                                 "g" => {
-                                    g = v
-                                        .parse::<i16>()
-                                        .map_err(|e| format!("invalid `g`: {e}"))?
+                                    g = v.parse::<i16>().map_err(|e| format!("invalid `g`: {e}"))?
                                 }
                                 "b" => {
-                                    b = v
-                                        .parse::<i16>()
-                                        .map_err(|e| format!("invalid `b`: {e}"))?
+                                    b = v.parse::<i16>().map_err(|e| format!("invalid `b`: {e}"))?
                                 }
                                 other => {
                                     return Err(format!(
                                         "unknown parameter `{other}` for `shift-channels` (expected `r`, `g`, `b`)"
-                                    ))
+                                    ));
                                 }
                             }
                         }
@@ -385,7 +383,7 @@ pub fn parse_filter_spec(spec: &str) -> Result<FilterConfig, String> {
                     return Err(
                         "`shift-channels` requires `R,G,B` (e.g. `-f shift-channels=10,0,-10`)"
                             .into(),
-                    )
+                    );
                 }
             };
             Ok(FilterConfig::ShiftChannels { r, g, b })
@@ -406,14 +404,14 @@ pub fn parse_filter_spec(spec: &str) -> Result<FilterConfig, String> {
                                     _ => {
                                         return Err(format!(
                                             "invalid criterion `{v}` (expected `brightness` or `hue`)"
-                                        ))
+                                        ));
                                     }
                                 });
                             }
                             other => {
                                 return Err(format!(
                                     "unknown parameter `{other}` for `pixel-sort` (expected `magnitude`, `criterion`)"
-                                ))
+                                ));
                             }
                         }
                     }
@@ -446,7 +444,7 @@ pub fn parse_filter_spec(spec: &str) -> Result<FilterConfig, String> {
                                     _ => {
                                         return Err(format!(
                                             "invalid bitwise op `{v}` (expected `and`, `or`, `xor`)"
-                                        ))
+                                        ));
                                     }
                                 });
                             }
@@ -459,7 +457,7 @@ pub fn parse_filter_spec(spec: &str) -> Result<FilterConfig, String> {
                             other => {
                                 return Err(format!(
                                     "unknown parameter `{other}` for `bitwise` (expected `magnitude`, `op`, `value`)"
-                                ))
+                                ));
                             }
                         }
                     }
@@ -492,14 +490,14 @@ pub fn parse_filter_spec(spec: &str) -> Result<FilterConfig, String> {
                                     _ => {
                                         return Err(format!(
                                             "invalid target `{v}` (expected `rg`, `gb`, `br`)"
-                                        ))
+                                        ));
                                     }
                                 });
                             }
                             other => {
                                 return Err(format!(
                                     "unknown parameter `{other}` for `channel-swap` (expected `magnitude`, `target`)"
-                                ))
+                                ));
                             }
                         }
                     }
@@ -529,7 +527,7 @@ pub fn parse_filter_spec(spec: &str) -> Result<FilterConfig, String> {
                             other => {
                                 return Err(format!(
                                     "unknown parameter `{other}` for `block-scramble` (expected `magnitude`, `block_size`)"
-                                ))
+                                ));
                             }
                         }
                     }
@@ -559,7 +557,7 @@ pub fn parse_filter_spec(spec: &str) -> Result<FilterConfig, String> {
                             other => {
                                 return Err(format!(
                                     "unknown parameter `{other}` for `color-distortion` (expected `magnitude`, `strength`)"
-                                ))
+                                ));
                             }
                         }
                     }
@@ -597,7 +595,7 @@ pub fn parse_filter_spec(spec: &str) -> Result<FilterConfig, String> {
                             other => {
                                 return Err(format!(
                                     "unknown parameter `{other}` for `color-space-glitch` (expected `magnitude`, `hue_shift`, `saturation_mult`, `lightness_mult`)"
-                                ))
+                                ));
                             }
                         }
                     }
@@ -646,7 +644,7 @@ pub fn parse_filter_spec(spec: &str) -> Result<FilterConfig, String> {
                             other => {
                                 return Err(format!(
                                     "unknown parameter `{other}` for `chromatic-aberration` (expected `magnitude`, `r_offset`/`r`, `g_offset`/`g`, `b_offset`/`b`)"
-                                ))
+                                ));
                             }
                         }
                     }
@@ -687,7 +685,7 @@ pub fn parse_filter_spec(spec: &str) -> Result<FilterConfig, String> {
                             other => {
                                 return Err(format!(
                                     "unknown parameter `{other}` for `alpha-glitch` (expected `magnitude`, `strategy`)"
-                                ))
+                                ));
                             }
                         }
                     }
@@ -695,7 +693,7 @@ pub fn parse_filter_spec(spec: &str) -> Result<FilterConfig, String> {
                 _ => {
                     return Err(
                         "`alpha-glitch` requires a strategy (e.g. `-f alpha-glitch=invert`)".into(),
-                    )
+                    );
                 }
             }
             Ok(FilterConfig::AlphaGlitch {
@@ -735,10 +733,7 @@ pub fn parse_filter_spec(spec: &str) -> Result<FilterConfig, String> {
     }
 }
 
-fn extract_single_magnitude(
-    name: &str,
-    mode: Option<(char, &str)>,
-) -> Result<f64, String> {
+fn extract_single_magnitude(name: &str, mode: Option<(char, &str)>) -> Result<f64, String> {
     match mode {
         Some(('=', val)) => parse_magnitude(val),
         Some((':', rest)) => {
@@ -749,7 +744,7 @@ fn extract_single_magnitude(
                     other => {
                         return Err(format!(
                             "unknown parameter `{other}` for `{name}` (expected `magnitude`)"
-                        ))
+                        ));
                     }
                 }
             }
@@ -892,7 +887,12 @@ pub struct Cli {
     pub list_filters: bool,
 
     /// Output file path [default: `<input-stem>-glitched.<ext>`]
-    #[arg(short, long = "output", value_name = "FILE", conflicts_with = "batch_output")]
+    #[arg(
+        short,
+        long = "output",
+        value_name = "FILE",
+        conflicts_with = "batch_output"
+    )]
     pub output_file: Option<String>,
 
     /// Overwrite existing output file(s) without prompting
@@ -966,7 +966,12 @@ pub struct Cli {
     pub bitwise_op: BitOp,
 
     /// Byte operand (0..=255) for `--bitwise`
-    #[arg(long, value_name = "BYTE", default_value_t = 0, help_heading = "Glitch Filters")]
+    #[arg(
+        long,
+        value_name = "BYTE",
+        default_value_t = 0,
+        help_heading = "Glitch Filters"
+    )]
     pub bitwise_value: u8,
 
     /// Swap two color channels [0.0..=1.0] (configure with `--channel-swap-target`)
@@ -986,7 +991,12 @@ pub struct Cli {
     pub block_scramble: Option<f64>,
 
     /// Block size in pixels for `--block-scramble`
-    #[arg(long, value_name = "PX", default_value_t = 16, help_heading = "Glitch Filters")]
+    #[arg(
+        long,
+        value_name = "PX",
+        default_value_t = 16,
+        help_heading = "Glitch Filters"
+    )]
     pub block_scramble_size: u32,
 
     /// Add random color distortion [0.0..=1.0] (configure with `--color-distortion-strength`)
@@ -1018,11 +1028,23 @@ pub struct Cli {
     pub chromatic_aberration: Option<f64>,
 
     /// Red channel horizontal offset in pixels for `--chromatic-aberration`
-    #[arg(long, value_name = "PX", default_value_t = 2, allow_hyphen_values = true, help_heading = "Glitch Filters")]
+    #[arg(
+        long,
+        value_name = "PX",
+        default_value_t = 2,
+        allow_hyphen_values = true,
+        help_heading = "Glitch Filters"
+    )]
     pub r_offset: i32,
 
     /// Green channel horizontal offset in pixels for `--chromatic-aberration`
-    #[arg(long, value_name = "PX", default_value_t = 0, allow_hyphen_values = true, help_heading = "Glitch Filters")]
+    #[arg(
+        long,
+        value_name = "PX",
+        default_value_t = 0,
+        allow_hyphen_values = true,
+        help_heading = "Glitch Filters"
+    )]
     pub g_offset: i32,
 
     /// Blue channel horizontal offset in pixels for `--chromatic-aberration`
@@ -1046,7 +1068,12 @@ pub struct Cli {
     pub shift_channels: Option<ShiftChannelsArg>,
 
     /// Re-encode all PNG scanlines with a uniform prediction filter before applying glitch filters (PNG only)
-    #[arg(long, value_name = "FILTER", value_enum, help_heading = "PNG Prediction Filter Re-encoding")]
+    #[arg(
+        long,
+        value_name = "FILTER",
+        value_enum,
+        help_heading = "PNG Prediction Filter Re-encoding"
+    )]
     pub pre_process: Option<PreProcess>,
 
     /// Re-encode all PNG scanlines with PNG prediction filter `None` (pipeline step, PNG only)
@@ -1054,19 +1081,35 @@ pub struct Cli {
     pub remove_filter: bool,
 
     /// Re-encode all PNG scanlines with PNG prediction filter `Sub` (pipeline step, PNG only)
-    #[arg(long, visible_alias = "sub-filter", help_heading = "PNG Prediction Filter Re-encoding")]
+    #[arg(
+        long,
+        visible_alias = "sub-filter",
+        help_heading = "PNG Prediction Filter Re-encoding"
+    )]
     pub sub: bool,
 
     /// Re-encode all PNG scanlines with PNG prediction filter `Up` (pipeline step, PNG only)
-    #[arg(long, visible_alias = "up-filter", help_heading = "PNG Prediction Filter Re-encoding")]
+    #[arg(
+        long,
+        visible_alias = "up-filter",
+        help_heading = "PNG Prediction Filter Re-encoding"
+    )]
     pub up: bool,
 
     /// Re-encode all PNG scanlines with PNG prediction filter `Average` (pipeline step, PNG only)
-    #[arg(long, visible_alias = "average-filter", help_heading = "PNG Prediction Filter Re-encoding")]
+    #[arg(
+        long,
+        visible_alias = "average-filter",
+        help_heading = "PNG Prediction Filter Re-encoding"
+    )]
     pub average: bool,
 
     /// Re-encode all PNG scanlines with PNG prediction filter `Paeth` (pipeline step, PNG only)
-    #[arg(long, visible_alias = "paeth-filter", help_heading = "PNG Prediction Filter Re-encoding")]
+    #[arg(
+        long,
+        visible_alias = "paeth-filter",
+        help_heading = "PNG Prediction Filter Re-encoding"
+    )]
     pub paeth: bool,
 
     /// Swap 16x16 macroblocks along VP8 boundaries [0.0..=1.0] (WebP only)
@@ -1074,7 +1117,12 @@ pub struct Cli {
     pub macroblock_glitch: Option<f64>,
 
     /// Corrupt alpha channel using STRATEGY (WebP only)
-    #[arg(long, value_name = "STRATEGY", value_enum, help_heading = "WebP Filters")]
+    #[arg(
+        long,
+        value_name = "STRATEGY",
+        value_enum,
+        help_heading = "WebP Filters"
+    )]
     pub alpha_glitch: Option<AlphaGlitchStrategy>,
 
     /// Lower WebP re-encoding quality for lossy artifacts [0.0..=100.0] (WebP only)

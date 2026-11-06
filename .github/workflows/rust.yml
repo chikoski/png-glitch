@@ -13,22 +13,72 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-
+  lint:
+    name: Lint and docs
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v7
-    - name: Build
-      run: cargo build --workspace --all-targets --verbose
+    - uses: Swatinem/rust-cache@v2
+    - name: Check formatting
+      run: cargo fmt --all --check
     - name: Run clippy
       run: cargo clippy --workspace --all-targets -- -D warnings
-    - name: Run tests
-      run: cargo test --workspace --all-targets --verbose
-    - name: Run doc tests
-      run: cargo test --workspace --doc --verbose
     - name: Check documentation
       run: cargo doc --workspace --no-deps
+
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+    - uses: actions/checkout@v7
+    - uses: Swatinem/rust-cache@v2
+    - name: Build
+      run: cargo build --workspace --all-targets --verbose
+    - name: Run tests
+      run: cargo test --workspace --all-targets --verbose
+    - name: Run tests (release, overflow checks on)
+      run: cargo test --workspace --release --verbose
+    - name: Run doc tests
+      run: cargo test --workspace --doc --verbose
+
+  msrv:
+    name: MSRV (1.89)
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v7
+    # Keep this version in sync with `rust-version` in the root Cargo.toml.
+    - uses: dtolnay/rust-toolchain@1.89
+    - uses: Swatinem/rust-cache@v2
+    - name: Check workspace with the minimum supported Rust version
+      run: cargo check --workspace
+
+  coverage:
+    name: Coverage (informational)
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v7
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        components: llvm-tools-preview
+    - uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-llvm-cov
+    - uses: Swatinem/rust-cache@v2
+    - name: Generate HTML coverage report
+      run: cargo llvm-cov --workspace --html
+    - name: Upload coverage report
+      uses: actions/upload-artifact@v7
+      with:
+        name: coverage-html
+        path: target/llvm-cov/html
 
   fuzz-build:
     name: Build fuzz targets
@@ -40,6 +90,9 @@ jobs:
     - uses: taiki-e/install-action@v2
       with:
         tool: cargo-fuzz
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: fuzz
     - name: Build fuzz targets
       working-directory: fuzz
       run: cargo +nightly fuzz build --target x86_64-unknown-linux-gnu

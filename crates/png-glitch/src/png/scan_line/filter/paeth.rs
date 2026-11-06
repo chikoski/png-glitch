@@ -1,5 +1,8 @@
-use crate::png::scan_line::filter::byte::{add_without_overflow, byte_in_pixel, byte_in_previous_line, byte_in_previous_pixel, byte_in_previous_pixel_in_previous_line, sub_without_overflow};
 use crate::ScanLine;
+use crate::png::scan_line::filter::byte::{
+    add_without_overflow, byte_in_pixel, byte_in_previous_line, byte_in_previous_pixel,
+    byte_in_previous_pixel_in_previous_line, sub_without_overflow,
+};
 
 /// The function removes the paeth filter from a scan line.
 /// The `line` parameter is the scan line to remove the filter from.
@@ -25,7 +28,10 @@ fn filter(current: u8, left: u8, top: u8, top_left: u8) -> u8 {
     sub_without_overflow(current, p)
 }
 
-fn scan<F>(line: &mut ScanLine, previous: Option<&ScanLine>, callback: F) where F: Fn(u8, u8, u8, u8) -> u8 {
+fn scan<F>(line: &mut ScanLine, previous: Option<&ScanLine>, callback: F)
+where
+    F: Fn(u8, u8, u8, u8) -> u8,
+{
     let bpp = line.bytes_per_pixel();
     let range = line.pixel_data_offset()..line.data.len();
     let pixels = range.step_by(bpp);
@@ -36,7 +42,8 @@ fn scan<F>(line: &mut ScanLine, previous: Option<&ScanLine>, callback: F) where 
             let current = byte_in_pixel(line, pixel, offset);
             let left = byte_in_previous_pixel(line, pixel, offset, bpp);
             let top = byte_in_previous_line(previous, pixel_offset, offset);
-            let top_left = byte_in_previous_pixel_in_previous_line(previous, pixel_offset, offset, bpp);
+            let top_left =
+                byte_in_previous_pixel_in_previous_line(previous, pixel_offset, offset, bpp);
 
             let updated = callback(current, left, top, top_left);
             line.data[pixel + offset] = updated;
@@ -44,7 +51,10 @@ fn scan<F>(line: &mut ScanLine, previous: Option<&ScanLine>, callback: F) where 
     }
 }
 
-fn scan_rev<F>(line: &mut ScanLine, previous: Option<&ScanLine>, callback: F) where F: Fn(u8, u8, u8, u8) -> u8 {
+fn scan_rev<F>(line: &mut ScanLine, previous: Option<&ScanLine>, callback: F)
+where
+    F: Fn(u8, u8, u8, u8) -> u8,
+{
     let bpp = line.bytes_per_pixel();
     let range = line.pixel_data_offset()..line.data.len();
     let pixels = range.rev().step_by(bpp);
@@ -57,7 +67,8 @@ fn scan_rev<F>(line: &mut ScanLine, previous: Option<&ScanLine>, callback: F) wh
 
             let index_in_previous_line = index - line.pixel_data_offset();
             let top = byte_in_previous_line(previous, index_in_previous_line, 0);
-            let top_left = byte_in_previous_pixel_in_previous_line(previous, index_in_previous_line, 0, bpp);
+            let top_left =
+                byte_in_previous_pixel_in_previous_line(previous, index_in_previous_line, 0, bpp);
 
             let updated = callback(current, left, top, top_left);
             line.data[index] = updated;
@@ -124,4 +135,3 @@ mod tests {
         assert_eq!(current_data, current_copy);
     }
 }
-

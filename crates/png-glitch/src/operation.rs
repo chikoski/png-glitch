@@ -1,7 +1,7 @@
-mod transpose;
-mod scan;
 mod encode;
+mod scan;
+mod transpose;
 
-pub use transpose::Transpose;
 pub use encode::Encode;
 pub use scan::Scan;
+pub use transpose::Transpose;

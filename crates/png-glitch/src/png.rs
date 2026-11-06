@@ -1,9 +1,9 @@
 use crate::operation::{Encode, Scan, Transpose};
 use crate::png::parser::Header;
-pub use crate::png::parser::{Limits, ParseOptions};
 use crate::png::parser::Parser;
 use crate::png::parser::Terminator;
 use crate::png::parser::{Chunk, ChunkType};
+pub use crate::png::parser::{Limits, ParseOptions};
 pub use crate::png::png_error::{PngError, PngWarning};
 pub use crate::png::scan_line::Pixel;
 pub use crate::png::scan_line::ScanLine;
@@ -245,6 +245,8 @@ impl Scan for Png {
         }
     }
 
+    // NOTE: the closure runs on several threads in no fixed order; it must not use a shared RNG
+    // (see the reproducibility policy in the README).
     fn par_foreach_scanline<F>(&mut self, modifier: F)
     where
         F: Fn(&mut ScanLine) + Sync + Send,

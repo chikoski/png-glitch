@@ -1,4 +1,4 @@
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use clap::{ArgMatches, CommandFactory, FromArgMatches};
 use glitch_context::{AnyGlitchContext, FilterConfig, ParseOptions};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -10,7 +10,7 @@ use walkdir::WalkDir;
 
 mod cli;
 
-use crate::cli::{format_filter_list, Cli, ConfigFile};
+use crate::cli::{Cli, ConfigFile, format_filter_list};
 
 #[derive(Debug, Clone)]
 enum OrderedStep {
@@ -186,7 +186,10 @@ fn collect_ordered_steps(args: &Cli, matches: Option<&ArgMatches>) -> Vec<Ordere
         ));
     }
     if args.sub {
-        steps.push((idx("sub", 200), OrderedStep::Filter(FilterConfig::SubFilter)));
+        steps.push((
+            idx("sub", 200),
+            OrderedStep::Filter(FilterConfig::SubFilter),
+        ));
     }
     if args.up {
         steps.push((idx("up", 210), OrderedStep::Filter(FilterConfig::UpFilter)));
@@ -607,8 +610,7 @@ mod tests {
     #[test]
     fn test_inapplicable_format_flags_rejected() {
         let cli_png_with_webp_flag =
-            Cli::try_parse_from(["png-glitch", "input.png", "--macroblock-glitch", "0.1"])
-                .unwrap();
+            Cli::try_parse_from(["png-glitch", "input.png", "--macroblock-glitch", "0.1"]).unwrap();
         assert!(validate_flags_for_format(&cli_png_with_webp_flag, false).is_err());
 
         let cli_webp_with_png_flag =
@@ -913,7 +915,8 @@ filters:
     r_offset: 3
     b_offset: -3
 "#;
-        let cfg: ConfigFile = serde_saphyr::from_str(yaml).expect("kebab and PascalCase YAML should parse");
+        let cfg: ConfigFile =
+            serde_saphyr::from_str(yaml).expect("kebab and PascalCase YAML should parse");
         assert_eq!(cfg.filters.len(), 3);
     }
 
@@ -940,22 +943,10 @@ filters:
             .is_err()
         );
         assert!(
-            Cli::try_parse_from([
-                "png-glitch",
-                "input.png",
-                "--random-copy",
-                "100001"
-            ])
-            .is_err()
+            Cli::try_parse_from(["png-glitch", "input.png", "--random-copy", "100001"]).is_err()
         );
         assert!(
-            Cli::try_parse_from([
-                "png-glitch",
-                "input.png",
-                "-f",
-                "random-copy=100001"
-            ])
-            .is_err()
+            Cli::try_parse_from(["png-glitch", "input.png", "-f", "random-copy=100001"]).is_err()
         );
         assert!(
             Cli::try_parse_from([

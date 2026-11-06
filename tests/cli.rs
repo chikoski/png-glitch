@@ -321,17 +321,57 @@ macro_rules! golden {
 golden!(golden_png_invert, "small.png", "invert");
 golden!(golden_png_brighten, "small.png", "brighten=30");
 golden!(golden_png_darken, "small.png", "darken=30");
-golden!(golden_png_shift_channels, "small.png", "shift-channels=15,0,-15");
-golden!(golden_png_pixel_sort, "small.png", "pixel-sort:magnitude=1.0,criterion=brightness");
-golden!(golden_png_bitwise, "small.png", "bitwise:magnitude=0.2,op=xor,value=255");
-golden!(golden_png_channel_swap, "small.png", "channel-swap:magnitude=0.5,target=br");
-golden!(golden_png_horizontal_shift, "small.png", "horizontal-shift=0.3");
-golden!(golden_png_color_distortion, "small.png", "color-distortion:magnitude=0.3,strength=40");
-golden!(golden_png_chromatic_aberration, "small.png", "chromatic-aberration:magnitude=0.5,r=4,b=-4");
+golden!(
+    golden_png_shift_channels,
+    "small.png",
+    "shift-channels=15,0,-15"
+);
+golden!(
+    golden_png_pixel_sort,
+    "small.png",
+    "pixel-sort:magnitude=1.0,criterion=brightness"
+);
+golden!(
+    golden_png_bitwise,
+    "small.png",
+    "bitwise:magnitude=0.2,op=xor,value=255"
+);
+golden!(
+    golden_png_channel_swap,
+    "small.png",
+    "channel-swap:magnitude=0.5,target=br"
+);
+golden!(
+    golden_png_horizontal_shift,
+    "small.png",
+    "horizontal-shift=0.3"
+);
+golden!(
+    golden_png_color_distortion,
+    "small.png",
+    "color-distortion:magnitude=0.3,strength=40"
+);
+golden!(
+    golden_png_chromatic_aberration,
+    "small.png",
+    "chromatic-aberration:magnitude=0.5,r=4,b=-4"
+);
 // PNG-only filters
-golden!(golden_png_block_scramble, "small.png", "block-scramble:magnitude=0.3,block_size=8");
-golden!(golden_png_color_space_glitch, "small.png", "color-space-glitch:magnitude=0.5,hue_shift=90");
-golden!(golden_png_change_filter_type, "small.png", "change-filter-type=0.3");
+golden!(
+    golden_png_block_scramble,
+    "small.png",
+    "block-scramble:magnitude=0.3,block_size=8"
+);
+golden!(
+    golden_png_color_space_glitch,
+    "small.png",
+    "color-space-glitch:magnitude=0.5,hue_shift=90"
+);
+golden!(
+    golden_png_change_filter_type,
+    "small.png",
+    "change-filter-type=0.3"
+);
 golden!(golden_png_replace, "small.png", "replace=0.1");
 golden!(golden_png_transpose, "small.png", "transpose=0.3");
 golden!(golden_png_set_zero, "small.png", "set-zero=0.5");
@@ -345,13 +385,33 @@ golden!(golden_png_paeth_filter, "small.png", "paeth-filter");
 // Shared filters (WebP)
 golden!(golden_webp_invert, "small.webp", "invert");
 golden!(golden_webp_brighten, "small.webp", "brighten=30");
-golden!(golden_webp_shift_channels, "small.webp", "shift-channels=15,0,-15");
+golden!(
+    golden_webp_shift_channels,
+    "small.webp",
+    "shift-channels=15,0,-15"
+);
 golden!(golden_webp_pixel_sort, "small.webp", "pixel-sort=0.5");
-golden!(golden_webp_color_distortion, "small.webp", "color-distortion=0.3");
+golden!(
+    golden_webp_color_distortion,
+    "small.webp",
+    "color-distortion=0.3"
+);
 // WebP-only filters
-golden!(golden_webp_macroblock_glitch, "small.webp", "macroblock-glitch=0.5");
-golden!(golden_webp_alpha_glitch, "small.webp", "alpha-glitch=invert");
-golden!(golden_webp_lossy_artifact, "small.webp", "lossy-artifact=10");
+golden!(
+    golden_webp_macroblock_glitch,
+    "small.webp",
+    "macroblock-glitch=0.5"
+);
+golden!(
+    golden_webp_alpha_glitch,
+    "small.webp",
+    "alpha-glitch=invert"
+);
+golden!(
+    golden_webp_lossy_artifact,
+    "small.webp",
+    "lossy-artifact=10"
+);
 
 // ---------------------------------------------------------------------- help
 
@@ -359,5 +419,115 @@ golden!(golden_webp_lossy_artifact, "small.webp", "lossy-artifact=10");
 fn help_output_snapshot() {
     let out = cmd().arg("--help").assert().success();
     let text = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+    // On Windows clap prints the executable name with its `.exe` suffix.
+    let text = text.replace("png-glitch.exe", "png-glitch");
     assert_snapshot!(text);
+}
+
+// ------------------------------------------------- thread-count independence
+
+/// Filters that consume the RNG, with arguments that make them do real work on the fixture.
+const RNG_FILTERS: &[&str] = &[
+    "change-filter-type=0.5",
+    "replace=0.3",
+    "transpose=0.5",
+    "set-zero=0.5",
+    "random-copy=5",
+    "pixel-sort=0.5",
+    "bitwise:magnitude=0.5,op=xor,value=255",
+    "channel-swap:magnitude=0.5,target=br",
+    "horizontal-shift=0.5",
+    "block-scramble:magnitude=0.5,block_size=8",
+    "color-distortion:magnitude=0.5,strength=40",
+    "color-space-glitch:magnitude=0.5,hue_shift=90",
+    "chromatic-aberration:magnitude=0.5,r=4,b=-4",
+];
+
+/// Runs the binary in its own process with the given rayon thread count.
+fn run_with_threads(threads: &str, input: &Path, args: &[&str], out: &Path) -> Vec<u8> {
+    cmd()
+        .env("RAYON_NUM_THREADS", threads)
+        .arg(input)
+        .args(["--seed", "7"])
+        .args(args)
+        .arg(out)
+        .assert()
+        .success();
+    fs::read(out).unwrap()
+}
+
+#[test]
+fn rng_filters_are_independent_of_thread_count() {
+    let dir = TempDir::new().unwrap();
+    let input = copy_fixture(&dir, "small.png");
+    for (i, filter) in RNG_FILTERS.iter().enumerate() {
+        let one = run_with_threads(
+            "1",
+            &input,
+            &["-f", filter, "-o"],
+            &dir.path().join(format!("one{i}.png")),
+        );
+        let many = run_with_threads(
+            "8",
+            &input,
+            &["-f", filter, "-o"],
+            &dir.path().join(format!("many{i}.png")),
+        );
+        assert_eq!(
+            one, many,
+            "output of `{filter}` depends on the thread count"
+        );
+    }
+}
+
+#[test]
+fn chained_filters_are_independent_of_thread_count() {
+    let dir = TempDir::new().unwrap();
+    let input = copy_fixture(&dir, "small.png");
+    let args: Vec<&str> = RNG_FILTERS
+        .iter()
+        .flat_map(|f| ["-f", *f])
+        .chain(["-o"])
+        .collect();
+    let one = run_with_threads("1", &input, &args, &dir.path().join("one.png"));
+    let many = run_with_threads("8", &input, &args, &dir.path().join("many.png"));
+    assert_eq!(one, many);
+}
+
+#[test]
+fn batch_output_is_independent_of_thread_count() {
+    let dir = TempDir::new().unwrap();
+    let input = dir.path().join("in");
+    fs::create_dir_all(&input).unwrap();
+    for i in 0..4 {
+        fs::copy(fixture("small.png"), input.join(format!("{i}.png"))).unwrap();
+    }
+    fs::copy(fixture("small.webp"), input.join("w.webp")).unwrap();
+    let run = |threads: &str, out: &Path| {
+        cmd()
+            .env("RAYON_NUM_THREADS", threads)
+            .arg(&input)
+            .args([
+                "--seed",
+                "7",
+                "-f",
+                "pixel-sort=0.5",
+                "-f",
+                "color-distortion=0.3",
+                "--batch-output",
+            ])
+            .arg(out)
+            .assert()
+            .success();
+    };
+    let (one, many) = (dir.path().join("one"), dir.path().join("many"));
+    run("1", &one);
+    run("8", &many);
+    for name in ["0.png", "1.png", "2.png", "3.png", "w.webp"] {
+        assert_eq!(
+            fs::read(one.join(name)).unwrap(),
+            fs::read(many.join(name)).unwrap(),
+            "{name} differs between thread counts"
+        );
+    }
 }

@@ -1,0 +1,5 @@
+---
+source: crates/glitch-context/tests/golden.rs
+expression: "golden_hash(\"type: block-scramble\\nmagnitude: 0.3\\nblock_size: 8\")"
+---
+2b78574bafcc2aa083d22b9ac4e34f4fdd8d89e153906f10b0b2a95131273d45
