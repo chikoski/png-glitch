@@ -1,14 +1,14 @@
 # 0003. Where high-level effects live
 
-- **Status:** Proposed
+- **Status:** Proposed (Q1 and Q4 decided; Q2, Q3, Q5, Q6 open)
 - **Date:** 2026-11-06
 - **Issue:** #63 (part of epic #62; blocks #64; affects #65, #66, #73)
 
-> This ADR is a proposal. Each question below lists the options and a **recommendation**; the maintainer makes the final decision on the pull request, and the Decision section is updated to match before the status changes to Accepted.
+> This ADR is partly decided. Q1 and Q4 record the maintainer's decision. The remaining questions list options and a **recommendation**; they are settled on the pull request, and the status changes to Accepted once all are decided.
 
 ## Context
 
-PR #35 (`extension-by-kiro`, commit 92c92b5) adds a high-level API for common glitch effects. Its five implemented effects (`scanlines`, `noise`, `rgb_shift`, `degrade`, `pixel_sort`) are to be ported by #64; `datamosh` (#65) and `corrupt_blocks` (#66) are `todo!()`. Before porting, we need to decide where the code goes, because after PR #35 there would be three overlapping ways to express "an effect":
+PR #35 (`extension-by-kiro`, commit 92c92b5) adds a high-level API for common glitch effects. Its five implemented effects (`scanlines`, `noise`, `rgb_shift`, `degrade`, `pixel_sort`) are to be ported by #64; `datamosh` (#65) and `corrupt_blocks` (#66) are `todo!()`. Before porting, we need to decide where the code goes. After PR #35 there would be three overlapping ways to express "an effect":
 
 | | Where | Shape | Randomness | Errors |
 | :-- | :---- | :---- | :--------- | :----- |
@@ -18,86 +18,96 @@ PR #35 (`extension-by-kiro`, commit 92c92b5) adds a high-level API for common gl
 
 Facts that constrain the answer:
 
-- `glitch-context` depends on `png-glitch`. `png-glitch` has no `rand` dependency, so effects in `png-glitch` cannot use the shared RNG without adding one.
-- The project guarantees that `--seed` reproduces output (#58, `CONTRIBUTING.md` guideline 2). None of PR #35's configs has a seed, and its PRNGs are seeded from region coordinates, so two runs of `noise` always give the same result and a different `--seed` cannot vary it.
-- `glitch-context` already adapts the four `GlitchPreset`s into `GlitchFilter` and `PixelFilter` (`impl GlitchFilter for Invert`, …), so "preset in `png-glitch`, adapter in `glitch-context`" is an existing pattern.
+- `png-glitch` has no `rand` dependency.
+- `glitch-context` was created for WebAssembly support. That role is now taken by the planned component crate (#83, #86), and `glitch-context` no longer has a role of its own. Today it is used by the CLI and the `glitch_context_pipeline` fuzz target.
 - The PR #35 effects read and write scan-line bytes through `ScanLine` and the `Pixel` API. None of them recomputes filtered values, so all of them fit the design principles in [ADR 0002](0002-design-principles.md).
+- PR #35's effects differ in how much they depend on randomness:
+
+  | PR #35 effect | Uses randomness? |
+  | :------------ | :--------------- |
+  | `rgb_shift` | No |
+  | `pixel_sort` | No |
+  | `scanlines` | Only the `Noise` pattern; solid, dashed and dotted patterns are deterministic |
+  | `degrade` | Only the compression and posterization artifacts; blocking and banding are deterministic |
+  | `noise` | Yes, entirely |
+
+  Its randomness comes from hand-rolled PRNGs seeded from region coordinates, so the output can never be varied by a seed.
 - The terminology issue #22 is closed: the glossary in `DEVELOPER_GUIDE.md` defines *preset* as the `png-glitch` per-line transformation. PR #35 reuses "preset" for something else.
-- The typed-error issue #21 is closed: `png-glitch` returns `PngError`. `glitch-context` still uses `anyhow` (to be revisited in #73).
-- Three PR #35 effects overlap existing `glitch-context` effects:
+- The typed-error issue #21 is closed: `png-glitch` returns `PngError`.
 
-  | PR #35 | Existing in `glitch-context` | Difference |
-  | :----- | :--------------------------- | :--------- |
-  | `pixel_sort` | `PixelSort` | PR #35 adds direction (horizontal, vertical, diagonal, radial), threshold and region |
-  | `rgb_shift` | `ChromaticAberration`, `ShiftChannels` | PR #35 adds 2D offsets per channel and a wrap mode |
-  | `noise` | `Replace`, `SetZero`, `ColorDistortion` | PR #35 adds distributions (uniform, clustered, linear) and region |
+## Questions
 
-## Questions and options
+### Q1. Home — **decided**
 
-### Q1. Home: `png-glitch` or `glitch-context`?
+Options considered: **A.** `png-glitch` (as in PR #35, with a new `rand` dependency); **B.** `glitch-context`, next to the existing effects; **C.** split by kind.
 
-- **A. `png-glitch`** (as in PR #35). Usable without `glitch-context`. Needs a `rand` dependency (or a home-grown RNG) in the core crate, and CLI/YAML support still has to be written in `glitch-context`.
-- **B. `glitch-context`**, next to the other effects. Gets the shared seeded RNG, `FilterConfig`, YAML and CLI support. Users of `png-glitch` alone do not get them.
-- **C. Split by kind:** deterministic, RNG-free building blocks (like the current `GlitchPreset`s) in `png-glitch`; anything randomized or whole-image in `glitch-context`.
+**Decision:** High-level effects live in **`png-glitch`**, and `png-glitch` takes **no `rand` dependency**. They do **not** move to `glitch-context`, which has no role any more (see *Out of scope*).
 
-**Recommendation: C.** In practice this means all five PR #35 effects go to `glitch-context`, because all of them are randomized or whole-image. `png-glitch` stays the PNG model plus deterministic operations on it (consequence 1 in ADR 0002), and keeps no `rand` dependency.
+`png-glitch` provides **deterministic** effects only. Effects that need randomness are implemented by users on top of them (Q4).
 
-### Q2. One abstraction or several?
+### Q4. Randomness — **decided**
 
-- **A. Keep both styles.** Add `GlitchPresets` (extension trait, `Result`) alongside `GlitchFilter`.
-- **B. Adapter.** Keep PR #35's config structs and add `impl GlitchFilter for ScanlineConfig`.
-- **C. One abstraction.** Each new effect is a `GlitchFilter` struct whose fields are the config, in the style of the existing effects (`Default`, `new`, `with_*` builders), and a `FilterConfig` variant.
+Options considered: **A.** a seed field in each config; **B.** an RNG argument (`&mut dyn RngCore`); **C.** no randomness in the library.
 
-**Recommendation: C.** There is no `GlitchPresets` extension trait and no `xxx_default()` methods; `Scanlines::default()` plays that role. A fluent call style on `PngGlitch`, if wanted, is a separate API question for #68 (recipe vs. image) and #70 (escape hatches).
+**Decision: C. The caller decides, the library executes.** Every effect in `png-glitch` is a deterministic function of the image and its parameters. Where an effect has a "where" or "how much" that a random effect would choose (which rows, which pixels, which offsets), that choice is an explicit parameter. A user who wants randomness draws those parameters from their own RNG, with their own seed, and calls the effect.
 
-### Q3. Naming
+For the PR #35 effects this means:
 
-- **A. Keep "preset"** for both `GlitchPreset` and the new effects.
-- **B. "Effect"** for everything in `glitch-context` (the existing `Effect` alias of `GlitchFilter`), named by what it does: `Scanlines`, `Noise`, `RgbShift`, `Degrade`, … Keep "preset" for the `png-glitch` per-line transformations only.
-- **C. As B, and also rename `GlitchPreset`** now.
+- `rgb_shift`, `pixel_sort`: ported as they are.
+- `scanlines`: the solid, dashed and dotted patterns are ported. The `Noise` pattern is not.
+- `degrade`: blocking and banding are ported. Compression and posterization are ported only if they can be expressed deterministically, for example by taking an explicit dither or error pattern as a parameter; otherwise they are dropped.
+- `noise`: not ported as a library effect. It becomes an **example** (`crates/png-glitch/examples/`) that implements random noise on top of `ScanLine` / `Pixel` with `rand` as a dev-dependency, as a model for user-implemented random effects.
+- The hand-rolled PRNGs are removed.
 
-**Recommendation: B.** It matches the existing glossary and introduces no new terms. Whether `GlitchPreset` itself is renamed (and whether `GlitchFilter` or `Effect` becomes the primary name) is part of the API tidy-up in #73. "Recipe" stays reserved for a named combination of effects (#69, #80).
+Reproducibility is then the caller's responsibility: the library guarantees that the same image and the same parameters give the same bytes.
 
-### Q4. Randomness
+### Q2. One abstraction or several? — open
 
-- **A. Seed field in each config.** Self-contained, but every effect re-seeds independently, and the context seed no longer controls everything.
-- **B. RNG argument.** Use the `&mut dyn RngCore` that `GlitchFilter::apply` already receives.
+Some PR #35 effects need more than one row (vertical `pixel_sort`, 2D `rgb_shift` offsets, `degrade` blocking), so the per-line `GlitchPreset::apply_to_line` is not enough for all of them.
 
-**Recommendation: B.** The hand-rolled PRNGs from PR #35 are removed during the port. This keeps a single seed per run, as the CLI prints and #58 tests.
+- **A. Keep both styles.** Keep `GlitchPreset` and add PR #35's `GlitchPresets` extension trait, with its `xxx(config)` and `xxx_default()` methods.
+- **B. One trait with two levels.** One effect trait that receives the whole image (`&mut PngGlitch`), plus a per-line trait (today's `GlitchPreset`) that automatically implements it and keeps the parallel per-line path. Each effect is a struct whose fields are its parameters, with `Default`, `new` and `with_*` builders. `PngGlitch::apply` accepts either.
+- **C. Only whole-image.** Replace `GlitchPreset` with a whole-image trait. Simpler, but per-line effects lose automatic parallelism.
 
-### Q5. Duplicates
+**Recommendation: B.** There is no `GlitchPresets` trait and no `xxx_default()` methods; `RgbShift::default()` plays that role. User-implemented random effects (Q4) implement the same trait, so they compose with built-in ones through `PngGlitch::apply`.
 
-- **A. Keep both** the PR #35 effect and the existing one.
-- **B. Delegate:** implement the PR #35 effect by calling the existing one.
-- **C. Extend the existing effect** with the missing parameters, and do not add a second type.
+### Q3. Naming — open
 
-**Recommendation: C.** Concretely:
+- **A. Keep "preset"** for everything, including the whole-image effects.
+- **B. "Effect"** for the whole-image trait and its implementations (`Scanlines`, `RgbShift`, `PixelSort`, `Degrade`, …). Keep "preset" for the per-line trait until #73.
+- **C. As B, and rename the per-line trait now.**
 
-- `pixel_sort` → extend `PixelSort` with direction, threshold (and region, once #77 decides how regions work).
-- `rgb_shift` → extend `ChromaticAberration` with vertical offsets and a wrap mode. `ShiftChannels` (a value shift, not a spatial one) is unrelated despite the name.
-- `noise` → add one `Noise` effect for the distributions, since `Replace`/`SetZero`/`ColorDistortion` each do something narrower; reuse their per-pixel code where possible.
-- `scanlines` and `degrade` have no counterpart and are ported as new effects.
+**Recommendation: B.** It avoids PR #35's second, different meaning of "preset". The final names, including whether the per-line trait keeps the name `GlitchPreset`, are part of the API tidy-up in #73. "Recipe" stays reserved for a named combination of effects (#69, #80).
 
-Each extension must keep the existing parameters' defaults, so that existing YAML recipes and golden outputs (#58, #120) do not change.
+### Q5. Overlap with the existing `glitch-context` effects — open
 
-### Q6. Errors
+`pixel_sort` and `rgb_shift` overlap `glitch-context`'s `PixelSort` and `ChromaticAberration`, which take an RNG today.
+
+- **A. Ignore the overlap here** and resolve it in the decision on `glitch-context`'s future (see *Out of scope*).
+- **B. Port the deterministic core** of the overlapping `glitch-context` effects into the new `png-glitch` effects now. The `glitch-context` versions then only draw the random choices and call them.
+
+**Recommendation: A.** The new `png-glitch` effects are designed from PR #35 and the principles alone, without being constrained by the current `glitch-context` API. How the existing randomized effects map onto them is part of the separate decision.
+
+### Q6. Errors — open
 
 - **A. Keep `PresetError`** as a second error type.
-- **B. No new error type.** `GlitchFilter::apply` stays infallible: out-of-range parameters are clamped or become a no-op, as `CONTRIBUTING.md` guideline 1 already requires. Invalid configuration from YAML or the CLI is rejected where it is parsed (`FilterConfig` deserialization, `parse_filter_spec`), with the error type `glitch-context` uses there.
+- **B. No new error type; effects are infallible.** Out-of-range parameters are clamped or become a no-op, as `CONTRIBUTING.md` guideline 1 already requires. Validation that must report failure, if any, uses `PngError`.
 
-**Recommendation: B.** One typed error per crate: `PngError` in `png-glitch`, and whatever #73 decides to replace `anyhow` with in `glitch-context`. `PresetError` is not ported.
+**Recommendation: B.** It is consistent with `PngGlitch::apply` and the existing presets, and keeps one typed error per crate. `PresetError` is not ported.
 
-## Decision
+## Out of scope
 
-*To be filled in when the maintainer decides. If all recommendations are accepted:*
+**The future of `glitch-context`**, and with it where the CLI's existing randomized effects, `FilterConfig` (YAML) and `--seed` go. Since the effects stay in `png-glitch` and `glitch-context` has no role, that is a separate decision with its own ADR. It is needed before #64 touches the CLI and before #73 settles the module layout.
 
-High-level effects live in `glitch-context` as ordinary `GlitchFilter` structs registered in `FilterConfig`. They use the RNG passed to `apply`, have no seed field, and do not introduce a new trait, error type or use of the word "preset". `png-glitch` keeps only deterministic, RNG-free operations on the PNG model, including the existing `GlitchPreset`s. Effects that overlap existing ones extend them instead of duplicating them.
+## Decision (so far)
 
-## Consequences (if the recommendations are accepted)
+High-level effects live in `png-glitch`, which stays free of `rand`. Every library effect is deterministic. Randomness is the caller's: random choices are explicit parameters, and effects that are random by nature (such as noise) are implemented by users, with an example showing how.
 
-- **#64** ports `scanlines` and `degrade` as new effects, adds `Noise`, and extends `PixelSort` and `ChromaticAberration`. Each needs a `FilterConfig` variant, a CLI flag and tests, following "How to Add a New Glitch Filter" in `CONTRIBUTING.md`.
-- **#65, #66** (`datamosh`, `corrupt_blocks`) are designed directly as `glitch-context` effects. `corrupt_blocks` must corrupt scan-line data, not the compressed stream (ADR 0002, consequence 7).
-- **#62** is updated: the "high-level preset API" becomes "high-level effects in glitch-context".
-- **#73** decides the remaining naming (`GlitchPreset`, `GlitchFilter` vs. `Effect`) and the `glitch-context` error type.
+## Consequences
+
+- **#64** ports `rgb_shift`, `pixel_sort`, and the deterministic parts of `scanlines` and `degrade` into `png-glitch`, and adds a random-noise example. It does not add `glitch-context` effects or CLI flags until the `glitch-context` decision is made.
+- **#65, #66** (`datamosh`, `corrupt_blocks`) are designed as deterministic `png-glitch` effects whose targets (blocks, rows, offsets) are explicit parameters. `corrupt_blocks` corrupts scan-line data, not the compressed stream (ADR 0002, consequence 7).
+- **#62** is updated: the "high-level preset API" becomes "deterministic high-level effects in png-glitch".
+- **#73** decides the final names (Q3).
 - **#77** decides how regions and masks are expressed; PR #35's `Region` is not ported on its own.
-- Users who want these effects without `glitch-context` do not get them. If that need appears, a deterministic building block can move down into `png-glitch` later, following option C of Q1.
+- `png-glitch`'s guarantee becomes "same image and parameters → same bytes". A seed-based guarantee (#58) applies only where a caller, such as the CLI, owns the RNG.

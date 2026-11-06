@@ -97,7 +97,7 @@ When reviewing a new effect or API change, check:
 - [ ] Does it recompute filtered values? If so, is that an explicit generation boundary, named and documented as such?
 - [ ] Does a performance change reduce expressive range (for example, skip Paeth or force one color type)? Prefer reducing resolution or frame rate.
 - [ ] Are PNG encoding choices exposed as parameters rather than fixed internally?
-- [ ] Do randomized decisions use the RNG passed in, so that `--seed` reproduces the result?
+- [ ] Is an effect in `png-glitch` deterministic, with any "random" choice (rows, pixels, offsets) taken as an explicit parameter? `png-glitch` has no RNG ([ADR 0003](docs/adr/0003-home-of-high-level-effects.md)). Callers that draw those choices from an RNG must take it explicitly, so that a seed reproduces the result.
 
 ## Core Concepts for Contributors
 

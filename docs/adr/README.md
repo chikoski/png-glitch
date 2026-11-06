@@ -8,7 +8,7 @@ This directory records the significant design decisions made in `png-glitch`: wh
 | :-- | :---- | :----- | :---- |
 | [0001](0001-record-architecture-decisions.md) | Record architecture decisions | Accepted | #115 |
 | [0002](0002-design-principles.md) | Adopt "a valid PNG with strange data inside" as the design principle | Accepted | #94 |
-| [0003](0003-home-of-high-level-effects.md) | Where high-level effects live | Proposed | #63 |
+| [0003](0003-home-of-high-level-effects.md) | Where high-level effects live | Proposed (partly decided) | #63 |
 
 ## When to write an ADR
 
