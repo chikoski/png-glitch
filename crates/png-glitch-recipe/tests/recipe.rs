@@ -1,6 +1,8 @@
 //! Tests for the `Recipe` → resolve → `ResolvedRecipe` → execute API.
 
-use png_glitch_recipe::{FilterConfig, GlitchContext, ImageHeader, PngGlitch, Recipe, RecipeError};
+use png_glitch_recipe::{
+    FilterConfig, GlitchContext, ImageHeader, PngGlitch, Recipe, RecipeError, Step,
+};
 
 const FIXTURE: &[u8] = include_bytes!("fixtures/small.png");
 
@@ -22,7 +24,10 @@ fn recipe() -> Recipe {
 fn via_context(seed: u64) -> Vec<u8> {
     let mut ctx = GlitchContext::new(FIXTURE, Some(seed)).unwrap();
     for step in recipe().steps() {
-        ctx.add_from_config(step.clone()).unwrap();
+        let Step::Config(config) = step else {
+            unreachable!()
+        };
+        ctx.add_from_config(config.clone()).unwrap();
     }
     ctx.execute();
     ctx.buffer().unwrap()
@@ -93,4 +98,56 @@ fn header_line_size_matches_scan_lines() {
     let mut png = PngGlitch::from_bytes(FIXTURE).unwrap();
     let header = ImageHeader::of(&png);
     assert_eq!(header.line_size(), png.scan_lines()[0].size());
+}
+
+#[derive(Debug)]
+struct BlankFirstByte(Vec<u32>);
+
+impl png_glitch::effects::Effect for BlankFirstByte {
+    fn apply_to(&self, png: &mut PngGlitch) {
+        let mut lines = png.scan_lines();
+        for &row in &self.0 {
+            if let Some(line) = lines.get_mut(row as usize) {
+                line.update(0, 0xAA);
+            }
+        }
+    }
+}
+
+#[test]
+fn custom_steps_resolve_with_the_seeded_rng_and_replay() {
+    use png_glitch_recipe::ResolvedEffect;
+    use png_glitch_recipe::rand::{Rng, RngCore};
+
+    let recipe = Recipe::new()
+        .then(FilterConfig::Invert)
+        .then_step(|header: &ImageHeader, rng: &mut dyn RngCore| {
+            let rows = (0..header.height)
+                .filter(|_| rng.random_bool(0.5))
+                .collect();
+            ResolvedEffect::new(BlankFirstByte(rows))
+        })
+        .then_effect(BlankFirstByte(vec![0]));
+
+    assert_eq!(via_recipe(&recipe, 3), via_recipe(&recipe, 3));
+    assert_ne!(via_recipe(&recipe, 3), via_recipe(&recipe, 4));
+    assert_eq!(recipe, recipe.clone());
+
+    let mut png = PngGlitch::from_bytes(FIXTURE).unwrap();
+    let resolved = recipe.resolve(&ImageHeader::of(&png), Some(3)).unwrap();
+    resolved.execute(&mut png).unwrap();
+    assert_eq!(png.to_bytes().unwrap(), via_recipe(&recipe, 3));
+}
+
+#[test]
+fn context_exposes_the_image_and_closures() {
+    let mut ctx = GlitchContext::new(FIXTURE, Some(1)).unwrap();
+    let before = ctx.png().to_bytes().unwrap();
+    ctx.add_fn(|png, _rng| {
+        png.apply(BlankFirstByte(vec![0]));
+    });
+    ctx.execute();
+    ctx.png_mut().transpose(0, 1, 1);
+    let inner = ctx.into_inner();
+    assert_ne!(inner.to_bytes().unwrap(), before);
 }
