@@ -19,18 +19,16 @@ impl ChunkType {
     /// The method creates a new chunk type from a byte array.
     /// The `bytes` parameter is a byte array of a PNG file.
     pub fn new(bytes: &[u8]) -> Result<ChunkType, PngError> {
-        if bytes.len() < 4 {
-            Err(PngError::TooShortInput)
-        } else {
-            let bytes = &bytes[0..4];
-            let t = match bytes {
-                Self::IHDR => Self::Start,
-                Self::IDAT => Self::Data,
-                Self::IEND => Self::End,
-                _ => Self::Other([bytes[0], bytes[1], bytes[2], bytes[3]]),
-            };
-            Ok(t)
-        }
+        let [a, b, c, d, ..] = *bytes else {
+            return Err(PngError::TooShortInput);
+        };
+        let t = match [a, b, c, d].as_slice() {
+            Self::IHDR => Self::Start,
+            Self::IDAT => Self::Data,
+            Self::IEND => Self::End,
+            _ => Self::Other([a, b, c, d]),
+        };
+        Ok(t)
     }
 
     /// The IHDR chunk type.

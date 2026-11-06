@@ -19,6 +19,16 @@
 //! and [ADR 0002](https://github.com/chikoski/png-glitch/blob/master/docs/adr/0002-design-principles.md)
 //! for the full text.
 #![warn(missing_docs)]
+#![forbid(unsafe_code)]
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::indexing_slicing
+    )
+)]
 
 pub use crate::operation::Transpose;
 use crate::operation::{Encode, Scan};

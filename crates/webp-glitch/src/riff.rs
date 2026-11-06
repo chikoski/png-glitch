@@ -36,29 +36,31 @@ impl RiffContainer {
         if data.len() < 12 {
             return Err(WebpError::InvalidSignature);
         }
-        if &data[0..4] != RIFF_SIGNATURE {
+        if data.get(0..4) != Some(RIFF_SIGNATURE.as_slice()) {
             return Err(WebpError::InvalidSignature);
         }
-        if &data[8..12] != WEBP_FORM_TYPE {
+        if data.get(8..12) != Some(WEBP_FORM_TYPE.as_slice()) {
             return Err(WebpError::InvalidFormType);
         }
 
         let mut chunks = Vec::new();
         let mut pos = 12usize;
 
-        while pos + 8 <= data.len() {
-            let id: [u8; 4] = data[pos..pos + 4].try_into().unwrap();
-            let size = u32::from_le_bytes(data[pos + 4..pos + 8].try_into().unwrap()) as usize;
+        while let Some(&[i0, i1, i2, i3, s0, s1, s2, s3]) =
+            data.get(pos..).and_then(|rest| rest.first_chunk::<8>())
+        {
+            let id = [i0, i1, i2, i3];
+            let size = u32::from_le_bytes([s0, s1, s2, s3]) as usize;
             pos += 8;
 
-            let end = (pos + size).min(data.len());
-            let chunk_data = data[pos..end].to_vec();
+            let end = pos.saturating_add(size).min(data.len());
+            let chunk_data = data.get(pos..end).unwrap_or_default().to_vec();
             chunks.push(RiffChunk::new(id, chunk_data));
 
-            pos += size;
+            pos = pos.saturating_add(size);
             // パディング（奇数バイト時）
             if !size.is_multiple_of(2) {
-                pos += 1;
+                pos = pos.saturating_add(1);
             }
         }
 
@@ -106,9 +108,13 @@ impl RiffContainer {
             .iter()
             .position(|c| &c.id == id_b)
             .ok_or(WebpError::ChunkNotFound(*id_b))?;
-        let data_a = std::mem::take(&mut self.chunks[pos_a].data);
-        let data_b = std::mem::replace(&mut self.chunks[pos_b].data, data_a);
-        self.chunks[pos_a].data = data_b;
+        if pos_a != pos_b {
+            let (low, high) = (pos_a.min(pos_b), pos_a.max(pos_b));
+            let (left, right) = self.chunks.split_at_mut(high);
+            if let (Some(a), Some(b)) = (left.get_mut(low), right.first_mut()) {
+                std::mem::swap(&mut a.data, &mut b.data);
+            }
+        }
         Ok(())
     }
 
@@ -141,5 +147,23 @@ impl RiffContainer {
             .clone();
         self.chunks.push(chunk);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncated_and_corrupt_riff_never_panics() {
+        let sample = include_bytes!("../etc/sample00.webp");
+        for len in 0..sample.len().min(512) {
+            let _ = RiffContainer::parse(&sample[..len]);
+        }
+        // A chunk that claims to be larger than the file (and larger than usize on 32-bit).
+        let mut data = b"RIFF\x00\x00\x00\x00WEBPVP8 \xff\xff\xff\xff".to_vec();
+        data.extend_from_slice(&[0; 8]);
+        let parsed = RiffContainer::parse(&data).expect("header is valid");
+        assert_eq!(parsed.chunks.len(), 1);
     }
 }

@@ -20,6 +20,16 @@
 //!
 //! Everything is also re-exported at the crate root.
 #![warn(missing_docs)]
+#![forbid(unsafe_code)]
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::indexing_slicing
+    )
+)]
 
 #[macro_use]
 mod resolve;
