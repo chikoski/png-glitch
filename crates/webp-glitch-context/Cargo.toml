@@ -11,7 +11,7 @@ readme = "README.md"
 
 [dependencies]
 anyhow.workspace = true
-glitch-context.workspace = true
+png-glitch-recipe.workspace = true
 webp-glitch.workspace = true
 
 [dev-dependencies]

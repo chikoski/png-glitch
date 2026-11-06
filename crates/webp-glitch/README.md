@@ -12,7 +12,7 @@ The original image:
 
 - **RIFF-level operations**: Directly manipulate WebP chunk structure (swap, corrupt, tamper sizes, remove, duplicate chunks)
 - **Pixel pipeline**: Decode → glitch → re-encode via libwebp with full pixel-level access
-- **Scan-line API**: Row-by-row manipulation compatible with `glitch-context` filter ecosystem
+- **Scan-line API**: Row-by-row manipulation compatible with `png-glitch-recipe` filter ecosystem
 - **Parallel processing**: `par_foreach_scanline` for multi-core glitching with rayon
 - **WebP-specific filters**: `MacroblockGlitch`, `AlphaGlitch`, `LossyArtifact`
 
@@ -83,12 +83,12 @@ glitch.save("glitched.webp")?;
 cargo run --example glitch
 ```
 
-## glitch-context との統合
+## png-glitch-recipe との統合
 
-[`glitch-context`](../glitch-context) クレートを通じて、既存のフィルター群を WebP にも適用できます:
+[`png-glitch-recipe`](../png-glitch-recipe) クレートを通じて、既存のフィルター群を WebP にも適用できます:
 
 ```rust
-use glitch_context::{WebpGlitchContext, MacroblockGlitch, AlphaGlitch, AlphaGlitchStrategy};
+use png_glitch_recipe::{WebpGlitchContext, MacroblockGlitch, AlphaGlitch, AlphaGlitchStrategy};
 
 let mut ctx = WebpGlitchContext::open("input.webp", Some(42))?;
 ctx.add_filter(MacroblockGlitch { magnitude: 0.3 });

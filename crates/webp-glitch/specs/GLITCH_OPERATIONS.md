@@ -6,7 +6,7 @@
 
 ## チャンクレベル操作
 
-これらの操作は `WebpGlitch` のメソッドとして提供し、`glitch-context` フィルター機構の外側で使用する。デコード処理を経由しないため高速。
+これらの操作は `WebpGlitch` のメソッドとして提供し、`png-glitch-recipe` フィルター機構の外側で使用する。デコード処理を経由しないため高速。
 
 | 操作 | メソッド | 説明 |
 | :--- | :--- | :--- |
@@ -26,7 +26,7 @@
 
 ## ピクセルレベル操作 (WebpGlitchFilter)
 
-以下のフィルターを `glitch-context` に `WebpGlitchFilter` 実装として追加する。PNG 版と同名だがピクセル型が `WebpPixel` (u8 チャンネル) になる点に注意。
+以下のフィルターを `png-glitch-recipe` に `WebpGlitchFilter` 実装として追加する。PNG 版と同名だがピクセル型が `WebpPixel` (u8 チャンネル) になる点に注意。
 
 ### 既存フィルターの WebP 移植
 

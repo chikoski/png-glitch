@@ -28,9 +28,9 @@ glitch.remove_filter()
       .save("output.png")?;
 ```
 
-## 3. Advanced Glitch Filters (glitch-context)
+## 3. Advanced Glitch Filters (png-glitch-recipe)
 
-The `glitch-context` crate provides more complex filters that leverage the low-level `PngGlitch` APIs.
+The `png-glitch-recipe` crate provides more complex filters that leverage the low-level `PngGlitch` APIs.
 
 | Filter | Description | Algorithm |
 | :--- | :--- | :--- |

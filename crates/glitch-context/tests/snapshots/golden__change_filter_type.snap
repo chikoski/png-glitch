@@ -1,5 +1,0 @@
----
-source: crates/glitch-context/tests/golden.rs
-expression: "golden_hash(\"type: change-filter-type\\nmagnitude: 0.3\")"
----
-383e18c2311847021a7b3e6a424f1a53dd835af9f417010dcd1d27704703e63e

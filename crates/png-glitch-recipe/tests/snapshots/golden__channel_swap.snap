@@ -1,0 +1,5 @@
+---
+source: crates/png-glitch-recipe/tests/golden.rs
+expression: "golden_hash(\"type: channel-swap\\nmagnitude: 0.5\\ntarget: br\")"
+---
+9de358a1c83f7186c8171ca4bfa5356c6fb225ce249f9a82c50525623e63ab2b

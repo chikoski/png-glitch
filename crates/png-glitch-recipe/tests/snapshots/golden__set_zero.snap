@@ -1,0 +1,5 @@
+---
+source: crates/png-glitch-recipe/tests/golden.rs
+expression: "golden_hash(\"type: set-zero\\nmagnitude: 0.5\")"
+---
+57b7ad93ef446dc89ca550e72b8f2450d1cd5704a3b7ea0e665c84d10b972d53

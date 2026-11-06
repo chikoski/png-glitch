@@ -1,7 +1,7 @@
-//! End-to-end `glitch-context` pipeline: parse arbitrary PNG bytes, queue every
+//! End-to-end `png-glitch-recipe` pipeline: parse arbitrary PNG bytes, queue every
 //! PNG-capable filter, execute, and encode.
 #![no_main]
-use glitch_context::{
+use png_glitch_recipe::{
     BitOp, FilterConfig, GlitchContext, Limits, ParseOptions, PreProcess, SortCriterion, SwapTarget,
 };
 use libfuzzer_sys::fuzz_target;

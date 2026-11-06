@@ -41,7 +41,7 @@ To support different bit depths (1, 2, 4, 8, 16) and color types (RGB, Grayscale
 
 > **png-glitch produces PNGs whose format is valid but whose data is strange, and enjoys the generative changes that a standard PNG decoder produces from that data.**
 
-These principles are the criteria for API design and performance work, and reviewers check new features against them. They were adopted in [ADR 0002](docs/adr/0002-design-principles.md) (from #94). They describe the PNG path (`png-glitch`, the PNG side of `glitch-context`, and the CLI); `webp-glitch` is not covered.
+These principles are the criteria for API design and performance work, and reviewers check new features against them. They were adopted in [ADR 0002](docs/adr/0002-design-principles.md) (from #94). They describe the PNG path (`png-glitch`, the PNG side of `png-glitch-recipe`, and the CLI); `webp-glitch` is not covered.
 
 ### Where the look comes from
 
@@ -81,12 +81,12 @@ Current operations:
 | Operation | What it does | Recomputes filtered values? |
 | :-------- | :----------- | :-------------------------- |
 | `PngGlitch::set_filter_type`, `ScanLine::set_filter_type` | Overwrites the per-row filter-type byte (the tag) | No |
-| `ChangeFilterType` (glitch-context effect) | Overwrites the tag of random rows | No |
+| `ChangeFilterType` (png-glitch-recipe effect) | Overwrites the tag of random rows | No |
 | `PngGlitch::encode`, `save` | Compresses the current scan lines as they are, adds CRCs | No |
 | `PngGlitch::remove_filter`, `remove_filter_from` | Reconstructs rows (`D`) | **Yes** |
 | `PngGlitch::apply_filter`, `apply_filter_from` | Filters rows (`E`) | **Yes** |
 | `PngGlitch::reencode_with`, `change_filter_type` (alias) | Removes the filter, then applies another one | **Yes** (full `D` then `E`) |
-| glitch-context `RemoveFilter`, `SubFilter`, `UpFilter`, `AverageFilter`, `PaethFilter`; CLI `--remove-filter`, `--sub`, `--up`, `--average`, `--paeth`, `--pre-process` | Call `change_filter_type` internally | **Yes** |
+| png-glitch-recipe `RemoveFilter`, `SubFilter`, `UpFilter`, `AverageFilter`, `PaethFilter`; CLI `--remove-filter`, `--sub`, `--up`, `--average`, `--paeth`, `--pre-process` | Call `change_filter_type` internally | **Yes** |
 
 ### Review checklist
 
@@ -110,9 +110,10 @@ Because `png-glitch` operates at both the PNG container level and the artistic e
 | **PNG Filter** (`FilterType`) | `png-glitch` | One of the 5 PNG scanline prediction algorithms (`None`, `Sub`, `Up`, `Average`, `Paeth`) from the PNG spec. Manipulated via `PngGlitch::reencode_with`, `set_filter_type`, `apply_filter`, and `remove_filter`. |
 | **Effect** (`Effect`) | `png-glitch::effects` | A deterministic operation on a PNG, with parameters (`Invert`, `Brighten`, `Darken`, `ShiftChannels`), applied via `PngGlitch::apply`. Effects are infallible. Formerly called *preset* (`GlitchPreset`, `presets`; deprecated aliases kept for one release). |
 | **`LineEffect`** | `png-glitch::effects` | Helper trait for effects that transform each scan line independently. Every `LineEffect` is an `Effect` and runs in parallel per line. |
-| **Glitch Filter / Effect** (`GlitchFilter` / `Effect`) | `glitch-context` | A high-level glitch effect (possibly randomized with an RNG) queued into a `GlitchContext` via `add_filter`. |
+| **Glitch Filter / Effect** (`GlitchFilter` / `Effect`) | `png-glitch-recipe` | A high-level glitch effect (possibly randomized with an RNG) queued into a `GlitchContext` via `add_filter`. |
+| **`RecipeError`** | `png-glitch-recipe` | Typed error returned by every fallible `png-glitch-recipe` function (open, parse, encode, save, invalid random specification, unsupported effect). Replaces `anyhow` in the library. |
 | **`png_glitch::Transpose`** | `png-glitch` | A deterministic operation trait (`PngGlitch::transpose(src, dst, lines)`) that swaps two contiguous blocks of scanlines. |
-| **`glitch_context::Transpose`** (`RandomTranspose`) | `glitch-context` | A randomized effect that iterates through scanlines and swaps rows with probability `magnitude`. Also exported as `RandomTranspose` to avoid ambiguity with `png_glitch::Transpose`. |
+| **`png_glitch_recipe::Transpose`** (`RandomTranspose`) | `png-glitch-recipe` | A randomized effect that iterates through scanlines and swaps rows with probability `magnitude`. Also exported as `RandomTranspose` to avoid ambiguity with `png_glitch::Transpose`. |
 
 ### The "Glitch" Philosophy
 Unlike a standard image library that aims for fidelity, `png-glitch` treats the PNG specification as a playground. The playground has one firm boundary: the output is always a valid PNG. The data inside is strange, and the visual artifacts come from what a conforming decoder makes of it. See [Design principles](#design-principles).
@@ -124,7 +125,7 @@ We use the `rayon` crate for high-performance processing:
 - **Optimization:** Filters like `BlockScramble` are optimized to minimize memory allocation and redundant scanline pre-fetching.
 
 ### High-Level Orchestration
-The `glitch-context` crate provides a unified API for managing complex glitch pipelines on PNG images. The `webp-glitch-context` crate is its WebP counterpart, and the CLI (`src/any_context.rs`) detects the format and dispatches to one of them.
+The `png-glitch-recipe` crate provides a unified API for managing complex glitch pipelines on PNG images. The `webp-glitch-context` crate is its WebP counterpart, and the CLI (`src/any_context.rs`) detects the format and dispatches to one of them.
 - **`GlitchFilter` Trait:** All effects are implemented as modular filters.
 - **`FilterConfig`:** A unified configuration enum that supports YAML serialization and deserialization.
 - **`add_from_config`:** A single method to apply complex effect stacks from external configuration files.

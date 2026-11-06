@@ -13,7 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Introduced the `Effect` trait (whole image, `&mut PngGlitch`) and the `LineEffect` helper trait (per scan line, parallel); every `LineEffect` is an `Effect`. `PngGlitch::apply` accepts any `Effect` (#126, ADR 0003).
 - Renamed the `presets` module to `effects` and `GlitchPreset` to `LineEffect`. The old paths remain as a `#[deprecated]` `presets` module for one release.
 
-### glitch-context
+### png-glitch-recipe `0.3.0`
+
+#### Changed
+- **Breaking**: `glitch-context` was renamed to `png-glitch-recipe` (#128, ADR 0004). Replace `glitch-context` with `png-glitch-recipe` in `Cargo.toml` and `glitch_context` with `png_glitch_recipe` in `use` paths. CLI behaviour and seeded output are unchanged. A final `glitch-context` release that points to the new crate is published separately.
+- **Breaking**: `anyhow` was removed from the library. Fallible functions now return `png_glitch_recipe::Result<T>`, whose error is the new typed, `#[non_exhaustive]` `RecipeError` (`Open`, `Parse`, `Encode`, `Save`, `InvalidSpec`, `UnsupportedEffect`). Error messages are unchanged.
+
+### glitch-context (now `png-glitch-recipe`)
 
 #### Changed
 - **Breaking**: WebP support was split out into the new `webp-glitch-context` crate (#127, ADR 0004). `glitch-context` no longer depends on `webp-glitch` or `libwebp-sys2`, and the `webp` Cargo feature is removed. `WebpGlitchContext`, `WebpInvert`, `WebpBrighten`, `WebpShiftChannels`, `MacroblockGlitch`, `AlphaGlitch`, `LossyArtifact` and the WebP re-exports (`WebpGlitch`, `WebpGlitchFilter`, `WebpPixel`, `WebpError`) moved there; `AnyGlitchContext`, `ImageFormat`, `detect_format` and `open_any` moved into the CLI. `FilterConfig` still contains the WebP-only variants as data, and `GlitchContext::add_from_config` rejects them.

@@ -15,7 +15,7 @@ anyhow = "1.0.100"
 clap = { version = "4.5.18", features = ["derive"] }
 crc32fast = "1.5.0"
 fdeflate = "0.3.7"
-glitch-context = { path = "crates/glitch-context", version = "0.2.0" }
+png-glitch-recipe = { path = "crates/png-glitch-recipe", version = "0.3.0" }
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 indicatif = "0.18"
 log = "0.4.22"
@@ -55,7 +55,7 @@ doc = false
 anyhow.workspace = true
 clap.workspace = true
 png-glitch.workspace = true
-glitch-context.workspace = true
+png-glitch-recipe.workspace = true
 webp-glitch-context.workspace = true
 rand.workspace = true
 log.workspace = true

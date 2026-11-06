@@ -248,18 +248,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "glitch-context"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "clap",
- "png-glitch",
- "rand",
- "rand_chacha",
- "serde",
-]
-
-[[package]]
 name = "glob"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -398,11 +386,23 @@ dependencies = [
 name = "png-glitch-fuzz"
 version = "0.0.0"
 dependencies = [
- "glitch-context",
  "libfuzzer-sys",
  "png-glitch",
+ "png-glitch-recipe",
  "webp-glitch",
  "webp-glitch-context",
+]
+
+[[package]]
+name = "png-glitch-recipe"
+version = "0.3.0"
+dependencies = [
+ "clap",
+ "png-glitch",
+ "rand",
+ "rand_chacha",
+ "serde",
+ "thiserror",
 ]
 
 [[package]]
@@ -638,7 +638,7 @@ name = "webp-glitch-context"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "glitch-context",
+ "png-glitch-recipe",
  "webp-glitch",
 ]
 

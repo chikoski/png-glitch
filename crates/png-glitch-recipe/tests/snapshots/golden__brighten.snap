@@ -1,0 +1,5 @@
+---
+source: crates/png-glitch-recipe/tests/golden.rs
+expression: "golden_hash(\"type: brighten\\nstrength: 30\")"
+---
+0194114125a1ea4064a6d12e16aafb6395eb79e05533e59503cbbe9ecbfb00da

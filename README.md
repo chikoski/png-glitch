@@ -90,7 +90,7 @@ Accepted values: `remove-filter`, `sub-filter`, `up-filter`, `average-filter`, `
 
 For the same input, the same filter recipe, the same seed and the same **minor** version, the output is byte-identical on every platform and with any thread count. A change to seeded output is a breaking change for this guarantee and is listed under a "Seeded output changes" heading in [CHANGELOG.md](CHANGELOG.md).
 
-The guarantee is enforced by golden hashes (`tests/cli.rs`, `crates/glitch-context/tests/golden.rs`) and by tests that compare `RAYON_NUM_THREADS=1` with `8`. Output is **not** guaranteed to be identical across minor versions, or when the seed is omitted (a random seed is chosen and printed to stderr).
+The guarantee is enforced by golden hashes (`tests/cli.rs`, `crates/png-glitch-recipe/tests/golden.rs`) and by tests that compare `RAYON_NUM_THREADS=1` with `8`. Output is **not** guaranteed to be identical across minor versions, or when the seed is omitted (a random seed is chosen and printed to stderr).
 
 ## Batch Processing
 
@@ -156,7 +156,7 @@ This repository consists of the following crates:
 - **png-glitch-cli**: A binary crate for a command line interface (CLI) to glitch PNG and WebP files.
 - **[png-glitch crate](crates/png-glitch)**: Core library to glitch PNG images.
 - **[webp-glitch crate](crates/webp-glitch)**: Core library to glitch WebP images.
-- **[glitch-context crate](crates/glitch-context)**: High-level API to orchestrate glitch filters on PNG images.
+- **[png-glitch-recipe crate](crates/png-glitch-recipe)**: High-level API to orchestrate glitch filters on PNG images.
 - **[webp-glitch-context crate](crates/webp-glitch-context)**: High-level API to orchestrate glitch filters on WebP images.
 
 # Licence

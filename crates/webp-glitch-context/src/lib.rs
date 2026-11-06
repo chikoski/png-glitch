@@ -1,30 +1,30 @@
 //! WebP glitch context: queue, seed and execute glitch filters on a [`WebpGlitch`] image.
 //!
-//! This crate is the WebP counterpart of [`glitch_context::GlitchContext`]. It was split out of
-//! `glitch-context` so that the PNG recipe crate carries no dependency on `webp-glitch` or
+//! This crate is the WebP counterpart of [`png_glitch_recipe::GlitchContext`]. It was split out of
+//! `png-glitch-recipe` so that the PNG recipe crate carries no dependency on `webp-glitch` or
 //! `libwebp-sys2`. It reuses the shared configuration types ([`FilterConfig`], [`SortCriterion`],
-//! [`BitOp`], [`SwapTarget`], [`AlphaGlitchStrategy`], [`PixelFilter`]) from `glitch-context`.
+//! [`BitOp`], [`SwapTarget`], [`AlphaGlitchStrategy`], [`PixelFilter`]) from `png-glitch-recipe`.
 //!
 //! The effects that exist for both formats ([`PixelSort`], [`Bitwise`], ...) are defined in
-//! `glitch-context`. Because of Rust's orphan rule they are applied to WebP through the local
+//! `png-glitch-recipe`. Because of Rust's orphan rule they are applied to WebP through the local
 //! wrapper [`ForWebp`], e.g. `ctx.add_filter(ForWebp(PixelSort::new(0.5)))`.
 #![warn(missing_docs)]
 
 use anyhow::{Context, bail};
-use glitch_context::rand::{Rng, RngCore, SeedableRng};
-pub use glitch_context::{
+use png_glitch_recipe::rand::{Rng, RngCore, SeedableRng};
+pub use png_glitch_recipe::{
     AlphaGlitchStrategy, BitOp, Bitwise, Brighten, ChannelSwap, ChromaticAberration,
     ColorDistortion, Darken, FilterConfig, HorizontalShift, Invert, PixelFilter,
     PixelFilterAdapter, PixelSort, ShiftChannels, SortCriterion, SwapTarget,
 };
-pub use glitch_context::{ChaCha8Rng, rand, rand_chacha};
+pub use png_glitch_recipe::{ChaCha8Rng, rand, rand_chacha};
 pub use webp_glitch::{WebpError, WebpGlitch, WebpGlitchFilter, WebpPixel};
 
 fn clamp_magnitude(m: f64) -> f64 {
     if m.is_nan() { 0.0 } else { m.clamp(0.0, 1.0) }
 }
 
-/// Applies a `glitch-context` effect (or a [`PixelFilterAdapter`]) to WebP images.
+/// Applies a `png-glitch-recipe` effect (or a [`PixelFilterAdapter`]) to WebP images.
 ///
 /// `WebpGlitchFilter` and the effect types both live in other crates, so the orphan rule forbids
 /// implementing one for the other here. This local wrapper carries the WebP implementation.

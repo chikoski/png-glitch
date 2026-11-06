@@ -1,5 +1,0 @@
----
-source: crates/glitch-context/tests/golden.rs
-expression: "golden_hash(\"type: chromatic-aberration\\nmagnitude: 0.5\\nr_offset: 4\\nb_offset: -4\")"
----
-35e50babce26af137a6cce7427bcc64e437d1c90297fd59b3c0846f1166bacf7

@@ -1,0 +1,30 @@
+[package]
+name = "png-glitch-recipe"
+version = "0.3.0"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "A library to manage and apply glitch filters to PNG images."
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+
+[dependencies]
+png-glitch.workspace = true
+thiserror.workspace = true
+rand.workspace = true
+rand_chacha.workspace = true
+serde.workspace = true
+clap = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde-saphyr.workspace = true
+image.workspace = true
+fdeflate.workspace = true
+crc32fast.workspace = true
+blake3 = "1.8.7"
+insta = "1.49.0"
+
+[features]
+default = ["clap"]
+clap = ["dep:clap"]
