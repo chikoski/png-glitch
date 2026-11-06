@@ -1,6 +1,6 @@
 use anyhow::{Context, bail};
 use clap::{ArgMatches, CommandFactory, FromArgMatches};
-use glitch_context::{AnyGlitchContext, FilterConfig, ParseOptions};
+use glitch_context::{FilterConfig, ParseOptions};
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use std::fs;
@@ -8,8 +8,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use walkdir::WalkDir;
 
+mod any_context;
 mod cli;
 
+use crate::any_context::AnyGlitchContext;
 use crate::cli::{Cli, ConfigFile, format_filter_list};
 
 #[derive(Debug, Clone)]

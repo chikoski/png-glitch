@@ -1,0 +1,19 @@
+[package]
+name = "webp-glitch-context"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "A library to manage and apply glitch filters to WebP images."
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+
+[dependencies]
+anyhow.workspace = true
+glitch-context.workspace = true
+webp-glitch.workspace = true
+
+[dev-dependencies]
+image.workspace = true
+webp.workspace = true

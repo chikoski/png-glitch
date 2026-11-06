@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to the crates in this workspace (`png-glitch`, `webp-glitch`, `glitch-context`, and `png-glitch-cli`) will be documented in this file.
+All notable changes to the crates in this workspace (`png-glitch`, `webp-glitch`, `glitch-context`, `webp-glitch-context`, and `png-glitch-cli`) will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -13,9 +13,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Introduced the `Effect` trait (whole image, `&mut PngGlitch`) and the `LineEffect` helper trait (per scan line, parallel); every `LineEffect` is an `Effect`. `PngGlitch::apply` accepts any `Effect` (#126, ADR 0003).
 - Renamed the `presets` module to `effects` and `GlitchPreset` to `LineEffect`. The old paths remain as a `#[deprecated]` `presets` module for one release.
 
+### glitch-context
+
+#### Changed
+- **Breaking**: WebP support was split out into the new `webp-glitch-context` crate (#127, ADR 0004). `glitch-context` no longer depends on `webp-glitch` or `libwebp-sys2`, and the `webp` Cargo feature is removed. `WebpGlitchContext`, `WebpInvert`, `WebpBrighten`, `WebpShiftChannels`, `MacroblockGlitch`, `AlphaGlitch`, `LossyArtifact` and the WebP re-exports (`WebpGlitch`, `WebpGlitchFilter`, `WebpPixel`, `WebpError`) moved there; `AnyGlitchContext`, `ImageFormat`, `detect_format` and `open_any` moved into the CLI. `FilterConfig` still contains the WebP-only variants as data, and `GlitchContext::add_from_config` rejects them.
+
+### webp-glitch-context `0.1.0`
+
+#### Added
+- New crate holding `WebpGlitchContext` and the WebP-only effects. The effects that exist for both formats are applied to WebP through the `ForWebp` wrapper (for example `ForWebp(PixelSort::new(0.5))`) because of the orphan rule. Seeded output is unchanged.
+
+### png-glitch-cli
+
+#### Changed
+- Format detection and dispatch (`AnyGlitchContext`) now live in the CLI. Behavior, flags and seeded output for PNG and WebP are unchanged.
+
 ### Workspace
 
 #### Changed
+- The `glitch_context_pipeline` fuzz target now covers PNG only; the new `webp_pipeline` target covers WebP.
 - Minimum supported Rust version raised from `1.85` to `1.89` (#56). `1.85` already failed to build because `image` (1.88), `built` (1.87) and `serde-saphyr` (1.89) require newer compilers; CI now checks the declared MSRV. Release builds now keep arithmetic overflow checks enabled.
 
 #### Fixed

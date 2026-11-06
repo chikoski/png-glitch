@@ -1,6 +1,8 @@
 # glitch-context
 
-A high-level library to manage and apply sequential glitch filter pipelines to **PNG** and **WebP** images, built on top of [`png-glitch`](../png-glitch) and [`webp-glitch`](../webp-glitch).
+A high-level library to manage and apply sequential glitch filter pipelines to **PNG** images, built on top of [`png-glitch`](../png-glitch).
+
+> WebP support moved to the separate [`webp-glitch-context`](../webp-glitch-context) crate, which reuses the configuration types of this crate. Format detection and dispatch between PNG and WebP live in the `png-glitch` CLI.
 
 ## Installation
 
@@ -13,10 +15,9 @@ glitch-context = "0.1.0"
 
 ### Cargo Features
 
-- `webp` *(enabled by default)*: Enables WebP support via `webp-glitch` (`WebpGlitchContext`, `AnyGlitchContext::Webp`).
 - `clap` *(enabled by default)*: Derives `clap::ValueEnum` on configuration enums (`PreProcess`, `SortCriterion`, `BitOp`, `SwapTarget`, `AlphaGlitchStrategy`).
 
-To use `glitch-context` for PNG only without pulling in `webp` or `clap`:
+To use `glitch-context` without pulling in `clap`:
 
 ```toml
 [dependencies]
@@ -27,8 +28,7 @@ glitch-context = { version = "0.1.0", default-features = false }
 
 `glitch-context` provides:
 - `GlitchContext`: PNG-specific glitch pipeline.
-- `WebpGlitchContext` *(feature `webp`)*: WebP-specific glitch pipeline.
-- `AnyGlitchContext` / `open_any`: Format-agnostic pipeline that detects PNG vs WebP from magic bytes.
+- `FilterConfig`: Declarative filter steps (YAML / CLI). The WebP-only variants (`MacroblockGlitch`, `AlphaGlitch`, `LossyArtifact`) are accepted by `webp-glitch-context` and rejected by `GlitchContext::add_from_config`.
 
 ### Example
 
@@ -56,6 +56,8 @@ fn main() -> anyhow::Result<()> {
 ```
 
 ## Available Filters
+
+The WebP column shows which filters also work on WebP images through [`webp-glitch-context`](../webp-glitch-context); the WebP-only effects (`MacroblockGlitch`, `AlphaGlitch`, `LossyArtifact`) are defined there.
 
 | Filter | Parameters & Defaults | PNG | WebP | Description |
 | :--- | :--- | :---: | :---: | :--- |

@@ -16,6 +16,7 @@ libfuzzer-sys = "0.4"
 png-glitch = { path = "../crates/png-glitch" }
 glitch-context = { path = "../crates/glitch-context" }
 webp-glitch = { path = "../crates/webp-glitch" }
+webp-glitch-context = { path = "../crates/webp-glitch-context" }
 
 [[bin]]
 name = "png_parse"
@@ -34,6 +35,13 @@ bench = false
 [[bin]]
 name = "glitch_context_pipeline"
 path = "fuzz_targets/glitch_context_pipeline.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "webp_pipeline"
+path = "fuzz_targets/webp_pipeline.rs"
 test = false
 doc = false
 bench = false

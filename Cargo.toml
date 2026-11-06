@@ -29,6 +29,7 @@ thiserror = "2.0.17"
 walkdir = "2.5"
 webp = "0.3.1"
 webp-glitch = { path = "crates/webp-glitch", version = "0.1.0" }
+webp-glitch-context = { path = "crates/webp-glitch-context", version = "0.1.0" }
 
 [profile.release]
 # The CLI ships in release mode; keep arithmetic overflow checks on so bugs are not silently wrapped.
@@ -55,7 +56,7 @@ anyhow.workspace = true
 clap.workspace = true
 png-glitch.workspace = true
 glitch-context.workspace = true
-webp-glitch.workspace = true
+webp-glitch-context.workspace = true
 rand.workspace = true
 log.workspace = true
 serde.workspace = true
