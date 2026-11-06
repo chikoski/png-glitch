@@ -3151,16 +3151,16 @@ mod test {
   quality: 15.0
 "#;
         let configs: Vec<FilterConfig> =
-            serde_yaml_ng::from_str(yaml).expect("all filter configs should deserialize");
+            serde_saphyr::from_str(yaml).expect("all filter configs should deserialize");
         assert_eq!(configs.len(), 27);
 
         // Verify PreProcess accepts kebab-case, PascalCase, and lowercase aliases
         for s in ["remove-filter", "RemoveFilter", "removefilter", "none"] {
-            let p: PreProcess = serde_yaml_ng::from_str(s).unwrap();
+            let p: PreProcess = serde_saphyr::from_str(s).unwrap();
             assert_eq!(p, PreProcess::RemoveFilter);
         }
         for s in ["sub-filter", "SubFilter", "subfilter", "sub"] {
-            let p: PreProcess = serde_yaml_ng::from_str(s).unwrap();
+            let p: PreProcess = serde_saphyr::from_str(s).unwrap();
             assert_eq!(p, PreProcess::SubFilter);
         }
     }

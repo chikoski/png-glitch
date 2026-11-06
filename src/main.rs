@@ -3,7 +3,7 @@ use clap::{ArgMatches, CommandFactory, FromArgMatches};
 use glitch_context::{AnyGlitchContext, FilterConfig, ParseOptions};
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
-use std::fs::{self, File};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use walkdir::WalkDir;
@@ -536,9 +536,9 @@ fn apply_steps(
     for step in steps {
         match step {
             OrderedStep::Config(config_path) => {
-                let file = File::open(config_path)
+                let yaml = std::fs::read_to_string(config_path)
                     .with_context(|| format!("failed to open config file '{config_path}'"))?;
-                let config: ConfigFile = serde_yaml_ng::from_reader(file)
+                let config: ConfigFile = serde_saphyr::from_str(&yaml)
                     .with_context(|| format!("failed to parse config file '{config_path}'"))?;
                 for filter in config.filters {
                     context.add_from_config(filter)?;
@@ -624,7 +624,7 @@ filters:
     magnitude: 0.1
     blocksize: 64
 "#;
-        let res: Result<ConfigFile, _> = serde_yaml_ng::from_str(bad_yaml);
+        let res: Result<ConfigFile, _> = serde_saphyr::from_str(bad_yaml);
         assert!(res.is_err(), "unknown field `blocksize` must be rejected");
 
         let bad_mag_yaml = r#"
@@ -632,7 +632,7 @@ filters:
   - type: Replace
     magnitude: 1.5
 "#;
-        let res_mag: Result<ConfigFile, _> = serde_yaml_ng::from_str(bad_mag_yaml);
+        let res_mag: Result<ConfigFile, _> = serde_saphyr::from_str(bad_mag_yaml);
         assert!(
             res_mag.is_err(),
             "out-of-range magnitude in YAML must be rejected"
@@ -913,7 +913,7 @@ filters:
     r_offset: 3
     b_offset: -3
 "#;
-        let cfg: ConfigFile = serde_yaml_ng::from_str(yaml).expect("kebab and PascalCase YAML should parse");
+        let cfg: ConfigFile = serde_saphyr::from_str(yaml).expect("kebab and PascalCase YAML should parse");
         assert_eq!(cfg.filters.len(), 3);
     }
 

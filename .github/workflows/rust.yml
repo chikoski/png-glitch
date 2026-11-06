@@ -42,7 +42,7 @@ jobs:
         tool: cargo-fuzz
     - name: Build fuzz targets
       working-directory: fuzz
-      run: cargo +nightly fuzz build
+      run: cargo +nightly fuzz build --target x86_64-unknown-linux-gnu
 
   audit:
     name: Dependency audit
