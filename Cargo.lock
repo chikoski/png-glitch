@@ -434,10 +434,12 @@ name = "glitch-context"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "blake3",
  "clap",
  "crc32fast",
  "fdeflate",
  "image",
+ "insta",
  "png-glitch",
  "rand",
  "rand_chacha",

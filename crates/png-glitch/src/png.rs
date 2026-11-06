@@ -245,6 +245,8 @@ impl Scan for Png {
         }
     }
 
+    // NOTE: the closure runs on several threads in no fixed order; it must not use a shared RNG
+    // (see the reproducibility policy in the README).
     fn par_foreach_scanline<F>(&mut self, modifier: F)
     where
         F: Fn(&mut ScanLine) + Sync + Send,

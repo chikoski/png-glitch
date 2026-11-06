@@ -75,6 +75,10 @@ impl WebpGlitch {
     }
 
     /// Applies a closure to all scanlines in parallel using `rayon`.
+    ///
+    /// The closure runs concurrently on several threads in no fixed order, so it must not use a
+    /// shared RNG: that would make seeded output depend on the thread count. Derive a per-line RNG
+    /// from `(seed, line_index)` instead (see the reproducibility policy in the README).
     pub fn par_foreach_scanline<F>(&mut self, f: F) -> &mut Self
     where
         F: Fn(&mut ScanLine<'_>) + Send + Sync,

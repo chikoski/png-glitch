@@ -1,0 +1,5 @@
+---
+source: crates/glitch-context/tests/golden.rs
+expression: "golden_hash(\"type: horizontal-shift\\nmagnitude: 0.3\")"
+---
+c05328949beea2d675fabc3ac25097c8d39db68fc195e60d11ed41a4b7387ba7

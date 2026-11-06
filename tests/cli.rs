@@ -361,3 +361,86 @@ fn help_output_snapshot() {
     let text = String::from_utf8(out.get_output().stdout.clone()).unwrap();
     assert_snapshot!(text);
 }
+
+// ------------------------------------------------- thread-count independence
+
+/// Filters that consume the RNG, with arguments that make them do real work on the fixture.
+const RNG_FILTERS: &[&str] = &[
+    "change-filter-type=0.5",
+    "replace=0.3",
+    "transpose=0.5",
+    "set-zero=0.5",
+    "random-copy=5",
+    "pixel-sort=0.5",
+    "bitwise:magnitude=0.5,op=xor,value=255",
+    "channel-swap:magnitude=0.5,target=br",
+    "horizontal-shift=0.5",
+    "block-scramble:magnitude=0.5,block_size=8",
+    "color-distortion:magnitude=0.5,strength=40",
+    "color-space-glitch:magnitude=0.5,hue_shift=90",
+    "chromatic-aberration:magnitude=0.5,r=4,b=-4",
+];
+
+/// Runs the binary in its own process with the given rayon thread count.
+fn run_with_threads(threads: &str, input: &Path, args: &[&str], out: &Path) -> Vec<u8> {
+    cmd()
+        .env("RAYON_NUM_THREADS", threads)
+        .arg(input)
+        .args(["--seed", "7"])
+        .args(args)
+        .arg(out)
+        .assert()
+        .success();
+    fs::read(out).unwrap()
+}
+
+#[test]
+fn rng_filters_are_independent_of_thread_count() {
+    let dir = TempDir::new().unwrap();
+    let input = copy_fixture(&dir, "small.png");
+    for (i, filter) in RNG_FILTERS.iter().enumerate() {
+        let one = run_with_threads("1", &input, &["-f", filter, "-o"], &dir.path().join(format!("one{i}.png")));
+        let many = run_with_threads("8", &input, &["-f", filter, "-o"], &dir.path().join(format!("many{i}.png")));
+        assert_eq!(one, many, "output of `{filter}` depends on the thread count");
+    }
+}
+
+#[test]
+fn chained_filters_are_independent_of_thread_count() {
+    let dir = TempDir::new().unwrap();
+    let input = copy_fixture(&dir, "small.png");
+    let args: Vec<&str> = RNG_FILTERS.iter().flat_map(|f| ["-f", *f]).chain(["-o"]).collect();
+    let one = run_with_threads("1", &input, &args, &dir.path().join("one.png"));
+    let many = run_with_threads("8", &input, &args, &dir.path().join("many.png"));
+    assert_eq!(one, many);
+}
+
+#[test]
+fn batch_output_is_independent_of_thread_count() {
+    let dir = TempDir::new().unwrap();
+    let input = dir.path().join("in");
+    fs::create_dir_all(&input).unwrap();
+    for i in 0..4 {
+        fs::copy(fixture("small.png"), input.join(format!("{i}.png"))).unwrap();
+    }
+    fs::copy(fixture("small.webp"), input.join("w.webp")).unwrap();
+    let run = |threads: &str, out: &Path| {
+        cmd()
+            .env("RAYON_NUM_THREADS", threads)
+            .arg(&input)
+            .args(["--seed", "7", "-f", "pixel-sort=0.5", "-f", "color-distortion=0.3", "--batch-output"])
+            .arg(out)
+            .assert()
+            .success();
+    };
+    let (one, many) = (dir.path().join("one"), dir.path().join("many"));
+    run("1", &one);
+    run("8", &many);
+    for name in ["0.png", "1.png", "2.png", "3.png", "w.webp"] {
+        assert_eq!(
+            fs::read(one.join(name)).unwrap(),
+            fs::read(many.join(name)).unwrap(),
+            "{name} differs between thread counts"
+        );
+    }
+}

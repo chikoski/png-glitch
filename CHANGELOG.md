@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI is green again (#122): fuzz targets are built with `--target x86_64-unknown-linux-gnu` (a prebuilt musl `cargo-fuzz` defaults to musl, which AddressSanitizer does not support), `crossbeam-epoch` and `rand` are updated within their current minor series (RUSTSEC-2026-0204, RUSTSEC-2026-0097; seeded output unchanged), `image` is built with only the `png` feature (drops `paste`/`rav1e`), and `serde_yaml_ng` is replaced by `serde-saphyr` (drops unmaintained `unsafe-libyaml`).
 - Fuzz targets build again and run in CI (#52): the fuzz crate moved from `crates/png-glitch/fuzz` to the top-level `fuzz/` with its own `[workspace]` table, the parser target uses the public API, and new `glitch_context_pipeline` and `webp_riff` targets were added. Every PR builds all targets; a scheduled workflow fuzzes each one and uploads crashes as artifacts.
 
+#### Added
+- Seed reproducibility is now a tested guarantee (#58): library-level golden hashes for every PNG filter (`crates/glitch-context/tests/golden.rs`), CLI tests comparing `RAYON_NUM_THREADS=1` and `8` (single files, chained filters and batch mode), and a documented policy in the README and CONTRIBUTING.md. No seeded output changed.
+
 ### `png-glitch-cli` `0.5.0`
 
 #### Added

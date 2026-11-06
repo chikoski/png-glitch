@@ -30,6 +30,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 # 3. Run unit, integration, and doc tests
 cargo test --workspace --all-targets
 cargo test --workspace --doc
+cargo test --workspace --release
 
 # 4. Build documentation (must pass with 0 warnings; #![warn(missing_docs)] is enabled)
 cargo doc --workspace --no-deps
@@ -81,6 +82,19 @@ Adding a filter end-to-end touches four places:
 1. Add unit tests in `crates/glitch-context/src/lib.rs` (including `test_all_png_filters_across_color_types_and_bit_depths` and/or `test_all_webp_filters_and_reproducibility`, `magnitude = 0.0` boundary test, and YAML deserialization test).
 2. Add CLI parsing tests in `src/main.rs`.
 3. Add a row to the filter compatibility tables in `README.md` and `crates/glitch-context/README.md`.
+
+### Golden snapshots and seeded output
+
+Golden tests (`golden_*` in `tests/cli.rs`, `crates/glitch-context/tests/golden.rs`) store the BLAKE3 hash of the output for a fixed seed using [`insta`](https://insta.rs). A failing golden test means seeded output changed. Never accept this casually: it breaks the reproducibility guarantee described in the README ("Output & Reproducibility").
+
+If the change is intentional (e.g. a filter was fixed or `rand` / `rand_chacha` was upgraded):
+
+```zsh
+cargo install cargo-insta   # once
+cargo insta review          # inspect and accept the new hashes
+```
+
+Then add an entry under a **"Seeded output changes"** heading in `CHANGELOG.md` naming the affected filters. Filters that use the RNG must stay sequential (or derive a per-line RNG from `(seed, line_index)`); do not use the shared RNG inside `par_foreach_scanline`.
 
 ---
 
