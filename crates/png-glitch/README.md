@@ -18,7 +18,7 @@ classDiagram
         +Png png
         +open(path) PngGlitch
         +save(path)
-        +apply(preset)
+        +apply(effect)
         +remove_filter()
     }
     class Png {
@@ -51,15 +51,15 @@ The library now features a **Chainable API**, **Structured Pixel API**, and **Pa
 
 The following snippet glitches `./a_png_file.png` by:
 1. Removing existing PNG filters.
-2. Applying an **Invert** preset.
-3. Brightening the image using a **Brighten** preset.
+2. Applying an **Invert** effect.
+3. Brightening the image using a **Brighten** effect.
 4. Customizing a specific pixel using the safe **Pixel API**.
 
 The glitched image is saved to `./glitched.png`.
 
 ```Rust
 use png_glitch::{PngGlitch, Pixel};
-use png_glitch::presets::{Invert, Brighten};
+use png_glitch::effects::{Invert, Brighten};
 
 PngGlitch::open("./a_png_file.png")?
   .remove_filter()
@@ -74,9 +74,9 @@ PngGlitch::open("./a_png_file.png")?
   .save("./glitched.png")?;
 ```
 
-# Available Presets (Recipes)
+# Available Effects
 
-Built-in glitch recipes available in `png_glitch::presets`:
+Built-in effects available in `png_glitch::effects`:
 
 - **Invert**: Flips color values.
 - **ShiftChannels**: Moves color channels (R, G, B) independently.

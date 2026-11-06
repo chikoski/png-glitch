@@ -1,8 +1,8 @@
 //! Parses arbitrary bytes as PNG, then runs the low-level `PngGlitch`
-//! operations (filter removal/application, presets, transpose) and encodes.
+//! operations (filter removal/application, effects, transpose) and encodes.
 #![no_main]
 use libfuzzer_sys::fuzz_target;
-use png_glitch::presets::{Brighten, Darken, Invert, ShiftChannels};
+use png_glitch::effects::{Brighten, Darken, Invert, ShiftChannels};
 use png_glitch::{FilterType, Limits, ParseOptions, PngGlitch};
 
 const LIMITS: Limits = Limits {

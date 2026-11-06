@@ -1,4 +1,4 @@
-use png_glitch::presets::{Brighten, Invert};
+use png_glitch::effects::{Brighten, Invert};
 use png_glitch::{Pixel, PngGlitch};
 use std::fs;
 use std::path::Path;
@@ -14,7 +14,7 @@ fn main() {
 
     println!("Original image: {}x{}", glitch.width(), glitch.height());
 
-    // 1. Use the fluent API to remove filters and apply presets
+    // 1. Use the fluent API to remove filters and apply effects
     glitch
         .remove_filter()
         .apply(Invert)
