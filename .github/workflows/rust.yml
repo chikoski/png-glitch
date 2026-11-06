@@ -34,6 +34,17 @@ jobs:
     - name: Check documentation
       run: cargo doc --workspace --no-deps
 
+  msrv:
+    name: MSRV (1.89)
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v7
+    # Keep this version in sync with `rust-version` in the root Cargo.toml.
+    - uses: dtolnay/rust-toolchain@1.89
+    - name: Check workspace with the minimum supported Rust version
+      run: cargo check --workspace
+
   fuzz-build:
     name: Build fuzz targets
     runs-on: ubuntu-latest

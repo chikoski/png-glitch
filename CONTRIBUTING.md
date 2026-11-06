@@ -4,7 +4,7 @@ Thank you for your interest in contributing to `png-glitch`! This guide covers s
 
 ## Prerequisites
 
-- **Rust**: `1.85` or later (Rust 2024 edition).
+- **Rust**: `1.89` or later (Rust 2024 edition).
 - A C compiler (used by `libwebp-sys2` when building `webp-glitch`).
 
 ## Workspace Structure
