@@ -40,6 +40,12 @@ cargo run -p glitch-context --example simple_glitch
 cargo run -p webp-glitch --example glitch
 ```
 
+## Design Principles and Decisions
+
+New features and API changes are reviewed against the [Design principles in `DEVELOPER_GUIDE.md`](DEVELOPER_GUIDE.md#design-principles): the output is always a valid PNG, and effects change only the scan-line data. The section ends with a review checklist.
+
+Significant design decisions are recorded as [Architecture Decision Records](docs/adr/README.md). If your change adds or renames a public abstraction, or decides something other work depends on, propose an ADR in the same pull request.
+
 ## Coding Guidelines
 
 1. **No Panics in Library Code**: Library crates (`png-glitch`, `webp-glitch`, `glitch-context`) must never panic (`unwrap()`, `expect()`, out-of-bounds slice indexing, or divide-by-zero) on malformed image bytes or caller-supplied parameters. Return a typed `Err` or clamp/no-op on empty/out-of-range inputs.
