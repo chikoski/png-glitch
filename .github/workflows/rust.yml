@@ -59,6 +59,27 @@ jobs:
     - name: Check workspace with the minimum supported Rust version
       run: cargo check --workspace
 
+  coverage:
+    name: Coverage (informational)
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v7
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        components: llvm-tools-preview
+    - uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-llvm-cov
+    - uses: Swatinem/rust-cache@v2
+    - name: Generate HTML coverage report
+      run: cargo llvm-cov --workspace --html
+    - name: Upload coverage report
+      uses: actions/upload-artifact@v7
+      with:
+        name: coverage-html
+        path: target/llvm-cov/html
+
   fuzz-build:
     name: Build fuzz targets
     runs-on: ubuntu-latest
