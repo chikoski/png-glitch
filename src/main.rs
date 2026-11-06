@@ -1,7 +1,7 @@
 use anyhow::{Context, bail};
 use clap::{ArgMatches, CommandFactory, FromArgMatches};
 use indicatif::{ProgressBar, ProgressStyle};
-use png_glitch_recipe::{FilterConfig, ParseOptions};
+use png_glitch_recipe::{FilterConfig, ParseOptions, PreProcess};
 use rayon::prelude::*;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -10,6 +10,7 @@ use walkdir::WalkDir;
 
 mod any_context;
 mod cli;
+mod recipe_io;
 
 use crate::any_context::AnyGlitchContext;
 use crate::cli::{Cli, ConfigFile, format_filter_list};
@@ -240,6 +241,9 @@ fn validate_flags_for_format(args: &Cli, webp_input: bool) -> anyhow::Result<()>
         if args.pre_process.is_some() {
             unsupported.push("--pre-process");
         }
+        if args.embed_recipe {
+            unsupported.push("--embed-recipe");
+        }
         if args.change_filter_type.is_some() {
             unsupported.push("--change-filter-type");
         }
@@ -360,6 +364,10 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    if args.show_recipe {
+        return show_recipe(&args);
+    }
+
     let steps = collect_ordered_steps(&args, Some(&matches));
 
     if let Some(batch_output) = &args.batch_output {
@@ -405,9 +413,10 @@ fn single_process(args: &Cli, steps: &[OrderedStep]) -> anyhow::Result<()> {
 
     let seed = resolve_seed(args.seed);
     context.set_seed(Some(seed));
+    let recipe = report_recipe(args, steps, seed)?;
     apply_steps(args, steps, &mut context)?;
     context.execute();
-    context.save(&output_path)?;
+    save_output(args, &context, &output_path, &recipe)?;
     Ok(())
 }
 
@@ -426,6 +435,7 @@ fn process_batch_file(
     path: &Path,
     dest_path: &Path,
     seed: u64,
+    recipe: &str,
 ) -> anyhow::Result<()> {
     check_overwrite(dest_path, args.force)?;
     if let Some(parent) = dest_path.parent()
@@ -444,7 +454,7 @@ fn process_batch_file(
     }
     apply_steps(args, steps, &mut context)?;
     context.execute();
-    context.save(dest_path)?;
+    save_output(args, &context, dest_path, recipe)?;
     Ok(())
 }
 
@@ -482,6 +492,7 @@ fn batch_process(args: &Cli, steps: &[OrderedStep], output_dir: &str) -> anyhow:
     }
 
     let seed = resolve_seed(args.seed);
+    let recipe = report_recipe(args, steps, seed)?;
 
     let pb = ProgressBar::new(image_files.len() as u64);
     pb.set_style(
@@ -503,7 +514,7 @@ fn batch_process(args: &Cli, steps: &[OrderedStep], output_dir: &str) -> anyhow:
 
         pb.set_message(format!("Processing {display_name}"));
 
-        match process_batch_file(args, steps, path, &dest_path, seed) {
+        match process_batch_file(args, steps, path, &dest_path, seed, &recipe) {
             Ok(()) => {
                 succeeded.fetch_add(1, Ordering::Relaxed);
             }
@@ -529,13 +540,18 @@ fn batch_process(args: &Cli, steps: &[OrderedStep], output_dir: &str) -> anyhow:
     Ok(())
 }
 
-fn apply_steps(
-    args: &Cli,
-    steps: &[OrderedStep],
-    context: &mut AnyGlitchContext,
-) -> anyhow::Result<()> {
+/// The effective recipe: the pre-process option, then `--config` files and filter flags in the
+/// order they were given.
+fn effective_filters(args: &Cli, steps: &[OrderedStep]) -> anyhow::Result<Vec<FilterConfig>> {
+    let mut filters = Vec::new();
     if let Some(pre_process) = args.pre_process {
-        context.pre_process(pre_process)?;
+        filters.push(match pre_process {
+            PreProcess::RemoveFilter => FilterConfig::RemoveFilter,
+            PreProcess::SubFilter => FilterConfig::SubFilter,
+            PreProcess::UpFilter => FilterConfig::UpFilter,
+            PreProcess::AverageFilter => FilterConfig::AverageFilter,
+            PreProcess::PaethFilter => FilterConfig::PaethFilter,
+        });
     }
 
     for step in steps {
@@ -545,17 +561,65 @@ fn apply_steps(
                     .with_context(|| format!("failed to open config file '{config_path}'"))?;
                 let config: ConfigFile = serde_saphyr::from_str(&yaml)
                     .with_context(|| format!("failed to parse config file '{config_path}'"))?;
-                for filter in config.filters {
-                    context.add_from_config(filter)?;
-                }
+                filters.extend(config.filters);
             }
-            OrderedStep::Filter(filter_cfg) => {
-                context.add_from_config(filter_cfg.clone())?;
-            }
+            OrderedStep::Filter(filter_cfg) => filters.push(filter_cfg.clone()),
         }
     }
+    Ok(filters)
+}
 
+fn apply_steps(
+    args: &Cli,
+    steps: &[OrderedStep],
+    context: &mut AnyGlitchContext,
+) -> anyhow::Result<()> {
+    for filter in effective_filters(args, steps)? {
+        context.add_from_config(filter)?;
+    }
     Ok(())
+}
+
+/// Prints and/or saves the effective recipe as requested, and returns its text.
+fn report_recipe(args: &Cli, steps: &[OrderedStep], seed: u64) -> anyhow::Result<String> {
+    let text = recipe_io::render_recipe(seed, &effective_filters(args, steps)?)?;
+    if args.print_recipe {
+        eprint!("{text}");
+    }
+    if let Some(path) = &args.save_recipe {
+        fs::write(path, &text).with_context(|| format!("failed to write recipe to '{path}'"))?;
+    }
+    Ok(text)
+}
+
+/// Saves the glitched image, embedding the recipe when asked.
+fn save_output(
+    args: &Cli,
+    context: &AnyGlitchContext,
+    path: &Path,
+    recipe: &str,
+) -> anyhow::Result<()> {
+    if args.embed_recipe {
+        let bytes = recipe_io::embed_in_png(&context.buffer()?, recipe)?;
+        fs::write(path, bytes).with_context(|| format!("failed to save '{}'", path.display()))
+    } else {
+        context.save(path)
+    }
+}
+
+fn show_recipe(args: &Cli) -> anyhow::Result<()> {
+    let input = args
+        .input
+        .as_deref()
+        .context("missing required <INPUT> file path")?;
+    let data = fs::read(input).with_context(|| format!("failed to open '{input}'"))?;
+    match recipe_io::extract_from_png(&data) {
+        Some(text) => {
+            print!("{text}");
+            Ok(())
+        }
+        None => bail!("'{input}' has no embedded recipe (it is written by `--embed-recipe`)"),
+    }
 }
 
 #[cfg(test)]
@@ -964,5 +1028,66 @@ filters:
         let strict_cli = Cli::try_parse_from(["png-glitch", "input.png", "--strict"])
             .expect("--strict flag should parse");
         assert!(strict_cli.strict);
+    }
+
+    #[test]
+    fn test_filter_display_round_trips_through_spec_parser() {
+        use crate::cli::parse_filter_spec;
+        use png_glitch_recipe::{BitOp, SortCriterion, SwapTarget};
+        let configs = vec![
+            FilterConfig::Replace { magnitude: 0.1 },
+            FilterConfig::RandomCopy { times: 5 },
+            FilterConfig::Substitute {
+                index: 4,
+                value: 255,
+            },
+            FilterConfig::PixelSort {
+                magnitude: 0.2,
+                criterion: Some(SortCriterion::Hue),
+            },
+            FilterConfig::Bitwise {
+                magnitude: 0.3,
+                op: Some(BitOp::And),
+                value: Some(7),
+            },
+            FilterConfig::ChannelSwap {
+                magnitude: 0.5,
+                target: Some(SwapTarget::Br),
+            },
+            FilterConfig::BlockScramble {
+                magnitude: 0.1,
+                block_size: Some(32),
+            },
+            FilterConfig::ColorDistortion {
+                magnitude: 0.2,
+                strength: Some(30),
+            },
+            FilterConfig::ColorSpaceGlitch {
+                magnitude: 0.2,
+                hue_shift: Some(-90.5),
+                saturation_mult: Some(1.5),
+                lightness_mult: Some(0.5),
+            },
+            FilterConfig::ChromaticAberration {
+                magnitude: 0.2,
+                r_offset: Some(4),
+                g_offset: None,
+                b_offset: Some(-4),
+            },
+            FilterConfig::Invert,
+            FilterConfig::Brighten { strength: 30 },
+            FilterConfig::ShiftChannels {
+                r: 15,
+                g: 0,
+                b: -15,
+            },
+            FilterConfig::PaethFilter,
+            FilterConfig::MacroblockGlitch { magnitude: 0.1 },
+            FilterConfig::LossyArtifact { quality: 15.5 },
+        ];
+        for config in configs {
+            let spec = config.to_string();
+            assert_eq!(parse_filter_spec(&spec), Ok(config), "{spec}");
+        }
     }
 }

@@ -23,7 +23,7 @@ pub use rand;
 use rand::{Rng, RngCore, SeedableRng};
 pub use rand_chacha;
 pub use rand_chacha::ChaCha8Rng;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// Result type used by the fallible APIs of this crate.
@@ -439,7 +439,7 @@ where
 }
 
 /// Pre-process options for re-encoding PNG scanlines with a uniform prediction filter.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[cfg_attr(feature = "clap", derive(ValueEnum))]
 #[serde(rename_all = "kebab-case")]
 pub enum PreProcess {
@@ -462,7 +462,7 @@ pub enum PreProcess {
 }
 
 /// Strategy for corrupting the alpha channel in `AlphaGlitch` (WebP only, in `webp-glitch-context`).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[cfg_attr(feature = "clap", derive(ValueEnum))]
 #[serde(rename_all = "kebab-case")]
 pub enum AlphaGlitchStrategy {
@@ -482,7 +482,7 @@ pub enum AlphaGlitchStrategy {
 }
 
 /// Declarative configuration for a single glitch filter step (used in YAML config files and `-f/--filter`).
-#[derive(Debug, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 #[serde(tag = "type", deny_unknown_fields)]
 pub enum FilterConfig {
     /// Randomly overwrites the PNG filter type byte of scanlines.
@@ -538,6 +538,7 @@ pub enum FilterConfig {
         #[serde(deserialize_with = "deserialize_magnitude")]
         magnitude: f64,
         /// Optional sorting criterion (defaults to [`SortCriterion::Brightness`]).
+        #[serde(skip_serializing_if = "Option::is_none")]
         criterion: Option<SortCriterion>,
     },
     /// Applies a bitwise operation to bytes in randomly selected scanlines.
@@ -547,8 +548,10 @@ pub enum FilterConfig {
         #[serde(deserialize_with = "deserialize_magnitude")]
         magnitude: f64,
         /// Optional bitwise operator (defaults to [`BitOp::Xor`]).
+        #[serde(skip_serializing_if = "Option::is_none")]
         op: Option<BitOp>,
         /// Optional byte operand (defaults to `0`).
+        #[serde(skip_serializing_if = "Option::is_none")]
         value: Option<u8>,
     },
     /// Swaps two color channels in randomly selected scanlines.
@@ -558,6 +561,7 @@ pub enum FilterConfig {
         #[serde(deserialize_with = "deserialize_magnitude")]
         magnitude: f64,
         /// Optional channel pair to swap (defaults to [`SwapTarget::Rg`]).
+        #[serde(skip_serializing_if = "Option::is_none")]
         target: Option<SwapTarget>,
     },
     /// Horizontally rotates scanline bytes by a random offset.
@@ -574,6 +578,7 @@ pub enum FilterConfig {
         #[serde(deserialize_with = "deserialize_magnitude")]
         magnitude: f64,
         /// Optional block edge length in pixels (defaults to `16`).
+        #[serde(skip_serializing_if = "Option::is_none")]
         block_size: Option<u32>,
     },
     /// Adds random per-pixel color noise on randomly selected scanlines.
@@ -583,6 +588,7 @@ pub enum FilterConfig {
         #[serde(deserialize_with = "deserialize_magnitude")]
         magnitude: f64,
         /// Optional maximum noise amplitude (defaults to `20`).
+        #[serde(skip_serializing_if = "Option::is_none")]
         strength: Option<i16>,
     },
     /// Shifts hue and scales saturation/lightness in HSL color space.
@@ -592,10 +598,13 @@ pub enum FilterConfig {
         #[serde(deserialize_with = "deserialize_magnitude")]
         magnitude: f64,
         /// Optional hue shift in degrees (defaults to `0.0`).
+        #[serde(skip_serializing_if = "Option::is_none")]
         hue_shift: Option<f64>,
         /// Optional saturation multiplier (defaults to `1.0`).
+        #[serde(skip_serializing_if = "Option::is_none")]
         saturation_mult: Option<f64>,
         /// Optional lightness multiplier (defaults to `1.0`).
+        #[serde(skip_serializing_if = "Option::is_none")]
         lightness_mult: Option<f64>,
     },
     /// Horizontally offsets R, G, and B channels on randomly selected scanlines.
@@ -605,10 +614,13 @@ pub enum FilterConfig {
         #[serde(deserialize_with = "deserialize_magnitude")]
         magnitude: f64,
         /// Optional red channel horizontal offset in pixels (defaults to `2`).
+        #[serde(skip_serializing_if = "Option::is_none")]
         r_offset: Option<i32>,
         /// Optional green channel horizontal offset in pixels (defaults to `0`).
+        #[serde(skip_serializing_if = "Option::is_none")]
         g_offset: Option<i32>,
         /// Optional blue channel horizontal offset in pixels (defaults to `-2`).
+        #[serde(skip_serializing_if = "Option::is_none")]
         b_offset: Option<i32>,
     },
     /// Inverts all color channels.
@@ -668,6 +680,7 @@ pub enum FilterConfig {
         )]
         magnitude: f64,
         /// Optional alpha corruption strategy (defaults to [`AlphaGlitchStrategy::Invert`]).
+        #[serde(skip_serializing_if = "Option::is_none")]
         strategy: Option<AlphaGlitchStrategy>,
     },
     /// Lowers WebP re-encoding quality (`0.0..=100.0`) to introduce lossy compression artifacts (WebP only).
@@ -681,6 +694,169 @@ pub enum FilterConfig {
         /// Re-encoding quality in `0.0..=100.0`.
         quality: f32,
     },
+}
+
+macro_rules! display_as_spec_word {
+    ($ty:ty { $($variant:ident => $word:literal),* $(,)? }) => {
+        impl std::fmt::Display for $ty {
+            /// Renders the value as it is written in `-f` specs and YAML (lowercase).
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(match self { $(Self::$variant => $word),* })
+            }
+        }
+    };
+}
+
+display_as_spec_word!(SortCriterion { Brightness => "brightness", Hue => "hue" });
+display_as_spec_word!(BitOp { And => "and", Or => "or", Xor => "xor" });
+display_as_spec_word!(SwapTarget { Rg => "rg", Gb => "gb", Br => "br" });
+display_as_spec_word!(AlphaGlitchStrategy {
+    Invert => "invert",
+    Randomize => "randomize",
+    Zero => "zero",
+    One => "one",
+});
+
+impl std::fmt::Display for FilterConfig {
+    /// Renders the step in the `-f / --filter` spec syntax, e.g. `replace:magnitude=0.1`.
+    /// The output parses back to an equal [`FilterConfig`].
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fn spec(
+            f: &mut std::fmt::Formatter<'_>,
+            name: &str,
+            params: &[(&str, Option<String>)],
+        ) -> std::fmt::Result {
+            f.write_str(name)?;
+            let mut sep = ':';
+            for (key, value) in params {
+                if let Some(value) = value {
+                    write!(f, "{sep}{key}={value}")?;
+                    sep = ',';
+                }
+            }
+            Ok(())
+        }
+        fn v<T: std::fmt::Display>(value: T) -> Option<String> {
+            Some(value.to_string())
+        }
+        fn o<T: std::fmt::Display>(value: &Option<T>) -> Option<String> {
+            value.as_ref().map(ToString::to_string)
+        }
+        match self {
+            Self::ChangeFilterType { magnitude } => {
+                spec(f, "change-filter-type", &[("magnitude", v(magnitude))])
+            }
+            Self::Replace { magnitude } => spec(f, "replace", &[("magnitude", v(magnitude))]),
+            Self::Transpose { magnitude } => spec(f, "transpose", &[("magnitude", v(magnitude))]),
+            Self::SetZero { magnitude } => spec(f, "set-zero", &[("magnitude", v(magnitude))]),
+            Self::RandomCopy { times } => spec(f, "random-copy", &[("times", v(times))]),
+            Self::Substitute { index, value } => {
+                spec(f, "substitute", &[("index", v(index)), ("value", v(value))])
+            }
+            Self::PixelSort {
+                magnitude,
+                criterion,
+            } => spec(
+                f,
+                "pixel-sort",
+                &[("magnitude", v(magnitude)), ("criterion", o(criterion))],
+            ),
+            Self::Bitwise {
+                magnitude,
+                op,
+                value,
+            } => spec(
+                f,
+                "bitwise",
+                &[
+                    ("magnitude", v(magnitude)),
+                    ("op", o(op)),
+                    ("value", o(value)),
+                ],
+            ),
+            Self::ChannelSwap { magnitude, target } => spec(
+                f,
+                "channel-swap",
+                &[("magnitude", v(magnitude)), ("target", o(target))],
+            ),
+            Self::HorizontalShift { magnitude } => {
+                spec(f, "horizontal-shift", &[("magnitude", v(magnitude))])
+            }
+            Self::BlockScramble {
+                magnitude,
+                block_size,
+            } => spec(
+                f,
+                "block-scramble",
+                &[("magnitude", v(magnitude)), ("block_size", o(block_size))],
+            ),
+            Self::ColorDistortion {
+                magnitude,
+                strength,
+            } => spec(
+                f,
+                "color-distortion",
+                &[("magnitude", v(magnitude)), ("strength", o(strength))],
+            ),
+            Self::ColorSpaceGlitch {
+                magnitude,
+                hue_shift,
+                saturation_mult,
+                lightness_mult,
+            } => spec(
+                f,
+                "color-space-glitch",
+                &[
+                    ("magnitude", v(magnitude)),
+                    ("hue_shift", o(hue_shift)),
+                    ("saturation_mult", o(saturation_mult)),
+                    ("lightness_mult", o(lightness_mult)),
+                ],
+            ),
+            Self::ChromaticAberration {
+                magnitude,
+                r_offset,
+                g_offset,
+                b_offset,
+            } => spec(
+                f,
+                "chromatic-aberration",
+                &[
+                    ("magnitude", v(magnitude)),
+                    ("r_offset", o(r_offset)),
+                    ("g_offset", o(g_offset)),
+                    ("b_offset", o(b_offset)),
+                ],
+            ),
+            Self::Invert => spec(f, "invert", &[]),
+            Self::Brighten { strength } => spec(f, "brighten", &[("strength", v(strength))]),
+            Self::Darken { strength } => spec(f, "darken", &[("strength", v(strength))]),
+            Self::ShiftChannels { r, g, b } => spec(
+                f,
+                "shift-channels",
+                &[("r", v(r)), ("g", v(g)), ("b", v(b))],
+            ),
+            Self::RemoveFilter => spec(f, "remove-filter", &[]),
+            Self::SubFilter => spec(f, "sub-filter", &[]),
+            Self::UpFilter => spec(f, "up-filter", &[]),
+            Self::AverageFilter => spec(f, "average-filter", &[]),
+            Self::PaethFilter => spec(f, "paeth-filter", &[]),
+            Self::MacroblockGlitch { magnitude } => {
+                spec(f, "macroblock-glitch", &[("magnitude", v(magnitude))])
+            }
+            Self::AlphaGlitch {
+                magnitude,
+                strategy,
+            } => spec(
+                f,
+                "alpha-glitch",
+                &[("magnitude", v(magnitude)), ("strategy", o(strategy))],
+            ),
+            Self::LossyArtifact { quality } => {
+                spec(f, "lossy-artifact", &[("quality", v(quality))])
+            }
+        }
+    }
 }
 
 fn default_alpha_magnitude() -> f64 {
@@ -1000,7 +1176,7 @@ impl Resolve for SetZero {
 }
 
 /// Criterion used by [`PixelSort`] to order pixels within a scanline.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[cfg_attr(feature = "clap", derive(ValueEnum))]
 #[serde(rename_all = "kebab-case")]
 pub enum SortCriterion {
@@ -1059,7 +1235,7 @@ impl Resolve for PixelSort {
 }
 
 /// Bitwise operation performed by [`Bitwise`].
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[cfg_attr(feature = "clap", derive(ValueEnum))]
 #[serde(rename_all = "kebab-case")]
 pub enum BitOp {
@@ -1131,7 +1307,7 @@ impl Resolve for Bitwise {
 }
 
 /// Pair of color channels to swap in [`ChannelSwap`].
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[cfg_attr(feature = "clap", derive(ValueEnum))]
 #[serde(rename_all = "kebab-case")]
 pub enum SwapTarget {

@@ -1,6 +1,5 @@
 ---
 source: tests/cli.rs
-assertion_line: 362
 expression: text
 ---
 A CLI tool to create glitch art from PNG and WebP images.
@@ -38,6 +37,19 @@ Options:
 
   -V, --version
           Print version
+
+Recipe:
+      --print-recipe
+          Print the effective recipe (flags, `-f` and `--config` merged, in order) and the seed as YAML to stderr
+
+      --save-recipe <FILE>
+          Save the effective recipe as YAML to FILE; it can be fed back with `--config FILE --seed SEED`
+
+      --embed-recipe
+          Embed the effective recipe and seed in the output PNG (an `iTXt` chunk; PNG only)
+
+      --show-recipe
+          Print the recipe embedded in INPUT (written by `--embed-recipe`) and exit
 
 Glitch Filters:
   -f, --filter <SPEC>

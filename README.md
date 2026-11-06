@@ -84,6 +84,10 @@ Accepted values: `remove-filter`, `sub-filter`, `up-filter`, `average-filter`, `
 | `--force` | Overwrite existing output file(s) without prompting. |
 | `--seed <SEED>` | Random seed (`u64`) for reproducible results (printed to stderr when omitted). |
 | `-c`, `--config <FILE>` | Load filter pipeline from a YAML configuration file. |
+| `--print-recipe` | Print the effective recipe (flags, `-f` and `--config` merged, in order) and the seed as YAML to stderr. |
+| `--save-recipe <FILE>` | Save the effective recipe as YAML. `--config FILE --seed SEED` reproduces the output byte for byte. |
+| `--embed-recipe` | Embed the recipe and seed in the output PNG (an `iTXt` chunk named `png-glitch-recipe`; PNG only). |
+| `--show-recipe` | Print the recipe embedded in `INPUT` and exit. |
 | `--list-filters` | List all available filters, parameters, defaults, and format support. |
 
 #### Reproducibility guarantee
