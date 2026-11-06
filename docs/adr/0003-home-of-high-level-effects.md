@@ -1,10 +1,10 @@
 # 0003. Where high-level effects live
 
-- **Status:** Proposed (Q1 and Q4 decided; Q2, Q3, Q5, Q6 open)
+- **Status:** Proposed (Q1, Q4 and Q5 decided; Q2, Q3, Q6 open)
 - **Date:** 2026-11-06
 - **Issue:** #63 (part of epic #62; blocks #64; affects #65, #66, #73)
 
-> This ADR is partly decided. Q1 and Q4 record the maintainer's decision. The remaining questions list options and a **recommendation**; they are settled on the pull request, and the status changes to Accepted once all are decided.
+> This ADR is partly decided. Q1, Q4 and Q5 record the maintainer's decisions (Q5 through [ADR 0004](0004-png-glitch-and-recipe-crates.md)). The remaining questions list options and a **recommendation**; they are settled on the pull request, and the status changes to Accepted once all are decided.
 
 ## Context
 
@@ -19,7 +19,7 @@ PR #35 (`extension-by-kiro`, commit 92c92b5) adds a high-level API for common gl
 Facts that constrain the answer:
 
 - `png-glitch` has no `rand` dependency.
-- `glitch-context` was created for WebAssembly support. That role is now taken by the planned component crate (#83, #86), and `glitch-context` no longer has a role of its own. Today it is used by the CLI and the `glitch_context_pipeline` fuzz target.
+- `glitch-context` was created for WebAssembly support. That role is now taken by the planned component crate (#83, #86), and `glitch-context` no longer had a role of its own when this ADR was written. Today it is used by the CLI and the `glitch_context_pipeline` fuzz target.
 - The PR #35 effects read and write scan-line bytes through `ScanLine` and the `Pixel` API. None of them recomputes filtered values, so all of them fit the design principles in [ADR 0002](0002-design-principles.md).
 - PR #35's effects differ in how much they depend on randomness:
 
@@ -41,7 +41,7 @@ Facts that constrain the answer:
 
 Options considered: **A.** `png-glitch` (as in PR #35, with a new `rand` dependency); **B.** `glitch-context`, next to the existing effects; **C.** split by kind.
 
-**Decision:** High-level effects live in **`png-glitch`**, and `png-glitch` takes **no `rand` dependency**. They do **not** move to `glitch-context`, which has no role any more (see *Out of scope*).
+**Decision:** High-level effects live in **`png-glitch`**, and `png-glitch` takes **no `rand` dependency**. They do **not** move to `glitch-context`, whose new role is decided in [ADR 0004](0004-png-glitch-and-recipe-crates.md).
 
 `png-glitch` provides **deterministic** effects only. Effects that need randomness are implemented by users on top of them (Q4).
 
@@ -79,14 +79,14 @@ Some PR #35 effects need more than one row (vertical `pixel_sort`, 2D `rgb_shift
 
 **Recommendation: B.** It avoids PR #35's second, different meaning of "preset". The final names, including whether the per-line trait keeps the name `GlitchPreset`, are part of the API tidy-up in #73. "Recipe" stays reserved for a named combination of effects (#69, #80).
 
-### Q5. Overlap with the existing `glitch-context` effects — open
+### Q5. Overlap with the existing `glitch-context` effects — **decided**
 
 `pixel_sort` and `rgb_shift` overlap `glitch-context`'s `PixelSort` and `ChromaticAberration`, which take an RNG today.
 
-- **A. Ignore the overlap here** and resolve it in the decision on `glitch-context`'s future (see *Out of scope*).
+- **A. Ignore the overlap here** and resolve it in the decision on `glitch-context`'s future (see *Related decision*).
 - **B. Port the deterministic core** of the overlapping `glitch-context` effects into the new `png-glitch` effects now. The `glitch-context` versions then only draw the random choices and call them.
 
-**Recommendation: A.** The new `png-glitch` effects are designed from PR #35 and the principles alone, without being constrained by the current `glitch-context` API. How the existing randomized effects map onto them is part of the separate decision.
+**Decision: B**, as a consequence of [ADR 0004](0004-png-glitch-and-recipe-crates.md). Every randomized `glitch-context` effect is split into a deterministic operation in `png-glitch` and a random specification in `png-glitch-recipe`. Overlapping effects share one deterministic core: `pixel_sort` and `PixelSort` become one `png-glitch` effect, and so do `rgb_shift` and `ChromaticAberration`.
 
 ### Q6. Errors — open
 
@@ -95,17 +95,17 @@ Some PR #35 effects need more than one row (vertical `pixel_sort`, 2D `rgb_shift
 
 **Recommendation: B.** It is consistent with `PngGlitch::apply` and the existing presets, and keeps one typed error per crate. `PresetError` is not ported.
 
-## Out of scope
+## Related decision
 
-**The future of `glitch-context`**, and with it where the CLI's existing randomized effects, `FilterConfig` (YAML) and `--seed` go. Since the effects stay in `png-glitch` and `glitch-context` has no role, that is a separate decision with its own ADR. It is needed before #64 touches the CLI and before #73 settles the module layout.
+The future of `glitch-context`, and with it where the CLI's randomized effects, `FilterConfig` (YAML) and `--seed` go, is decided in [ADR 0004](0004-png-glitch-and-recipe-crates.md): it becomes `png-glitch-recipe`, which resolves a recipe and a seed into concrete parameters and executes them on `png-glitch`.
 
 ## Decision (so far)
 
-High-level effects live in `png-glitch`, which stays free of `rand`. Every library effect is deterministic. Randomness is the caller's: random choices are explicit parameters, and effects that are random by nature (such as noise) are implemented by users, with an example showing how.
+High-level effects live in `png-glitch`, which stays free of `rand`. Every library effect is deterministic. Randomness is the caller's: random choices are explicit parameters. The project's own randomized effects draw those parameters in `png-glitch-recipe` (ADR 0004); effects that are random by nature and have no recipe step (such as noise) are implemented by users, with an example showing how.
 
 ## Consequences
 
-- **#64** ports `rgb_shift`, `pixel_sort`, and the deterministic parts of `scanlines` and `degrade` into `png-glitch`, and adds a random-noise example. It does not add `glitch-context` effects or CLI flags until the `glitch-context` decision is made.
+- **#64** ports `rgb_shift`, `pixel_sort`, and the deterministic parts of `scanlines` and `degrade` into `png-glitch`, and adds a random-noise example. Recipe steps and CLI flags for them are added in `png-glitch-recipe` (ADR 0004).
 - **#65, #66** (`datamosh`, `corrupt_blocks`) are designed as deterministic `png-glitch` effects whose targets (blocks, rows, offsets) are explicit parameters. `corrupt_blocks` corrupts scan-line data, not the compressed stream (ADR 0002, consequence 7).
 - **#62** is updated: the "high-level preset API" becomes "deterministic high-level effects in png-glitch".
 - **#73** decides the final names (Q3).
