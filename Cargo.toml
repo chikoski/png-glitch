@@ -30,6 +30,10 @@ walkdir = "2.5"
 webp = "0.3.1"
 webp-glitch = { path = "crates/webp-glitch", version = "0.1.0" }
 
+[profile.release]
+# The CLI ships in release mode; keep arithmetic overflow checks on so bugs are not silently wrapped.
+overflow-checks = true
+
 [package]
 name = "png-glitch-cli"
 version = "0.5.0"

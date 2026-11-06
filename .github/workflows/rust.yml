@@ -27,6 +27,8 @@ jobs:
       run: cargo clippy --workspace --all-targets -- -D warnings
     - name: Run tests
       run: cargo test --workspace --all-targets --verbose
+    - name: Run tests (release, overflow checks on)
+      run: cargo test --workspace --release --verbose
     - name: Run doc tests
       run: cargo test --workspace --doc --verbose
     - name: Check documentation
