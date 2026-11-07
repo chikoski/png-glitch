@@ -14,7 +14,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Outside tests, `clippy::unwrap_used`, `expect_used`, `panic` and `indexing_slicing` are denied. Sites that could be reached from file bytes or caller arguments now use checked access: IHDR parsing, chunk types, the PNG signature and chunk walk, the RIFF walk (chunk sizes use saturating arithmetic), `ScanLine` lookups in the new effects, and the WebP macroblock / chromatic-aberration filters.
 - The pixel and filter hot paths (`png/scan_line.rs`, `png/scan_line/filter/*`, `png.rs`, `webp-glitch/src/scan_line.rs`) keep a documented file-level `allow(clippy::indexing_slicing)`; converting them is tracked in #140.
 
+### WebAssembly (#84)
+
+`png-glitch` and `png-glitch-recipe` now build for `wasm32-unknown-unknown` and `wasm32-wasip2` with `--no-default-features`; CI has a `wasm` job. Default features on native are unchanged.
+
+### png-glitch-recipe
+
+#### Added
+- `os-rng` feature (default on). Without it `seed: None` is an error instead of an OS-random seed, and `getrandom` is not in the dependency graph. `GlitchContext::set_seed(None)` leaves the RNG unchanged.
+- `RecipeError::SeedRequired`, returned by `GlitchContext::open*` / `new*` and `Recipe::resolve` when no seed is given and `os-rng` is off.
+- `parallel` feature (default on), forwarding to `png-glitch/parallel`.
+
 ### png-glitch
+
+#### Added
+- `parallel` feature (default on). Without it `par_foreach_scanline` runs sequentially with the same signature and output.
 
 #### Changed
 - Introduced the `Effect` trait (whole image, `&mut PngGlitch`) and the `LineEffect` helper trait (per scan line, parallel); every `LineEffect` is an `Effect`. `PngGlitch::apply` accepts any `Effect` (#126, ADR 0003).

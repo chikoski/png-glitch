@@ -13,6 +13,7 @@ pub use crate::png::png_error::{PngError, PngWarning};
 pub use crate::png::scan_line::Pixel;
 pub use crate::png::scan_line::ScanLine;
 pub use parser::ColorType;
+#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 pub use scan_line::FilterType;
 use std::fs::File;
@@ -260,8 +261,17 @@ impl Scan for Png {
         let color_type = self.header.color_type();
         let bit_depth = self.header.bit_depth();
         let image_width = self.header.width();
+        #[cfg(feature = "parallel")]
         self.data
             .par_chunks_exact_mut(scan_line_width)
+            .for_each(|chunk| {
+                let mut scan_line = ScanLine::new(chunk, color_type, bit_depth, image_width);
+                modifier(&mut scan_line);
+            });
+        // Without `parallel` the same closure runs sequentially, in row order.
+        #[cfg(not(feature = "parallel"))]
+        self.data
+            .chunks_exact_mut(scan_line_width)
             .for_each(|chunk| {
                 let mut scan_line = ScanLine::new(chunk, color_type, bit_depth, image_width);
                 modifier(&mut scan_line);

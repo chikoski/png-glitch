@@ -79,7 +79,7 @@ mod test {
         let bytes = include_bytes!("../../png-glitch/etc/sample00.png");
 
         // Test SubFilter
-        let mut ctx = GlitchContext::new(bytes, None)?;
+        let mut ctx = GlitchContext::new(bytes, Some(0))?;
         ctx.add_filter(SubFilter);
         ctx.execute();
         let buffer = ctx.buffer()?;
@@ -89,7 +89,7 @@ mod test {
         }
 
         // Test UpFilter
-        let mut ctx = GlitchContext::new(bytes, None)?;
+        let mut ctx = GlitchContext::new(bytes, Some(0))?;
         ctx.add_filter(UpFilter);
         ctx.execute();
         let buffer = ctx.buffer()?;
@@ -99,7 +99,7 @@ mod test {
         }
 
         // Test AverageFilter
-        let mut ctx = GlitchContext::new(bytes, None)?;
+        let mut ctx = GlitchContext::new(bytes, Some(0))?;
         ctx.add_filter(AverageFilter);
         ctx.execute();
         let buffer = ctx.buffer()?;
@@ -109,7 +109,7 @@ mod test {
         }
 
         // Test PaethFilter
-        let mut ctx = GlitchContext::new(bytes, None)?;
+        let mut ctx = GlitchContext::new(bytes, Some(0))?;
         ctx.add_filter(PaethFilter);
         ctx.execute();
         let buffer = ctx.buffer()?;
@@ -119,7 +119,7 @@ mod test {
         }
 
         // Test RemoveFilter (None)
-        let mut ctx = GlitchContext::new(bytes, None)?;
+        let mut ctx = GlitchContext::new(bytes, Some(0))?;
         ctx.add_filter(SubFilter);
         ctx.add_filter(RemoveFilter);
         ctx.execute();
@@ -130,7 +130,7 @@ mod test {
         }
 
         // Test Substitute
-        let mut ctx = GlitchContext::new(bytes, None)?;
+        let mut ctx = GlitchContext::new(bytes, Some(0))?;
         ctx.add_filter(Substitute::new(0, 255));
         ctx.execute();
         let buffer = ctx.buffer()?;
@@ -149,11 +149,21 @@ mod test {
         Ok(())
     }
 
+    #[cfg(not(feature = "os-rng"))]
+    #[test]
+    fn missing_seed_is_an_error_without_os_rng() {
+        let bytes = include_bytes!("../../png-glitch/etc/sample00.png");
+        assert!(matches!(
+            GlitchContext::new(bytes, None),
+            Err(RecipeError::SeedRequired)
+        ));
+    }
+
     #[test]
     fn test_pixel_filter_adapter_on_png() -> Result<()> {
         let bytes = include_bytes!("../../png-glitch/etc/sample00.png");
 
-        let mut ctx = GlitchContext::new(bytes, None)?;
+        let mut ctx = GlitchContext::new(bytes, Some(0))?;
         ctx.add_filter(PixelFilterAdapter(Invert));
         ctx.execute();
         let buffer = ctx.buffer()?;
@@ -162,7 +172,7 @@ mod test {
             "PixelFilterAdapter(Invert) should produce output"
         );
 
-        let mut ctx2 = GlitchContext::new(bytes, None)?;
+        let mut ctx2 = GlitchContext::new(bytes, Some(0))?;
         ctx2.add_filter(PixelFilterAdapter(Brighten::new(20)));
         ctx2.execute();
         let buffer2 = ctx2.buffer()?;

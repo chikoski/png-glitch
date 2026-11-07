@@ -29,6 +29,17 @@ pub struct GlitchContext {
     rng: ChaCha8Rng,
 }
 
+/// Seeds an RNG, drawing from the OS when `seed` is `None` (needs the `os-rng` feature).
+pub(crate) fn rng_from_seed(seed: Option<u64>) -> Result<ChaCha8Rng> {
+    match seed {
+        Some(s) => Ok(ChaCha8Rng::seed_from_u64(s)),
+        #[cfg(feature = "os-rng")]
+        None => Ok(ChaCha8Rng::from_os_rng()),
+        #[cfg(not(feature = "os-rng"))]
+        None => Err(RecipeError::SeedRequired),
+    }
+}
+
 impl GlitchContext {
     /// Creates a new [`GlitchContext`] from a file path.
     pub fn open(path: impl AsRef<Path>, seed: Option<u64>) -> Result<Self> {
@@ -47,10 +58,7 @@ impl GlitchContext {
                 path: path.to_path_buf(),
                 source,
             })?;
-        let rng = match seed {
-            Some(s) => ChaCha8Rng::seed_from_u64(s),
-            None => ChaCha8Rng::from_os_rng(),
-        };
+        let rng = rng_from_seed(seed)?;
         Ok(Self {
             png,
             filters: Vec::new(),
@@ -66,10 +74,7 @@ impl GlitchContext {
     /// Creates a new [`GlitchContext`] from a byte slice using custom PNG [`ParseOptions`].
     pub fn new_with_options(data: &[u8], seed: Option<u64>, options: ParseOptions) -> Result<Self> {
         let png = PngGlitch::from_bytes_with_options(data, options).map_err(RecipeError::Parse)?;
-        let rng = match seed {
-            Some(s) => ChaCha8Rng::seed_from_u64(s),
-            None => ChaCha8Rng::from_os_rng(),
-        };
+        let rng = rng_from_seed(seed)?;
         Ok(Self {
             png,
             filters: Vec::new(),
@@ -113,11 +118,16 @@ impl GlitchContext {
     }
 
     /// Resets the internal RNG with the given `seed` (or a fresh OS seed if `None`).
+    ///
+    /// Without the `os-rng` feature there is no OS seed: `None` leaves the RNG unchanged.
     pub fn set_seed(&mut self, seed: Option<u64>) {
-        self.rng = match seed {
-            Some(s) => ChaCha8Rng::seed_from_u64(s),
-            None => ChaCha8Rng::from_os_rng(),
-        };
+        match seed {
+            Some(s) => self.rng = ChaCha8Rng::seed_from_u64(s),
+            #[cfg(feature = "os-rng")]
+            None => self.rng = ChaCha8Rng::from_os_rng(),
+            #[cfg(not(feature = "os-rng"))]
+            None => {}
+        }
     }
 
     /// Adds a filter to the execution queue.

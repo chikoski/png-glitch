@@ -12,8 +12,13 @@ repository.workspace = true
 [dependencies]
 crc32fast.workspace = true
 fdeflate.workspace = true
-rayon.workspace = true
+rayon = { workspace = true, optional = true }
 thiserror.workspace = true
 
 [dev-dependencies]
 image.workspace = true
+
+[features]
+default = ["parallel"]
+# Runs `par_foreach_scanline` on a rayon thread pool. Without it the same API runs sequentially.
+parallel = ["dep:rayon"]

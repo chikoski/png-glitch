@@ -17,7 +17,10 @@ png-glitch-recipe = "0.1.0"
 
 - `clap` *(enabled by default)*: Derives `clap::ValueEnum` on configuration enums (`PreProcess`, `SortCriterion`, `BitOp`, `SwapTarget`, `AlphaGlitchStrategy`).
 
-To use `png-glitch-recipe` without pulling in `clap`:
+- `os-rng` *(enabled by default)*: Lets `seed: None` draw a seed from the operating system. Without it every constructor and `Recipe::resolve` needs `Some(seed)` and returns `RecipeError::SeedRequired` otherwise (`GlitchContext::set_seed(None)` leaves the RNG unchanged). Turn it off for `wasm32-unknown-unknown`, which has no OS RNG.
+- `parallel` *(enabled by default)*: Enables `png-glitch/parallel` (rayon). Output is identical either way.
+
+To use `png-glitch-recipe` without these (for example on WebAssembly):
 
 ```toml
 [dependencies]

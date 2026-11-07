@@ -50,4 +50,9 @@ pub enum RecipeError {
         /// Debug representation of the rejected effect.
         effect: String,
     },
+    /// No seed was given and this build has no OS random number generator.
+    ///
+    /// Enable the `os-rng` feature, or pass `Some(seed)`.
+    #[error("a seed is required: this build has no OS random number generator (`os-rng` feature)")]
+    SeedRequired,
 }
