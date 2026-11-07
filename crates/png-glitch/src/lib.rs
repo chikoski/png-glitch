@@ -35,7 +35,7 @@ use crate::operation::{Encode, Scan};
 use crate::png::Png;
 pub use crate::png::{
     ColorType, Encoding, FilterStrategy, FilterType, Limits, ParseOptions, Pixel, PixelSource,
-    PngError, PngWarning, ScanLine,
+    PngError, PngWarning, Renderer, ScanLine,
 };
 use std::fs::File;
 use std::io::{Read, Write};

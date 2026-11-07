@@ -185,6 +185,10 @@ pub enum PngError {
     /// `reload_pixels` was called on an image that was not created by `from_pixels`.
     #[error("The image was not created from pixels, so its pixels cannot be reloaded.")]
     NotCreatedFromPixels,
+    /// `Renderer::render_into` was given a model whose size, colour type or bit depth differs
+    /// from the image the renderer was made for.
+    #[error("The image header differs from the one the renderer was made for.")]
+    HeaderMismatch,
     /// An I/O error occurred while reading or writing a PNG file or stream.
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
