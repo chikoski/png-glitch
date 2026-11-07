@@ -10,7 +10,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-png-glitch-recipe = "0.1.0"
+png-glitch-recipe = "0.3.0"
 ```
 
 ### Cargo Features
@@ -21,16 +21,71 @@ To use `png-glitch-recipe` without pulling in `clap`:
 
 ```toml
 [dependencies]
-png-glitch-recipe = { version = "0.1.0", default-features = false }
+png-glitch-recipe = { version = "0.3.0", default-features = false }
 ```
 
 ## Usage
 
 `png-glitch-recipe` provides:
-- `GlitchContext`: PNG-specific glitch pipeline.
+- `Recipe`: an ordered list of steps, independent of any image. Reuse it for any number of images and seeds, compare it, and serialize it.
+- `ResolvedRecipe`: a recipe with every random choice drawn for one image header and seed. Executing it is deterministic and uses no RNG.
+- `RecipeStep`: a user-defined step that draws its choices from the RNG and returns a `png-glitch` effect.
+- `GlitchContext`: a convenience wrapper that bundles one image, a filter queue and an RNG.
 - `FilterConfig`: Declarative filter steps (YAML / CLI). The WebP-only variants (`MacroblockGlitch`, `AlphaGlitch`, `LossyArtifact`) are accepted by `webp-glitch-context` and rejected by `GlitchContext::add_from_config`.
 
-### Example
+`png-glitch` itself has no RNG: its effects take every "random" choice as a parameter. This crate draws those choices from a seeded `ChaCha8Rng`, so the same recipe, image and seed always give the same bytes ([ADR 0003](../../docs/adr/0003-home-of-high-level-effects.md), [ADR 0004](../../docs/adr/0004-png-glitch-and-recipe-crates.md)).
+
+### Recipes
+
+```rust
+use png_glitch_recipe::{FilterConfig, ImageHeader, PngGlitch, Recipe};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // A recipe is not tied to an image.
+    let recipe = Recipe::new()
+        .then(FilterConfig::Replace { magnitude: 0.05 })
+        .then(FilterConfig::Transpose { magnitude: 0.1 });
+
+    // Resolve and execute in one call, for several images or seeds.
+    for seed in 0..3 {
+        let mut png = PngGlitch::open("input.png")?;
+        recipe.run(&mut png, Some(seed))?;
+        png.save(format!("output-{seed}.png"))?;
+    }
+
+    // Or split the two phases: `resolve` draws every random choice, `execute` only applies
+    // concrete effects. The resolved recipe can be inspected and executed again.
+    let mut png = PngGlitch::open("input.png")?;
+    let resolved = recipe.resolve(&ImageHeader::of(&png), Some(42))?;
+    println!("{:?}", resolved.steps());
+    resolved.execute(&mut png)?;
+    png.save("output.png")?;
+
+    Ok(())
+}
+```
+
+A `Recipe` implements `serde::Serialize` and `Deserialize` as a `filters:` list, the same format as the CLI's `--config` file and `--save-recipe` output:
+
+```yaml
+filters:
+  - type: Replace
+    magnitude: 0.05
+  - type: Transpose
+    magnitude: 0.1
+```
+
+A recipe that contains user-defined steps cannot be serialized, because code cannot be written out as data.
+
+### Custom steps
+
+Add a deterministic `png-glitch` effect with `Recipe::then_effect`, or a step that draws its parameters from the RNG with `Recipe::then_step` (a closure `Fn(&ImageHeader, &mut dyn RngCore) -> ResolvedEffect` works). In a `GlitchContext`, use `add_fn` for a closure, and `png()` / `png_mut()` / `into_inner()` to mix in direct `PngGlitch` calls. See [`examples/custom_effect.rs`](examples/custom_effect.rs):
+
+```bash
+cargo run -p png-glitch-recipe --example custom_effect
+```
+
+### GlitchContext
 
 ```rust
 use png_glitch_recipe::{BlockScramble, ChromaticAberration, GlitchContext, Invert, SubFilter};

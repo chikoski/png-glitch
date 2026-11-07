@@ -83,21 +83,26 @@ glitch.save("glitched.webp")?;
 cargo run --example glitch
 ```
 
-## png-glitch-recipe との統合
+## webp-glitch-context との統合
 
-[`png-glitch-recipe`](../png-glitch-recipe) クレートを通じて、既存のフィルター群を WebP にも適用できます:
+フィルターを順番に積んでシード付きで実行する高レベル API は、[`webp-glitch-context`](../webp-glitch-context) クレートにあります（#127 で `png-glitch-recipe` から分離されました）。`png-glitch-recipe` のフィルターのうち WebP に対応するものは、`ForWebp` で包むと WebP にも適用できます:
 
 ```rust
-use png_glitch_recipe::{WebpGlitchContext, MacroblockGlitch, AlphaGlitch, AlphaGlitchStrategy};
+use webp_glitch_context::{
+    AlphaGlitch, AlphaGlitchStrategy, ForWebp, MacroblockGlitch, PixelSort, WebpGlitchContext,
+};
 
 let mut ctx = WebpGlitchContext::open("input.webp", Some(42))?;
-ctx.add_filter(MacroblockGlitch { magnitude: 0.3 });
-ctx.add_filter(AlphaGlitch { magnitude: 0.5, strategy: AlphaGlitchStrategy::Invert });
+ctx.add_filter(MacroblockGlitch::new(0.3));
+ctx.add_filter(AlphaGlitch::new(0.5).with_strategy(AlphaGlitchStrategy::Invert));
+ctx.add_filter(ForWebp(PixelSort::new(0.3)));
 ctx.execute();
 ctx.save("glitched.webp")?;
 ```
 
 ### 利用可能なフィルター
+
+`WebpGlitchContext` で使えるフィルターは次のとおりです。`(WebP 専用)` 以外は `png-glitch-recipe` で定義されていて、`ForWebp(...)` で包んで追加します。
 
 | フィルター | 説明 |
 | :--- | :--- |

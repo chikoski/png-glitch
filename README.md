@@ -158,10 +158,12 @@ And the glitched one:
 This repository consists of the following crates:
 
 - **png-glitch-cli**: A binary crate for a command line interface (CLI) to glitch PNG and WebP files.
-- **[png-glitch crate](crates/png-glitch)**: Core library to glitch PNG images.
+- **[png-glitch crate](crates/png-glitch)**: Core library to glitch PNG images: parsing and encoding, scan lines, PNG filter types, pixels, and deterministic effects. It has no RNG.
 - **[webp-glitch crate](crates/webp-glitch)**: Core library to glitch WebP images.
-- **[png-glitch-recipe crate](crates/png-glitch-recipe)**: High-level API to orchestrate glitch filters on PNG images.
-- **[webp-glitch-context crate](crates/webp-glitch-context)**: High-level API to orchestrate glitch filters on WebP images.
+- **[png-glitch-recipe crate](crates/png-glitch-recipe)**: Recipes and randomness on top of `png-glitch`: reusable, serializable `Recipe`s that resolve with a seed into deterministic effects, the randomized filters, and the `GlitchContext` convenience wrapper.
+- **[webp-glitch-context crate](crates/webp-glitch-context)**: High-level filter pipeline for WebP images (`WebpGlitchContext`) and the WebP-only effects. Reuses the configuration types of `png-glitch-recipe`.
+
+See [ADR 0004](docs/adr/0004-png-glitch-and-recipe-crates.md) for why the crates are split this way.
 
 # Licence
 
