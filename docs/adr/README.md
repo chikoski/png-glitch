@@ -10,6 +10,7 @@ This directory records the significant design decisions made in `png-glitch`: wh
 | [0002](0002-design-principles.md) | Adopt "a valid PNG with strange data inside" as the design principle | Accepted | #94 |
 | [0003](0003-home-of-high-level-effects.md) | Where high-level effects live | Accepted | #63 |
 | [0004](0004-png-glitch-and-recipe-crates.md) | Split responsibilities between `png-glitch` and `png-glitch-recipe` | Accepted | #115 |
+| [0005](0005-live-pipeline.md) | The live pipeline: where it lives, what `G` may touch, per-frame seeds and generations | Accepted | #100 |
 
 ## When to write an ADR
 

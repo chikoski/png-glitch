@@ -1,6 +1,6 @@
 # 0005. The live pipeline: where it lives, what `G` may touch, per-frame seeds and generations
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-07
 - **Issue:** #100 (part of #117; builds on #95, #96, #97; affects #87, #139, #146, #147)
 
