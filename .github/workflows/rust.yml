@@ -73,6 +73,10 @@ jobs:
     - uses: Swatinem/rust-cache@v2
     - name: Build for wasm32-unknown-unknown
       run: cargo build -p png-glitch -p png-glitch-recipe --no-default-features --target wasm32-unknown-unknown
+    - name: Build png-glitch with simd128 for wasm32-unknown-unknown
+      env:
+        RUSTFLAGS: "-C target-feature=+simd128"
+      run: cargo build -p png-glitch --no-default-features --target wasm32-unknown-unknown --release
     - name: Build for wasm32-wasip2
       run: cargo build -p png-glitch -p png-glitch-recipe --no-default-features --target wasm32-wasip2
 

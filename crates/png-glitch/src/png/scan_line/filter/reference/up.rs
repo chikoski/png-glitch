@@ -4,8 +4,8 @@
 #![allow(clippy::indexing_slicing)]
 
 use crate::ScanLine;
-use crate::png::scan_line::filter::byte;
-use crate::png::scan_line::filter::byte::{byte_in_pixel, byte_in_previous_line};
+use crate::png::scan_line::filter::reference::byte;
+use crate::png::scan_line::filter::reference::byte::{byte_in_pixel, byte_in_previous_line};
 
 /// The function removes the up filter from a scan line.
 /// The `line` parameter is the scan line to remove the filter from.

@@ -93,6 +93,16 @@ Built-in effects available in `png_glitch::effects`:
 
 - `parallel` *(enabled by default)*: Runs `par_foreach_scanline` on a [rayon](https://crates.io/crates/rayon) thread pool. Without it the method keeps the same signature and runs sequentially in row order, with byte-identical output. Disable it for a smaller WebAssembly build: `png-glitch = { version = "0.7", default-features = false }`.
 
+# WebAssembly and SIMD
+
+The PNG filter and unfilter loops are written so that LLVM can vectorise them without `unsafe` code or `core::arch` intrinsics. On WebAssembly, build with the `simd128` target feature to get the benefit (the default build is scalar and works everywhere):
+
+```bash
+RUSTFLAGS="-C target-feature=+simd128" cargo build --release --target wasm32-unknown-unknown --no-default-features
+```
+
+Runtimes that do not support the WebAssembly SIMD proposal cannot load a `+simd128` module, so ship the scalar build as a fallback. Output is byte-identical either way.
+
 # Contribution
 
 See the workspace [CONTRIBUTING.md](../../CONTRIBUTING.md) guide for setup, testing, and step-by-step instructions on adding new glitch filters.
