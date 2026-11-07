@@ -10,7 +10,9 @@ use png_glitch::effects::{
     ShiftChannels, SortCriterion, SwapBlocks, SwapChannels, SwapTarget,
 };
 use png_glitch::effects::{Brighten, Darken};
-use png_glitch::{ColorType, Encoding, FilterStrategy, FilterType, PixelSource, PngGlitch};
+#[cfg(has_from_pixels)]
+use png_glitch::{ColorType, Encoding, FilterStrategy, PixelSource};
+use png_glitch::{FilterType, PngGlitch};
 use std::hint::black_box;
 use std::time::Instant;
 
@@ -255,59 +257,63 @@ pub fn run_all(cfg: &Config) -> Report {
     }
 
     // Live input (#95): building a model from pixels, and refilling it without allocating.
-    let encodings: [(&str, Encoding); 4] = [
-        (
-            "rgba-paeth",
-            Encoding::rgba8(FilterStrategy::Fixed(FilterType::Paeth)),
-        ),
-        ("rgba-adaptive", Encoding::rgba8(FilterStrategy::Adaptive)),
-        (
-            "rgb-pattern",
-            Encoding {
-                color_type: ColorType::TrueColor,
-                bit_depth: 8,
-                filter: FilterStrategy::Pattern(vec![
-                    FilterType::Sub,
-                    FilterType::Up,
-                    FilterType::Paeth,
-                ]),
-            },
-        ),
-        (
-            "gray-adaptive",
-            Encoding {
-                color_type: ColorType::GrayScale,
-                bit_depth: 8,
-                filter: FilterStrategy::Adaptive,
-            },
-        ),
-    ];
-    for (name, encoding) in &encodings {
-        let stage = format!("from_pixels/{name}");
-        if wanted(&stage) {
-            stages.push(run_stage(
-                &stage,
-                cfg,
-                false,
-                |i| i,
-                |i| {
-                    PngGlitch::from_pixels(PixelSource::rgba8(w, h, &raw[i]), encoding.clone())
-                        .expect("from_pixels")
+    // Absent when benchmarking a library without `from_pixels` (see build.rs).
+    #[cfg(has_from_pixels)]
+    {
+        let encodings: [(&str, Encoding); 4] = [
+            (
+                "rgba-paeth",
+                Encoding::rgba8(FilterStrategy::Fixed(FilterType::Paeth)),
+            ),
+            ("rgba-adaptive", Encoding::rgba8(FilterStrategy::Adaptive)),
+            (
+                "rgb-pattern",
+                Encoding {
+                    color_type: ColorType::TrueColor,
+                    bit_depth: 8,
+                    filter: FilterStrategy::Pattern(vec![
+                        FilterType::Sub,
+                        FilterType::Up,
+                        FilterType::Paeth,
+                    ]),
                 },
-            ));
-        }
-        let stage = format!("reload_pixels/{name}");
-        if wanted(&stage) {
-            let mut model =
-                PngGlitch::from_pixels(PixelSource::rgba8(w, h, &raw[0]), encoding.clone())
-                    .expect("from_pixels");
-            stages.push(run_stage(
-                &stage,
-                cfg,
-                false,
-                |i| i,
-                |i| model.reload_pixels(&raw[i]).expect("reload_pixels"),
-            ));
+            ),
+            (
+                "gray-adaptive",
+                Encoding {
+                    color_type: ColorType::GrayScale,
+                    bit_depth: 8,
+                    filter: FilterStrategy::Adaptive,
+                },
+            ),
+        ];
+        for (name, encoding) in &encodings {
+            let stage = format!("from_pixels/{name}");
+            if wanted(&stage) {
+                stages.push(run_stage(
+                    &stage,
+                    cfg,
+                    false,
+                    |i| i,
+                    |i| {
+                        PngGlitch::from_pixels(PixelSource::rgba8(w, h, &raw[i]), encoding.clone())
+                            .expect("from_pixels")
+                    },
+                ));
+            }
+            let stage = format!("reload_pixels/{name}");
+            if wanted(&stage) {
+                let mut model =
+                    PngGlitch::from_pixels(PixelSource::rgba8(w, h, &raw[0]), encoding.clone())
+                        .expect("from_pixels");
+                stages.push(run_stage(
+                    &stage,
+                    cfg,
+                    false,
+                    |i| i,
+                    |i| model.reload_pixels(&raw[i]).expect("reload_pixels"),
+                ));
+            }
         }
     }
 
@@ -357,12 +363,14 @@ mod tests {
             "tag-only/set_filter_type",
             "effect/invert",
             "effect/swap-blocks",
-            "from_pixels/rgba-paeth",
-            "reload_pixels/gray-adaptive",
         ] {
             assert!(names.contains(&expected), "missing {expected}: {names:?}");
         }
         assert!(report.stages.iter().all(|s| s.summary.count == 3));
+        #[cfg(has_from_pixels)]
+        for expected in ["from_pixels/rgba-paeth", "reload_pixels/gray-adaptive"] {
+            assert!(names.contains(&expected), "missing {expected}: {names:?}");
+        }
         let full = report
             .stages
             .iter()

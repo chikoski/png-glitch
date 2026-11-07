@@ -130,33 +130,27 @@ fn gray(r: u8, g: u8, b: u8) -> u8 {
 
 /// Converts one row of RGBA8 into `color_type`. `out` must hold the converted row.
 fn convert_row(color_type: ColorType, rgba: &[u8], out: &mut [u8]) {
+    let pixels = rgba.as_chunks::<4>().0;
     match color_type {
         ColorType::TrueColorAlpha => {
-            for (o, i) in out.iter_mut().zip(rgba) {
+            for (o, i) in out.as_chunks_mut::<4>().0.iter_mut().zip(pixels) {
                 *o = *i;
             }
         }
         ColorType::TrueColor => {
-            for (o, i) in out.chunks_exact_mut(3).zip(rgba.chunks_exact(4)) {
-                for (o, i) in o.iter_mut().zip(i) {
-                    *o = *i;
-                }
+            for (o, [r, g, b, _]) in out.as_chunks_mut::<3>().0.iter_mut().zip(pixels) {
+                *o = [*r, *g, *b];
             }
         }
         ColorType::GrayScaleAlpha => {
-            for (o, i) in out.chunks_exact_mut(2).zip(rgba.chunks_exact(4)) {
-                if let ([y, a], [r, g, b, alpha]) = (o, i) {
-                    *y = gray(*r, *g, *b);
-                    *a = *alpha;
-                }
+            for (o, [r, g, b, a]) in out.as_chunks_mut::<2>().0.iter_mut().zip(pixels) {
+                *o = [gray(*r, *g, *b), *a];
             }
         }
         // `IndexColor` is rejected before this point.
         ColorType::GrayScale | ColorType::IndexColor => {
-            for (o, i) in out.iter_mut().zip(rgba.chunks_exact(4)) {
-                if let [r, g, b, _] = i {
-                    *o = gray(*r, *g, *b);
-                }
+            for (o, [r, g, b, _]) in out.iter_mut().zip(pixels) {
+                *o = gray(*r, *g, *b);
             }
         }
     }
@@ -324,7 +318,7 @@ mod tests {
     /// The documented conversion, written independently of `convert_row`.
     fn expected_pixels(color_type: ColorType, rgba: &[u8]) -> Vec<u8> {
         let mut out = Vec::new();
-        for px in rgba.chunks_exact(4) {
+        for px in rgba.as_chunks::<4>().0 {
             let (r, g, b, a) = (px[0] as u32, px[1] as u32, px[2] as u32, px[3]);
             let y = ((77 * r + 150 * g + 29 * b + 128) >> 8) as u8;
             match color_type {

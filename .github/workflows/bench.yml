@@ -33,12 +33,6 @@ jobs:
       with:
         targets: wasm32-wasip1
     - uses: bytecodealliance/actions/wasmtime/setup@v1
-    - uses: Swatinem/rust-cache@v2
-      with:
-        workspaces: |
-          head
-          base
-
     - name: Check out the base commit with the head's harness
       env:
         BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.repository.default_branch }}
@@ -50,6 +44,12 @@ jobs:
         cp -r head/crates/png-glitch-bench base/crates/png-glitch-bench
         echo "BASE_COMMIT=$(git -C head rev-parse "$BASE_SHA")" >> "$GITHUB_ENV"
         echo "HEAD_COMMIT=$(git -C head rev-parse HEAD)" >> "$GITHUB_ENV"
+
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: |
+          head
+          base
 
     - name: Build (native)
       run: |
