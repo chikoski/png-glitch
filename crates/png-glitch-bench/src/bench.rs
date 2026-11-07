@@ -339,6 +339,9 @@ pub fn run_all(cfg: &Config) -> Report {
         }
     }
 
+    #[cfg(has_live_pipeline)]
+    live_stages(cfg, &raw, &wanted, &mut stages);
+
     Report {
         meta: Meta {
             target: env!("BENCH_TARGET").to_string(),
@@ -353,6 +356,123 @@ pub fn run_all(cfg: &Config) -> Report {
             pool,
         },
         stages,
+    }
+}
+
+/// The full live frame (#164): `E` (`LivePipeline::encode`), `G` (a recipe) and `D`
+/// (`decode_into`), each alone and together, with fixed seeds. Absent when benchmarking a library
+/// without the live pipeline (see build.rs); the `G` and `frame` stages also need the live
+/// recipe runner.
+#[cfg(has_live_pipeline)]
+fn live_stages(
+    cfg: &Config,
+    raw: &[Vec<u8>],
+    wanted: &dyn Fn(&str) -> bool,
+    stages: &mut Vec<StageReport>,
+) {
+    use png_glitch::{Encoding, FilterStrategy, LivePipeline, PixelSource};
+    use std::cell::RefCell;
+
+    let (w, h) = (cfg.width, cfg.height);
+    let new_pipeline = || {
+        LivePipeline::new(
+            PixelSource::rgba8(w, h, &raw[0]),
+            Encoding::rgba8(FilterStrategy::Fixed(FilterType::Paeth)),
+        )
+        .expect("live pipeline")
+    };
+    let mut out = vec![0u8; w as usize * h as usize * 4];
+
+    if wanted("live/encode") {
+        let mut live = new_pipeline();
+        stages.push(run_stage(
+            "live/encode",
+            cfg,
+            false,
+            |i| i,
+            |i| {
+                live.encode(&raw[i]).expect("encode");
+            },
+        ));
+    }
+    if wanted("live/decode") {
+        let mut live = new_pipeline();
+        stages.push(run_stage(
+            "live/decode",
+            cfg,
+            false,
+            |_| (),
+            |()| live.decode_into(&mut out).expect("decode_into"),
+        ));
+    }
+
+    #[cfg(has_live_recipe)]
+    {
+        use png_glitch_recipe::{FilterConfig, ImageHeader, LiveRecipe, Recipe, SeedMode};
+
+        const SEED: u64 = 0x5EED;
+        // A `LineEffect` only, row swaps, and a recipe with a `regenerate` (`sub-filter`) step.
+        let recipes: [(&str, Recipe); 3] = [
+            ("invert", Recipe::new().then(FilterConfig::Invert)),
+            (
+                "swap",
+                Recipe::new().then(FilterConfig::Transpose { magnitude: 0.3 }),
+            ),
+            (
+                "regenerate",
+                Recipe::new()
+                    .then(FilterConfig::Invert)
+                    .then(FilterConfig::SubFilter),
+            ),
+        ];
+        let header = ImageHeader {
+            width: w,
+            height: h,
+            color_type: png_glitch::ColorType::TrueColorAlpha,
+            bit_depth: 8,
+        };
+        for (name, recipe) in &recipes {
+            // `G` alone: `E` runs in the untimed setup, so each iteration starts from a fresh frame.
+            let stage = format!("live/g/{name}");
+            if wanted(&stage) {
+                let live = RefCell::new(new_pipeline());
+                let mut runner =
+                    LiveRecipe::new(recipe.clone(), header, Some(SEED), SeedMode::Static)
+                        .expect("live recipe");
+                stages.push(run_stage(
+                    &stage,
+                    cfg,
+                    false,
+                    |i| {
+                        live.borrow_mut().encode(&raw[i]).expect("encode");
+                    },
+                    |()| runner.run(&mut live.borrow_mut()).expect("run"),
+                ));
+            }
+            for (mode_name, mode) in [
+                ("static", SeedMode::Static),
+                ("per-frame", SeedMode::PerFrame),
+            ] {
+                let stage = format!("live/frame/{mode_name}/{name}");
+                if !wanted(&stage) {
+                    continue;
+                }
+                let mut live = new_pipeline();
+                let mut runner =
+                    LiveRecipe::new(recipe.clone(), header, Some(SEED), mode).expect("live recipe");
+                stages.push(run_stage(
+                    &stage,
+                    cfg,
+                    true,
+                    |i| i,
+                    |i| {
+                        live.encode(&raw[i]).expect("encode");
+                        runner.run(&mut live).expect("run");
+                        live.decode_into(&mut out).expect("decode_into");
+                    },
+                ));
+            }
+        }
     }
 }
 
@@ -393,6 +513,20 @@ mod tests {
         assert!(names.contains(&"render_into/paeth"), "{names:?}");
         #[cfg(has_from_pixels)]
         for expected in ["from_pixels/rgba-paeth", "reload_pixels/gray-adaptive"] {
+            assert!(names.contains(&expected), "missing {expected}: {names:?}");
+        }
+        #[cfg(has_live_pipeline)]
+        for expected in ["live/encode", "live/decode"] {
+            assert!(names.contains(&expected), "missing {expected}: {names:?}");
+        }
+        #[cfg(has_live_recipe)]
+        for expected in [
+            "live/g/invert",
+            "live/g/swap",
+            "live/g/regenerate",
+            "live/frame/static/invert",
+            "live/frame/per-frame/regenerate",
+        ] {
             assert!(names.contains(&expected), "missing {expected}: {names:?}");
         }
         let full = report

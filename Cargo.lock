@@ -754,6 +754,7 @@ version = "0.1.0"
 dependencies = [
  "png",
  "png-glitch",
+ "png-glitch-recipe",
  "serde",
  "serde_json",
 ]
