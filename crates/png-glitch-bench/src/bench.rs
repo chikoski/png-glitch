@@ -5,6 +5,8 @@ use crate::alloc::{allocated_bytes, live_bytes};
 use crate::fixture::{encode_png, frame_rgba};
 use crate::report::{Meta, Report, StageReport};
 use crate::stats::{share_over_budget, summarize};
+#[cfg(has_renderer)]
+use png_glitch::Renderer;
 use png_glitch::effects::{
     BitOp, Bitwise, BlockSwap, ChannelShift, Effect, HslShift, Invert, PixelSort, Refilter,
     ShiftChannels, SortCriterion, SwapBlocks, SwapChannels, SwapTarget,
@@ -201,6 +203,26 @@ pub fn run_all(cfg: &Config) -> Report {
         }
     }
 
+    // Reconstruction straight into RGBA8 pixels, as live output does (#96). The model keeps its
+    // filtered scan lines, so the same one is rendered every iteration.
+    #[cfg(has_renderer)]
+    for (name, _, encoder_filter) in FILTERS {
+        let stage = format!("render_into/{name}");
+        if !wanted(&stage) {
+            continue;
+        }
+        let png = parse(&encode_png(w, h, &raw[0], Some(encoder_filter)));
+        let mut renderer = Renderer::new(&png);
+        let mut out = vec![0u8; w as usize * h as usize * 4];
+        stages.push(run_stage(
+            &stage,
+            cfg,
+            false,
+            |_| (),
+            |()| renderer.render_into(&png, &mut out).expect("render_into"),
+        ));
+    }
+
     // The rest start from an unfiltered model, built from frames stored with filter type None.
     let effect_list = effects(w, h);
     let needs_plain = FILTERS.iter().any(|(n, ..)| wanted(&format!("filter/{n}")))
@@ -367,6 +389,8 @@ mod tests {
             assert!(names.contains(&expected), "missing {expected}: {names:?}");
         }
         assert!(report.stages.iter().all(|s| s.summary.count == 3));
+        #[cfg(has_renderer)]
+        assert!(names.contains(&"render_into/paeth"), "{names:?}");
         #[cfg(has_from_pixels)]
         for expected in ["from_pixels/rgba-paeth", "reload_pixels/gray-adaptive"] {
             assert!(names.contains(&expected), "missing {expected}: {names:?}");

@@ -11,6 +11,7 @@ use crate::png::parser::Terminator;
 use crate::png::parser::{Chunk, ChunkType};
 pub use crate::png::parser::{Limits, ParseOptions};
 pub use crate::png::png_error::{PngError, PngWarning};
+pub use crate::png::render::Renderer;
 pub use crate::png::scan_line::Pixel;
 pub use crate::png::scan_line::ScanLine;
 pub use parser::ColorType;
@@ -24,6 +25,7 @@ use std::path::Path;
 mod live;
 mod parser;
 mod png_error;
+mod render;
 mod scan_line;
 
 /// A type alias for a vector of bytes representing decoded PNG data.
