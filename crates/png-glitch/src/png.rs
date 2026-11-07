@@ -124,24 +124,48 @@ impl Png {
         let bit_depth = self.header.bit_depth();
         let image_width = self.header.width();
 
+        let bpp = scan_line::bytes_per_pixel(color_type, bit_depth);
+
         // Reconstructing row `i` requires row `i - 1` to already be unfiltered,
-        // so rows must be processed top-down (`start_index..end_index`).
-        for i in start_index..end_index {
+        // so rows are processed top-down (`start_index..end_index`). Where a multi-row kernel
+        // exists (`filter::remove_rows`, #152), several rows are reconstructed together; it keeps
+        // the per-pixel dependency order, so the bytes are the same.
+        let mut i = start_index;
+        while i < end_index {
             let current_start = i * scan_line_width;
             let (prev_part, current_part) = self.data.split_at_mut(current_start);
-            let current_line_data = &mut current_part[..scan_line_width];
-
-            let mut current_line =
-                ScanLine::new(current_line_data, color_type, bit_depth, image_width);
-
-            if i > 0 {
+            let prev_line_data = (i > 0).then(|| {
                 let prev_start = (i - 1) * scan_line_width;
-                let prev_line_data = &mut prev_part[prev_start..prev_start + scan_line_width];
-                let prev_line = ScanLine::new(prev_line_data, color_type, bit_depth, image_width);
-                current_line.remove_filter(Some(&prev_line));
-            } else {
-                current_line.remove_filter(None);
+                &mut prev_part[prev_start..prev_start + scan_line_width]
+            });
+
+            let block = &mut current_part[..(end_index - i) * scan_line_width];
+            let rows = scan_line::filter::remove_rows(
+                block,
+                scan_line_width,
+                bpp,
+                prev_line_data.as_deref(),
+            );
+            if rows > 0 {
+                i += rows;
+                continue;
             }
+
+            let mut current_line = ScanLine::new(
+                &mut block[..scan_line_width],
+                color_type,
+                bit_depth,
+                image_width,
+            );
+            match prev_line_data {
+                Some(prev_line_data) => {
+                    let prev_line =
+                        ScanLine::new(prev_line_data, color_type, bit_depth, image_width);
+                    current_line.remove_filter(Some(&prev_line));
+                }
+                None => current_line.remove_filter(None),
+            }
+            i += 1;
         }
     }
 

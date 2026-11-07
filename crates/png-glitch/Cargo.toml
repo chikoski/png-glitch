@@ -17,7 +17,9 @@ thiserror.workspace = true
 
 [dev-dependencies]
 image.workspace = true
-proptest = "1"
+# `fork` and `timeout` are not used, and their `wait-timeout` dependency does not build for
+# `wasm32-wasip1`, where the filter kernels are tested too.
+proptest = { version = "1", default-features = false, features = ["std", "bit-set"] }
 png = "0.18.1"
 
 [features]

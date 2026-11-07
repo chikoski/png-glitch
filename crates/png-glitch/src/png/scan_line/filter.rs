@@ -3,6 +3,7 @@ use crate::{FilterType, ScanLine};
 pub(crate) mod kernels;
 #[cfg(test)]
 mod reference;
+mod wavefront;
 
 /// The bytes of `line` after the filter-type byte, or `None` for an empty line.
 fn pixel_bytes<'a>(line: &'a mut ScanLine) -> Option<&'a mut [u8]> {
@@ -45,6 +46,78 @@ pub fn remove(line: &mut ScanLine, previous_line: Option<&ScanLine>) {
     with_rows(line, previous_line, |bpp, cur, prev| {
         kernels::unfilter(filter_type, bpp, cur, prev)
     });
+}
+
+/// Whether [`remove_rows`] uses the multi-row kernels. They need 8-lane SIMD to pay off, so only
+/// wasm with `simd128` turns them on; native targets keep the one-row kernels.
+const MULTI_ROW: bool = cfg!(all(target_arch = "wasm32", target_feature = "simd128"));
+
+/// Removes the filters from the first rows of `block` together with a multi-row wavefront kernel
+/// (`wavefront.rs`, #152), if one exists for them and for this target ([`MULTI_ROW`]).
+///
+/// `block` holds consecutive rows, `stride` bytes apart, each with its filter-type byte;
+/// `previous` is the (already reconstructed) row above the first one, with its filter-type
+/// byte, and `bpp` the bytes per pixel. Returns how many rows were reconstructed and had their
+/// filter type set to `None`: 0 (nothing changed; reconstruct the first row alone), 2 or 4. The
+/// bytes are the same as reconstructing the rows one at a time.
+pub(crate) fn remove_rows(
+    block: &mut [u8],
+    stride: usize,
+    bpp: usize,
+    previous: Option<&[u8]>,
+) -> usize {
+    if MULTI_ROW {
+        try_remove_rows(block, stride, bpp, previous)
+    } else {
+        0
+    }
+}
+
+/// [`remove_rows`] without the target check, so native tests can run the multi-row kernels.
+fn try_remove_rows(block: &mut [u8], stride: usize, bpp: usize, previous: Option<&[u8]>) -> usize {
+    if bpp != 4 || stride == 0 {
+        return 0;
+    }
+    // The first image row has no row above; it is reconstructed on its own.
+    let Some(prev) = previous.and_then(|p| p.get(1..)) else {
+        return 0;
+    };
+    let Some(&first) = block.first() else {
+        return 0;
+    };
+    let filter_type = FilterType::try_from(first).unwrap_or(FilterType::None);
+    if !matches!(filter_type, FilterType::Paeth | FilterType::Average) {
+        return 0;
+    }
+    let run = block
+        .chunks_exact(stride)
+        .take(4)
+        .take_while(|row| row.first() == Some(&first))
+        .count();
+    let rows = match run {
+        4 => 4,
+        2 | 3 => 2,
+        _ => return 0,
+    };
+    let Some(block) = block.get_mut(..rows * stride) else {
+        return 0;
+    };
+    use wavefront::{Average, Paeth, unfilter_4_rows};
+    let done = match (filter_type, rows) {
+        (FilterType::Paeth, 4) => unfilter_4_rows::<Paeth, 2>(prev, block, stride),
+        (FilterType::Paeth, _) => unfilter_4_rows::<Paeth, 1>(prev, block, stride),
+        (_, 4) => unfilter_4_rows::<Average, 2>(prev, block, stride),
+        _ => unfilter_4_rows::<Average, 1>(prev, block, stride),
+    };
+    if !done {
+        return 0;
+    }
+    for row in block.chunks_exact_mut(stride) {
+        if let Some(ft) = row.first_mut() {
+            *ft = FilterType::None.into();
+        }
+    }
+    rows
 }
 
 /// The function applies a filter to a scan line.
@@ -256,6 +329,144 @@ mod tests {
             kernels::paeth_unfilter_4_lanes(&mut actual, has_prev.then_some(prev.as_slice()));
             prop_assert_eq!(actual, expected);
         }
+    }
+
+    /// Unfilters `rows` (each with its filter-type byte) top-down with the reference
+    /// implementation, `above` being the row above the first one (if any). Returns the bytes.
+    fn reference_unfilter_rows(bpp: usize, above: Option<&[u8]>, rows: &[Vec<u8>]) -> Vec<u8> {
+        let (color, depth) = format_for(bpp);
+        let mut out = Vec::new();
+        let mut prev: Option<Vec<u8>> = above.map(|a| [&[0u8][..], a].concat());
+        for row in rows {
+            let width = ((row.len() - 1) / bpp) as u32;
+            let mut data = row.clone();
+            let mut line = ScanLine::new(&mut data, color, depth, width);
+            match prev.as_mut() {
+                Some(p) => {
+                    let p = ScanLine::new(p, color, depth, width);
+                    reference::remove(&mut line, Some(&p));
+                }
+                None => reference::remove(&mut line, None),
+            }
+            out.extend_from_slice(&data[1..]);
+            prev = Some(data);
+        }
+        out
+    }
+
+    /// Runs the multi-row kernels on `rows` (each with its filter-type byte) below `above`,
+    /// without the target check. Returns how many rows they reconstructed and the bytes of all
+    /// rows (filter-type bytes included).
+    fn try_rows(bpp: usize, above: Option<&[u8]>, rows: &[Vec<u8>]) -> (usize, Vec<Vec<u8>>) {
+        let stride = rows.first().map_or(1, Vec::len);
+        let mut block = rows.concat();
+        let above = above.map(|a| [&[0u8][..], a].concat());
+        let done = try_remove_rows(&mut block, stride, bpp, above.as_deref());
+        (done, block.chunks(stride).map(<[u8]>::to_vec).collect())
+    }
+
+    /// 1..=6 rows of `bpp`-byte pixels (1..=`max_pixels` of them) and the row above them
+    /// (`None` for the first image row). Each block picks Paeth or Average; each row has that
+    /// filter type with probability `same`, otherwise an arbitrary one.
+    #[allow(clippy::type_complexity)]
+    fn row_blocks(
+        bpps: Vec<usize>,
+        max_pixels: usize,
+        same: f64,
+    ) -> impl Strategy<Value = (usize, Option<Vec<u8>>, Vec<Vec<u8>>)> {
+        let dominant = prop::sample::select(vec![FilterType::Paeth, FilterType::Average]);
+        (prop::sample::select(bpps), dominant).prop_flat_map(move |(bpp, dominant)| {
+            (1usize..=max_pixels).prop_flat_map(move |pixels| {
+                let len = pixels * bpp;
+                let row = (
+                    prop::bool::weighted(same),
+                    0u8..5,
+                    prop::collection::vec(any::<u8>(), len),
+                )
+                    .prop_map(move |(is_same, ft, bytes)| {
+                        let ft = if is_same { dominant.into() } else { ft };
+                        [&[ft][..], &bytes].concat()
+                    });
+                (
+                    Just(bpp),
+                    prop::option::weighted(0.9, prop::collection::vec(any::<u8>(), len)),
+                    prop::collection::vec(row, 1..=6),
+                )
+            })
+        })
+    }
+
+    /// Checks one block: the kernels reconstruct the first 0, 2 or 4 rows exactly as the
+    /// reference does (filter type set to `None`), leave the other rows untouched, and take
+    /// every run of RGBA Paeth rows below a row that they can.
+    fn check_rows(bpp: usize, above: Option<&[u8]>, rows: &[Vec<u8>]) -> Result<(), TestCaseError> {
+        let (done, actual) = try_rows(bpp, above, rows);
+        let first = rows[0][0];
+        let wavefront =
+            first == u8::from(FilterType::Paeth) || first == u8::from(FilterType::Average);
+        let run = if wavefront {
+            rows.iter().take_while(|r| r[0] == first).count()
+        } else {
+            0
+        };
+        let expected_done = match (bpp, above.is_some(), run) {
+            (4, true, 4..) => 4,
+            (4, true, 2 | 3) => 2,
+            _ => 0,
+        };
+        prop_assert_eq!(done, expected_done);
+        let expected = reference_unfilter_rows(bpp, above, &rows[..done]);
+        for (r, (got, original)) in actual.iter().zip(rows).enumerate() {
+            if r < done {
+                prop_assert_eq!(got[0], u8::from(FilterType::None));
+                let width = got.len() - 1;
+                prop_assert_eq!(
+                    &got[1..],
+                    &expected[r * width..(r + 1) * width],
+                    "row {}",
+                    r
+                );
+            } else {
+                prop_assert_eq!(got, original, "row {} must be untouched", r);
+            }
+        }
+        Ok(())
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(1024))]
+
+        /// Mixed filter types and pixel sizes, so declined blocks are covered too.
+        #[test]
+        fn rows_match_reference((bpp, above, rows) in row_blocks(vec![1, 3, 4, 8], 40, 0.5)) {
+            check_rows(bpp, above.as_deref(), &rows)?;
+        }
+
+        /// RGBA rows that are mostly Paeth or mostly Average, and long, so 2- and 4-row blocks
+        /// are taken often.
+        #[test]
+        fn wavefront_rows_match_reference((bpp, above, rows) in row_blocks(vec![4], 300, 0.9)) {
+            check_rows(bpp, above.as_deref(), &rows)?;
+        }
+    }
+
+    /// Blocks whose stride doesn't match the row above, or whose rows aren't whole pixels, are
+    /// declined unchanged.
+    #[test]
+    fn rows_declines_inconsistent_blocks() {
+        let paeth = u8::from(FilterType::Paeth);
+        let rows = [
+            vec![paeth, 1, 2, 3, 4, 5, 6, 7, 8],
+            vec![paeth, 1, 2, 3, 4, 5, 6, 7, 8],
+        ];
+        let mut block = rows.concat();
+        // Row above too short.
+        assert_eq!(try_remove_rows(&mut block, 9, 4, Some(&[0, 1, 2, 3, 4])), 0);
+        // Rows of 6 bytes are not whole RGBA pixels.
+        let mut ragged = [paeth, 1, 2, 3, 4, 5, 6, paeth, 1, 2, 3, 4, 5, 6];
+        assert_eq!(try_remove_rows(&mut ragged, 7, 4, Some(&[0; 7])), 0);
+        assert_eq!(block, rows.concat());
+        assert_eq!(ragged, [paeth, 1, 2, 3, 4, 5, 6, paeth, 1, 2, 3, 4, 5, 6]);
     }
 
     /// Rows that are not a whole number of pixels, and pixel sizes outside the specialised set,

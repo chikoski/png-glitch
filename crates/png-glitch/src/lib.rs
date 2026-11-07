@@ -688,4 +688,88 @@ mod test {
             Err(PngError::NonConsecutiveIDAT)
         ));
     }
+
+    /// Encodes `width` x `height` RGBA pixels with the `png` crate, with a fixed filter or its
+    /// adaptive per-row choice.
+    fn encode_rgba(width: u32, height: u32, rgba: &[u8], filter: ::png::Filter) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        {
+            let mut encoder = ::png::Encoder::new(&mut bytes, width, height);
+            encoder.set_color(::png::ColorType::Rgba);
+            encoder.set_depth(::png::BitDepth::Eight);
+            encoder.set_compression(::png::Compression::Fast);
+            // `set_compression` resets the filter, so it comes first.
+            encoder.set_filter(filter);
+            let mut writer = encoder.write_header().unwrap();
+            writer.write_image_data(rgba).unwrap();
+        }
+        bytes
+    }
+
+    /// RGBA images of 1..=40 x 1..=12 pixels: a gradient plus noise of a random amplitude, so
+    /// the adaptive encoder mixes filter types from row to row.
+    fn rgba_images() -> impl proptest::strategy::Strategy<Value = (u32, u32, Vec<u8>)> {
+        use proptest::prelude::*;
+        (1u32..=40, 1u32..=12, 0u8..=255, any::<u64>()).prop_map(|(w, h, noise, seed)| {
+            let mut state = seed | 1;
+            let mut next = move || {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                state as u8
+            };
+            let mut rgba = Vec::with_capacity((w * h * 4) as usize);
+            for y in 0..h {
+                for x in 0..w {
+                    for ch in 0..4u32 {
+                        let base = (x * 7 + y * 5 + ch * 60) as u8;
+                        let n = if noise == 0 { 0 } else { next() % noise };
+                        rgba.push(base.wrapping_add(n));
+                    }
+                }
+            }
+            (w, h, rgba)
+        })
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(128))]
+
+        /// `remove_filter` gives the pixels the `png` crate decodes, for whole images whose rows
+        /// all use Paeth or Average (the multi-row wavefront kernels on wasm with `simd128`) and
+        /// for adaptive, mixed-filter images.
+        #[test]
+        fn remove_filter_matches_png_decoder((w, h, rgba) in rgba_images()) {
+            for filter in [::png::Filter::Paeth, ::png::Filter::Avg, ::png::Filter::Adaptive] {
+                let bytes = encode_rgba(w, h, &rgba, filter);
+                let mut png = PngGlitch::from_bytes(&bytes).unwrap();
+                png.remove_filter();
+                let expected: Vec<u8> = rgba
+                    .chunks(w as usize * 4)
+                    .flat_map(|row| std::iter::once(0).chain(row.iter().copied()))
+                    .collect();
+                proptest::prop_assert_eq!(png.data(), expected.as_slice(), "{:?}", filter);
+            }
+        }
+
+        /// `remove_filter_from` over a range equals removing the filters one row at a time,
+        /// including when the row above the range is still filtered.
+        #[test]
+        fn remove_filter_from_matches_row_by_row(
+            (w, h, rgba) in rgba_images(),
+            from in 0u32..14,
+            lines in 0u32..14,
+        ) {
+            for filter in [::png::Filter::Paeth, ::png::Filter::Avg, ::png::Filter::Adaptive] {
+                let bytes = encode_rgba(w, h, &rgba, filter);
+                let mut together = PngGlitch::from_bytes(&bytes).unwrap();
+                together.remove_filter_from(from, lines);
+                let mut one_by_one = PngGlitch::from_bytes(&bytes).unwrap();
+                for row in from..from.saturating_add(lines) {
+                    one_by_one.remove_filter_from(row, 1);
+                }
+                proptest::prop_assert_eq!(together.data(), one_by_one.data(), "{:?}", filter);
+            }
+        }
+    }
 }

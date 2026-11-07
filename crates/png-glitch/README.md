@@ -113,11 +113,13 @@ The encoding is part of the glitch: the same frame with the same effect looks di
 
 # WebAssembly and SIMD
 
-The PNG filter and unfilter loops are written so that LLVM can vectorise them without `unsafe` code or `core::arch` intrinsics. On WebAssembly, build with the `simd128` target feature to get the benefit (the default build is scalar and works everywhere):
+The PNG filter and unfilter loops are written so that LLVM can vectorise them, without `unsafe` code. On WebAssembly, build with the `simd128` target feature to get the benefit (the default build is scalar and works everywhere):
 
 ```bash
 RUSTFLAGS="-C target-feature=+simd128" cargo build --release --target wasm32-unknown-unknown --no-default-features
 ```
+
+With `simd128`, Paeth and Average reconstruction (`remove_filter` on images with 4-byte pixels: 8-bit RGBA, 16-bit gray + alpha) also process several rows at once: rows `y` to `y + 3` run as a wavefront, each one pixel behind the row above, so their dependency chains are independent and share SIMD vectors. This uses the safe `core::arch::wasm32` intrinsics (the crate still forbids `unsafe`) and is where `simd128` matters most. Indicative numbers for 1080p RGBA under wasmtime, one thread, p50: Paeth reconstruction is about 20 ms scalar, 13.6 ms with `simd128` and one row at a time, and 5 ms with the wavefront. Average reconstruction goes from about 4.8 ms to 2 ms. Up and Sub gain from auto-vectorisation only. The filter step (`apply_filter`, `from_pixels`) has no row-to-row dependency and is vectorised along the row instead.
 
 Runtimes that do not support the WebAssembly SIMD proposal cannot load a `+simd128` module, so ship the scalar build as a fallback. Output is byte-identical either way.
 

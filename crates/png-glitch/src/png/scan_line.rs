@@ -16,6 +16,19 @@ mod pixel;
 /// A type alias for a range of `usize`.
 pub type UsizeRange = Range<usize>;
 
+/// Bytes per pixel for a header's color type and bit depth (at least 1, as the PNG specification
+/// uses for filtering when pixels are smaller than a byte).
+pub(crate) fn bytes_per_pixel(color_type: ColorType, bit_depth: u8) -> usize {
+    let bits = bit_depth as usize;
+    match color_type {
+        ColorType::GrayScale => std::cmp::max(bits / 8, 1),
+        ColorType::GrayScaleAlpha => std::cmp::max(bits * 2 / 8, 1),
+        ColorType::TrueColor => std::cmp::max(bits * 3 / 8, 1),
+        ColorType::TrueColorAlpha => std::cmp::max(bits * 4 / 8, 1),
+        ColorType::IndexColor => std::cmp::max(bits / 8, 1),
+    }
+}
+
 /// A struct representing a scan line in a PNG image.
 pub struct ScanLine<'a> {
     pub(crate) data: &'a mut [u8],
@@ -54,15 +67,7 @@ impl<'a> ScanLine<'a> {
 
     /// The method returns the number of bytes per pixel.
     pub fn bytes_per_pixel(&self) -> usize {
-        let bits = self.bit_depth as usize;
-
-        match self.color_type {
-            ColorType::GrayScale => std::cmp::max(bits / 8, 1),
-            ColorType::GrayScaleAlpha => std::cmp::max(bits * 2 / 8, 1),
-            ColorType::TrueColor => std::cmp::max(bits * 3 / 8, 1),
-            ColorType::TrueColorAlpha => std::cmp::max(bits * 4 / 8, 1),
-            ColorType::IndexColor => std::cmp::max(bits / 8, 1),
-        }
+        bytes_per_pixel(self.color_type, self.bit_depth)
     }
 
     /// The method returns a pixel at the specified index.
