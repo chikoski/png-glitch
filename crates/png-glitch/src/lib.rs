@@ -34,7 +34,8 @@ pub use crate::operation::Transpose;
 use crate::operation::{Encode, Scan};
 use crate::png::Png;
 pub use crate::png::{
-    ColorType, FilterType, Limits, ParseOptions, Pixel, PngError, PngWarning, ScanLine,
+    ColorType, Encoding, FilterStrategy, FilterType, Limits, ParseOptions, Pixel, PixelSource,
+    PngError, PngWarning, ScanLine,
 };
 use std::fs::File;
 use std::io::{Read, Write};
@@ -108,6 +109,8 @@ pub mod presets {
 ///
 pub struct PngGlitch {
     png: Png,
+    /// The encoding a model built by [`from_pixels`](PngGlitch::from_pixels) was created with.
+    live: Option<Encoding>,
 }
 
 impl PngGlitch {
@@ -151,7 +154,56 @@ impl PngGlitch {
         options: ParseOptions,
     ) -> Result<PngGlitch, PngError> {
         let png = Png::parse_with_options(bytes.as_ref(), options)?;
-        Ok(PngGlitch { png })
+        Ok(PngGlitch { png, live: None })
+    }
+
+    /// Creates a `PngGlitch` directly from pixels, running only the PNG encoder's filter step:
+    /// nothing is compressed until you ask for PNG bytes ([`to_bytes`](Self::to_bytes),
+    /// [`save`](Self::save)). Use this for live sources such as webcam frames, canvases or
+    /// game output.
+    ///
+    /// `enc` holds the choices a PNG encoder makes (color type, filter strategy). They shape the
+    /// glitch, so the same frame glitched the same way looks different under different
+    /// encodings. See [`Encoding`] for the supported combinations and the color conversions.
+    ///
+    /// Use [`reload_pixels`](Self::reload_pixels) to refill the model with the next frame
+    /// without allocating.
+    ///
+    /// # Errors
+    /// [`PngError::UnsupportedEncoding`], [`PngError::EmptyFilterPattern`],
+    /// [`PngError::PixelDataLength`] (the data is not `width * height * 4` bytes),
+    /// [`PngError::InvalidDimensions`] or [`PngError::ImageTooLarge`].
+    ///
+    /// # Examples
+    /// ```
+    /// use png_glitch::{Encoding, FilterStrategy, FilterType, PixelSource, PngGlitch};
+    ///
+    /// let frame = vec![128u8; 4 * 4 * 4]; // 4x4 RGBA
+    /// let png = PngGlitch::from_pixels(
+    ///     PixelSource::rgba8(4, 4, &frame),
+    ///     Encoding::rgba8(FilterStrategy::Fixed(FilterType::Paeth)),
+    /// )?;
+    /// assert!(png.to_bytes()?.starts_with(b"\x89PNG"));
+    /// # Ok::<(), png_glitch::PngError>(())
+    /// ```
+    pub fn from_pixels(src: PixelSource<'_>, enc: Encoding) -> Result<PngGlitch, PngError> {
+        let png = Png::from_pixels(src, &enc)?;
+        Ok(PngGlitch {
+            png,
+            live: Some(enc),
+        })
+    }
+
+    /// Refills a model created by [`from_pixels`](Self::from_pixels) with the next frame,
+    /// re-applying the same encoding. It makes **no heap allocation**, so it is suitable for
+    /// per-frame use. Any glitch applied since the last load is discarded.
+    ///
+    /// # Errors
+    /// [`PngError::NotCreatedFromPixels`] for a model opened from a file or bytes, and
+    /// [`PngError::PixelDataLength`] if `rgba` is not `width * height * 4` bytes.
+    pub fn reload_pixels(&mut self, rgba: &[u8]) -> Result<(), PngError> {
+        let enc = self.live.as_ref().ok_or(PngError::NotCreatedFromPixels)?;
+        self.png.reload_pixels(rgba, enc)
     }
 
     /// Creates a `PngGlitch` object from a byte buffer (`Vec<u8>` or `&[u8]`).

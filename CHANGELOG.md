@@ -32,7 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### png-glitch
 
+#### Added
+- Live input (#95): `PngGlitch::from_pixels(PixelSource, Encoding)` builds a model directly from RGBA8 pixels (filter step only, no compression), and `PngGlitch::reload_pixels` refills it without allocating. New types `PixelSource`, `Encoding` and `FilterStrategy` (`Fixed`, `Pattern`, `Adaptive`; `#[non_exhaustive]`). Supported: 8-bit `TrueColorAlpha`, `TrueColor`, `GrayScaleAlpha`, `GrayScale`. New example `encodings`.
+
 #### Changed
+- `PngError` (not `#[non_exhaustive]`) gained the variants `UnsupportedEncoding`, `EmptyFilterPattern`, `PixelDataLength` and `NotCreatedFromPixels`. Code that matches `PngError` exhaustively needs a wildcard arm.
 - Rewrote the scan-line filter and unfilter kernels (#97): slice-based loops specialised per filter type and bytes per pixel, wrapping arithmetic, no per-byte bounds checks, a branch-free Paeth predictor, and `u32` SWAR arithmetic for 4-byte pixels. Output is byte-identical (checked against the previous implementation, kept as a test-only oracle, with property tests). 1080p RGBA at one thread, p50, native: unfilter Sub 9.8 → 2.3 ms, Average 14.0 → 4.9 ms, Paeth 38.4 → 10.3 ms; filter Paeth 40.6 → 6.3 ms. See the PR for wasm numbers.
 - `proptest` is a new dev-dependency of `png-glitch`.
 - Faster Paeth kernels (#97, follow-up). Filtering works in blocks with one flat, vectorisable loop per block and `i16` lanes. On wasm, RGBA reconstruction computes the four channels of a pixel as one `[i32; 4]` step, which `simd128` turns into `i32x4` instructions. Output is unchanged. 1080p RGBA, one thread, p50: wasm (+simd128) unfilter Paeth 29.0 → 13.6 ms, filter Paeth 26.0 → 3.9 ms; native filter Paeth 6.3 → 3.0 ms (native unfilter unchanged).

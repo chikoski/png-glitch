@@ -93,6 +93,24 @@ Built-in effects available in `png_glitch::effects`:
 
 - `parallel` *(enabled by default)*: Runs `par_foreach_scanline` on a [rayon](https://crates.io/crates/rayon) thread pool. Without it the method keeps the same signature and runs sequentially in row order, with byte-identical output. Disable it for a smaller WebAssembly build: `png-glitch = { version = "0.7", default-features = false }`.
 
+# Live input: pixels instead of a PNG file
+
+`PngGlitch::from_pixels` builds the model straight from RGBA8 pixels (webcam frames, a canvas, game output). It runs only the PNG filter step; nothing is compressed until you ask for PNG bytes. `reload_pixels` refills the model with the next frame **without allocating**.
+
+```rust
+use png_glitch::{Encoding, FilterStrategy, FilterType, PixelSource, PngGlitch};
+
+let mut png = PngGlitch::from_pixels(
+    PixelSource::rgba8(width, height, &frame),
+    Encoding::rgba8(FilterStrategy::Fixed(FilterType::Paeth)),
+)?;
+// ... glitch it, then for the next frame:
+png.reload_pixels(&next_frame)?;
+let bytes = png.to_bytes()?;
+```
+
+The encoding is part of the glitch: the same frame with the same effect looks different as RGBA/Paeth, RGB with a `Sub, Up, Paeth` pattern, or gray with the adaptive heuristic (`cargo run --example encodings`). Supported: 8-bit `TrueColorAlpha`, `TrueColor` (alpha dropped), `GrayScaleAlpha` and `GrayScale` (`gray = (77R + 150G + 29B + 128) >> 8`). Filter strategies are `Fixed`, `Pattern` (row `y` uses `pattern[y % len]`) and `Adaptive` (libpng's minimum sum of absolute differences, ties to the lowest filter type; about ten times the cost of a fixed filter, so prefer `Fixed` or `Pattern` for live use). Palettes, other bit depths and `PerRow` are not supported yet.
+
 # WebAssembly and SIMD
 
 The PNG filter and unfilter loops are written so that LLVM can vectorise them without `unsafe` code or `core::arch` intrinsics. On WebAssembly, build with the `simd128` target feature to get the benefit (the default build is scalar and works everywhere):

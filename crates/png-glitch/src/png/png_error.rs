@@ -163,6 +163,28 @@ pub enum PngError {
     /// Unsupported filter method.
     #[error("Unsupported filter method.")]
     UnsupportedFilterMethod,
+    /// The requested encoding is not supported when building a PNG from pixels.
+    #[error("Unsupported encoding: color type {color_type}, bit depth {bit_depth}.")]
+    UnsupportedEncoding {
+        /// Numeric PNG color type code.
+        color_type: u8,
+        /// Requested bit depth.
+        bit_depth: u8,
+    },
+    /// `FilterStrategy::Pattern` was given an empty list.
+    #[error("The filter pattern is empty.")]
+    EmptyFilterPattern,
+    /// A pixel buffer did not have `width * height * 4` bytes.
+    #[error("Pixel buffer has {actual} bytes, expected {expected}.")]
+    PixelDataLength {
+        /// Expected length in bytes.
+        expected: usize,
+        /// Actual length in bytes.
+        actual: usize,
+    },
+    /// `reload_pixels` was called on an image that was not created by `from_pixels`.
+    #[error("The image was not created from pixels, so its pixels cannot be reloaded.")]
+    NotCreatedFromPixels,
     /// An I/O error occurred while reading or writing a PNG file or stream.
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
