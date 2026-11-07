@@ -198,7 +198,7 @@ impl Lookup {
             ColorType::IndexColor => {
                 let plte = find(b"PLTE").unwrap_or(&[]);
                 let entries = plte.len() / 3;
-                for (slot, rgb) in palette.iter_mut().zip(plte.chunks_exact(3)) {
+                for (slot, rgb) in palette.iter_mut().zip(plte.as_chunks::<3>().0.iter()) {
                     for (dst, src) in slot.iter_mut().zip(rgb) {
                         *dst = *src;
                     }
@@ -229,7 +229,7 @@ impl Lookup {
                         }
                     } else if trns.len() >= channels * 2 {
                         // Below 16 bits the decoder keeps only the low byte of each sample.
-                        for (dst, pair) in k.iter_mut().zip(trns.chunks_exact(2)) {
+                        for (dst, pair) in k.iter_mut().zip(trns.as_chunks::<2>().0.iter()) {
                             *dst = pair.get(1).copied().unwrap_or(0);
                         }
                         key = Some(k);
@@ -253,7 +253,7 @@ fn convert_row(
 ) {
     let key = lookup.key.as_ref();
     let key_alpha = |matches: bool| if matches { 0 } else { 255 };
-    let pixels = out.chunks_exact_mut(4).take(width);
+    let pixels = out.as_chunks_mut::<4>().0.iter_mut().take(width);
     match (color_type, depth) {
         (ColorType::GrayScale, 8) => {
             let key = key.and_then(|k| k.first().copied());
@@ -262,9 +262,9 @@ fn convert_row(
             }
         }
         (ColorType::GrayScale, 16) => {
-            for (px, out) in row.chunks_exact(2).zip(pixels) {
+            for (px, out) in row.as_chunks::<2>().0.iter().zip(pixels) {
                 let g = px.first().copied().unwrap_or(0);
-                let is_key = key.is_some_and(|k| k.get(..2) == Some(px));
+                let is_key = key.is_some_and(|k| k.get(..2) == Some(px.as_slice()));
                 out.copy_from_slice(&[g, g, g, key_alpha(is_key)]);
             }
         }
@@ -283,45 +283,40 @@ fn convert_row(
             });
         }
         (ColorType::GrayScaleAlpha, 8) => {
-            for (px, out) in row.chunks_exact(2).zip(pixels) {
-                if let [g, a] = *px {
-                    out.copy_from_slice(&[g, g, g, a]);
-                }
+            for (px, out) in row.as_chunks::<2>().0.iter().zip(pixels) {
+                let [g, a] = *px;
+                out.copy_from_slice(&[g, g, g, a]);
             }
         }
         (ColorType::GrayScaleAlpha, _) => {
-            for (px, out) in row.chunks_exact(4).zip(pixels) {
-                if let [g, _, a, _] = *px {
-                    out.copy_from_slice(&[g, g, g, a]);
-                }
+            for (px, out) in row.as_chunks::<4>().0.iter().zip(pixels) {
+                let [g, _, a, _] = *px;
+                out.copy_from_slice(&[g, g, g, a]);
             }
         }
         (ColorType::TrueColor, 8) => {
-            for (px, out) in row.chunks_exact(3).zip(pixels) {
-                if let [r, g, b] = *px {
-                    let is_key = key.is_some_and(|k| k.get(..3) == Some(px));
-                    out.copy_from_slice(&[r, g, b, key_alpha(is_key)]);
-                }
+            for (px, out) in row.as_chunks::<3>().0.iter().zip(pixels) {
+                let [r, g, b] = *px;
+                let is_key = key.is_some_and(|k| k.get(..3) == Some(px.as_slice()));
+                out.copy_from_slice(&[r, g, b, key_alpha(is_key)]);
             }
         }
         (ColorType::TrueColor, _) => {
-            for (px, out) in row.chunks_exact(6).zip(pixels) {
-                if let [r, _, g, _, b, _] = *px {
-                    let is_key = key.is_some_and(|k| k == px);
-                    out.copy_from_slice(&[r, g, b, key_alpha(is_key)]);
-                }
+            for (px, out) in row.as_chunks::<6>().0.iter().zip(pixels) {
+                let [r, _, g, _, b, _] = *px;
+                let is_key = key.is_some_and(|k| k == px);
+                out.copy_from_slice(&[r, g, b, key_alpha(is_key)]);
             }
         }
         (ColorType::TrueColorAlpha, 8) => {
-            for (px, out) in row.chunks_exact(4).zip(pixels) {
+            for (px, out) in row.as_chunks::<4>().0.iter().zip(pixels) {
                 out.copy_from_slice(px);
             }
         }
         (ColorType::TrueColorAlpha, _) => {
-            for (px, out) in row.chunks_exact(8).zip(pixels) {
-                if let [r, _, g, _, b, _, a, _] = *px {
-                    out.copy_from_slice(&[r, g, b, a]);
-                }
+            for (px, out) in row.as_chunks::<8>().0.iter().zip(pixels) {
+                let [r, _, g, _, b, _, a, _] = *px;
+                out.copy_from_slice(&[r, g, b, a]);
             }
         }
     }
@@ -331,9 +326,9 @@ fn convert_row(
 /// bits first, once per output pixel.
 fn unpack<'a>(
     row: &[u8],
-    pixels: impl Iterator<Item = &'a mut [u8]>,
+    pixels: impl Iterator<Item = &'a mut [u8; 4]>,
     depth: u8,
-    f: impl Fn(u8, &mut [u8]),
+    f: impl Fn(u8, &mut [u8; 4]),
 ) {
     if depth >= 8 {
         for (v, out) in row.iter().zip(pixels) {
