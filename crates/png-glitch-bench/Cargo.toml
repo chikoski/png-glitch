@@ -1,0 +1,20 @@
+[package]
+name = "png-glitch-bench"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "Benchmark harness for png-glitch: per-stage timings that run natively and under wasmtime."
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "png-glitch-bench"
+path = "src/main.rs"
+
+[dependencies]
+png-glitch.workspace = true
+png = "0.18.1"
+serde.workspace = true
+serde_json = "1.0"

@@ -99,6 +99,27 @@ When reviewing a new effect or API change, check:
 - [ ] Are PNG encoding choices exposed as parameters rather than fixed internally?
 - [ ] Is an effect in `png-glitch` deterministic, with any "random" choice (rows, pixels, offsets) taken as an explicit parameter? `png-glitch` has no RNG ([ADR 0003](docs/adr/0003-home-of-high-level-effects.md)). Callers that draw those choices from an RNG must take it explicitly, so that a seed reproduces the result.
 
+## Benchmarks
+
+`crates/png-glitch-bench` (`publish = false`) times the stages that exist today: `parse`, `unfilter/<type>`, `filter/<type>`, `tag-only/set_filter_type`, every effect in `png_glitch::effects` with fixed parameters, `serialize` and `full-frame` (parse → one effect → `to_bytes`). It uses its own harness instead of criterion so the same code and the same JSON run natively and as `wasm32-wasip1` under wasmtime. Fixtures are generated in memory from a fixed seed; frames are encoded with the `png` crate outside the timed region. Each stage reports count, mean, p50, p95, p99 and max, bytes allocated per iteration (a counting allocator in the bench binary) and the live heap before and after the loop. `full-frame` also reports the share of iterations over 33.3 ms.
+
+```bash
+# Native. --size is 360p, 720p or 1080p; --frames is the number of measured iterations.
+RAYON_NUM_THREADS=1 cargo run --release -p png-glitch-bench -- --size 1080p --frames 60 --json out.json
+
+# wasm under wasmtime (--dir . lets the guest write the JSON file).
+RUSTFLAGS="-C target-feature=+simd128" cargo build -p png-glitch-bench --release --target wasm32-wasip1
+wasmtime run --dir . --env RAYON_NUM_THREADS=1 target/wasm32-wasip1/release/png-glitch-bench.wasm --size 1080p --json out.json
+
+# Compare two reports; exits 1 when a stage's p50 regresses by more than the threshold.
+# Either side may be a comma-separated list of runs of the same build (the best p50 is used).
+cargo run --release -p png-glitch-bench -- compare base.json head.json --threshold 0.25
+```
+
+`--stages TEXT` runs only the stages whose name contains `TEXT`. `--pool N` (default 8) is the number of distinct frames cycled through, which bounds setup time and memory at 1080p. Stages whose baseline p50 is under 1 ms are ignored by `compare` because they are noise-dominated on shared runners. Set `BENCH_GIT_COMMIT` to record the commit in the report.
+
+`.github/workflows/bench.yml` runs on every PR that touches `crates/`. It builds the base commit (with this PR's harness) and the head in the same job, runs them alternately (base, head, base, head) natively and under wasmtime, compares, and uploads all JSON files as the `bench-report` artifact. **Numbers from CI runners are relative only**: compare base against head from the same job, never against the budget or against another run. The threshold is 25% for now. The browser (Playwright / headless Chrome) benchmark is not part of this harness yet; it needs the wasm component and the live API.
+
 ## Core Concepts for Contributors
 
 ### Terminology Glossary

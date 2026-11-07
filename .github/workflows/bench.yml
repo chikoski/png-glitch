@@ -1,0 +1,112 @@
+name: Benchmarks
+
+# Builds the base commit and the PR head in the same job and runs them alternately, so the
+# comparison uses the same runner instead of a stored baseline. Absolute numbers from shared
+# runners are not comparable with the reference devices; only the base/head ratio is meaningful.
+# This workflow is not part of the required `test` job.
+
+on:
+  pull_request:
+    paths: ["crates/**"]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  # The real-time budget (#99) is single-threaded.
+  RAYON_NUM_THREADS: "1"
+  # p50 regression that fails the job. Tune after a few runs.
+  THRESHOLD: "0.25"
+  NATIVE_ARGS: "--size 1080p --frames 30"
+  WASM_ARGS: "--size 720p --frames 20"
+
+jobs:
+  bench:
+    name: Native and wasmtime
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+        path: head
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: wasm32-wasip1
+    - uses: bytecodealliance/actions/wasmtime/setup@v1
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: |
+          head
+          base
+
+    - name: Check out the base commit with the head's harness
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.repository.default_branch }}
+      run: |
+        git -C head worktree add --detach ../base "$BASE_SHA"
+        # Measure both sides with the same harness; only the library differs. (The base may
+        # predate the bench crate.)
+        rm -rf base/crates/png-glitch-bench
+        cp -r head/crates/png-glitch-bench base/crates/png-glitch-bench
+        echo "BASE_COMMIT=$(git -C head rev-parse "$BASE_SHA")" >> "$GITHUB_ENV"
+        echo "HEAD_COMMIT=$(git -C head rev-parse HEAD)" >> "$GITHUB_ENV"
+
+    - name: Build (native)
+      run: |
+        for side in base head; do
+          cargo build --release -p png-glitch-bench --manifest-path "$side/Cargo.toml"
+        done
+
+    - name: Build (wasm32-wasip1, simd128)
+      env:
+        RUSTFLAGS: "-C target-feature=+simd128"
+      run: |
+        for side in base head; do
+          cargo build --release -p png-glitch-bench --target wasm32-wasip1 --manifest-path "$side/Cargo.toml"
+        done
+
+    - name: Run (native, base and head alternately)
+      run: |
+        mkdir -p out
+        for round in 1 2; do
+          for side in base head; do
+            commit=$([ "$side" = base ] && echo "$BASE_COMMIT" || echo "$HEAD_COMMIT")
+            BENCH_GIT_COMMIT="$commit" "$side/target/release/png-glitch-bench" \
+              $NATIVE_ARGS --json "out/native-$side-$round.json"
+          done
+        done
+
+    - name: Run (wasmtime, base and head alternately)
+      run: |
+        for round in 1 2; do
+          for side in base head; do
+            commit=$([ "$side" = base ] && echo "$BASE_COMMIT" || echo "$HEAD_COMMIT")
+            wasmtime run --dir . --env RAYON_NUM_THREADS --env "BENCH_GIT_COMMIT=$commit" \
+              "$side/target/wasm32-wasip1/release/png-glitch-bench.wasm" \
+              $WASM_ARGS --json "out/wasm-$side-$round.json"
+          done
+        done
+
+    - name: Compare (native)
+      run: |
+        head/target/release/png-glitch-bench compare \
+          out/native-base-1.json,out/native-base-2.json \
+          out/native-head-1.json,out/native-head-2.json \
+          --threshold "$THRESHOLD" | tee out/native-compare.txt
+        exit "${PIPESTATUS[0]}"
+
+    - name: Compare (wasmtime)
+      if: ${{ !cancelled() }}
+      run: |
+        head/target/release/png-glitch-bench compare \
+          out/wasm-base-1.json,out/wasm-base-2.json \
+          out/wasm-head-1.json,out/wasm-head-2.json \
+          --threshold "$THRESHOLD" | tee out/wasm-compare.txt
+        exit "${PIPESTATUS[0]}"
+
+    - name: Upload report
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: bench-report
+        path: out

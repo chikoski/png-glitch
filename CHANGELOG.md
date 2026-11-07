@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### png-glitch-bench (#98)
+
+#### Added
+- New unpublished crate `png-glitch-bench`: a stage-timing harness (p50/p95/p99/max, allocation per iteration, share of frames over 33.3 ms) that runs natively and as `wasm32-wasip1` under wasmtime, with a `compare` subcommand and a `bench.yml` workflow. See the "Benchmarks" section of `DEVELOPER_GUIDE.md`.
+
 ### All library crates (panic-free code, #57)
 
 #### Changed
