@@ -34,8 +34,8 @@ pub use crate::operation::Transpose;
 use crate::operation::{Encode, Scan};
 use crate::png::Png;
 pub use crate::png::{
-    ColorType, Encoding, FilterStrategy, FilterType, Limits, ParseOptions, Pixel, PixelSource,
-    PngError, PngWarning, Renderer, ScanLine,
+    ColorType, Encoding, FilterStrategy, FilterType, Limits, LivePipeline, ParseOptions, Pixel,
+    PixelSource, PngError, PngWarning, Renderer, ScanLine, ScanLines,
 };
 use std::fs::File;
 use std::io::{Read, Write};
@@ -111,6 +111,8 @@ pub struct PngGlitch {
     png: Png,
     /// The encoding a model built by [`from_pixels`](PngGlitch::from_pixels) was created with.
     live: Option<Encoding>,
+    /// One scan line of scratch space for [`ScanLines`], allocated once at construction.
+    scratch: Vec<u8>,
 }
 
 impl PngGlitch {
@@ -154,7 +156,12 @@ impl PngGlitch {
         options: ParseOptions,
     ) -> Result<PngGlitch, PngError> {
         let png = Png::parse_with_options(bytes.as_ref(), options)?;
-        Ok(PngGlitch { png, live: None })
+        let scratch = vec![0; png.header.scan_line_width()];
+        Ok(PngGlitch {
+            png,
+            live: None,
+            scratch,
+        })
     }
 
     /// Creates a `PngGlitch` directly from pixels, running only the PNG encoder's filter step:
@@ -188,9 +195,11 @@ impl PngGlitch {
     /// ```
     pub fn from_pixels(src: PixelSource<'_>, enc: Encoding) -> Result<PngGlitch, PngError> {
         let png = Png::from_pixels(src, &enc)?;
+        let scratch = vec![0; png.header.scan_line_width()];
         Ok(PngGlitch {
             png,
             live: Some(enc),
+            scratch,
         })
     }
 
@@ -223,6 +232,15 @@ impl PngGlitch {
     /// Returns a list of scan lines in the loaded PNG image.
     pub fn scan_lines(&mut self) -> Vec<ScanLine<'_>> {
         self.png.scan_lines()
+    }
+
+    /// Lends the filtered scan lines as a [`ScanLines`] view: only scan-line-layer operations, no
+    /// allocation, and nothing that recomputes filtered values. The view also carries this
+    /// model's scratch buffer (one scan line, allocated at construction).
+    ///
+    /// Unlike [`scan_lines`](Self::scan_lines), it does not build a `Vec` of rows.
+    pub fn scan_lines_mut(&mut self) -> ScanLines<'_> {
+        ScanLines::new(&mut self.png, &mut self.scratch)
     }
 
     /// Takes at most `lines` `ScanLine` objects starting from `from`, clamping to the image height.

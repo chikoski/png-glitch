@@ -111,6 +111,29 @@ let bytes = png.to_bytes()?;
 
 The encoding is part of the glitch: the same frame with the same effect looks different as RGBA/Paeth, RGB with a `Sub, Up, Paeth` pattern, or gray with the adaptive heuristic (`cargo run --example encodings`). Supported: 8-bit `TrueColorAlpha`, `TrueColor` (alpha dropped), `GrayScaleAlpha` and `GrayScale` (`gray = (77R + 150G + 29B + 128) >> 8`). Filter strategies are `Fixed`, `Pattern` (row `y` uses `pattern[y % len]`) and `Adaptive` (libpng's minimum sum of absolute differences, ties to the lowest filter type; about ten times the cost of a fixed filter, so prefer `Fixed` or `Pattern` for live use). Palettes, other bit depths and `PerRow` are not supported yet.
 
+## The per-frame loop: `LivePipeline`
+
+`LivePipeline` owns the model, a `Renderer` and the scratch buffer, and splits a frame into `frame_out = D(G(E(frame_in)))`. `new` allocates once; `encode`, the `ScanLines` view and `decode_into` allocate nothing.
+
+```rust
+use png_glitch::{Encoding, FilterStrategy, FilterType, LivePipeline, PixelSource};
+
+let mut live = LivePipeline::new(
+    PixelSource::rgba8(width, height, &first_frame),
+    Encoding::rgba8(FilterStrategy::Fixed(FilterType::Paeth)),
+)?;
+let mut out = vec![0u8; first_frame.len()];
+loop {
+    let mut lines = live.encode(&frame)?; // E: overwrites the previous glitch
+    lines.swap(0, 10);                    // G: scan-line operations only
+    lines.set_filter_type(5, FilterType::Sub);
+    live.decode_into(&mut out)?;          // D: RGBA8, as a PNG decoder would show it
+}
+let png_bytes = live.snapshot()?;         // compresses; keep it off the real-time path
+```
+
+`ScanLines` is a borrowed view of the filtered rows (`PngGlitch::scan_lines_mut` gives the same view for a model opened from a file). It can read and write rows and filter-type tags, swap and copy rows, iterate sequentially or in parallel and lend a scratch buffer, but it cannot recompute filtered values, resize or compress. `LivePipeline::scan_lines` returns the view without reloading the frame. See ADR 0005.
+
 # WebAssembly and SIMD
 
 The PNG filter and unfilter loops are written so that LLVM can vectorise them, without `unsafe` code. On WebAssembly, build with the `simd128` target feature to get the benefit (the default build is scalar and works everywhere):
