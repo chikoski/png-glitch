@@ -4,6 +4,7 @@
 PngSuite
 *.png
 !docs/gallery/*.png
+!docs/gallery/recipes/*.png
 !crates/png-glitch/etc/sample00*.png
 !tests/fixtures/*.png
 !crates/png-glitch-recipe/tests/fixtures/*.png

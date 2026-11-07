@@ -1,0 +1,10 @@
+# WebP: crush the image through low-quality VP8, then corrupt macroblocks.
+filters:
+  - type: lossy-artifact
+    quality: 5.0
+  - type: macroblock-glitch
+    magnitude: 0.15
+  - type: chromatic-aberration
+    magnitude: 0.3
+    r_offset: 4
+    b_offset: -4

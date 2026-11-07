@@ -1,0 +1,12 @@
+# Analog video look (on unfiltered pixels): rows slip sideways, colors fringe and flicker.
+filters:
+  - type: remove-filter
+  - type: horizontal-shift
+    magnitude: 0.05
+  - type: chromatic-aberration
+    magnitude: 0.4
+    r_offset: 6
+    b_offset: -6
+  - type: color-distortion
+    magnitude: 0.15
+    strength: 40

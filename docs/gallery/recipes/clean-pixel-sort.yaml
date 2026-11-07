@@ -1,0 +1,7 @@
+# Same pixel-sort as the single-effect gallery, but after remove-filter:
+# the sort now moves real pixel colors instead of filtered bytes.
+filters:
+  - type: remove-filter
+  - type: pixel-sort
+    magnitude: 0.6
+    criterion: brightness

@@ -1,13 +1,83 @@
-use anyhow::Result;
+//! Generates the images in `docs/gallery`, used by `docs/CLI_GUIDE.md`.
+//!
+//! ```bash
+//! cargo run --example gen_gallery
+//! ```
+//!
+//! - `docs/gallery/*.png`: one PNG effect each.
+//! - `docs/gallery/recipes/<name>.yaml` -> `<name>.png` (or `<name>.webp` for `webp-*` recipes):
+//!   multi-filter recipes. Each output equals
+//!   `png-glitch <sample> --config <name>.yaml --seed 42`.
+//! - `docs/gallery/webp/*.webp`: WebP-only effects.
+
+use anyhow::{Context, Result};
 use png_glitch_recipe::{
     AverageFilter, BitOp, Bitwise, BlockScramble, Brighten, ChangeFilterType, ChromaticAberration,
-    ColorDistortion, ColorSpaceGlitch, GlitchContext, GlitchFilter, HorizontalShift, Invert,
-    PaethFilter, RandomCopy, Replace, SetZero, ShiftChannels, SubFilter, Transpose, UpFilter,
+    ColorDistortion, ColorSpaceGlitch, FilterConfig, GlitchContext, GlitchFilter, HorizontalShift,
+    Invert, PaethFilter, RandomCopy, Replace, SetZero, ShiftChannels, SortCriterion, SubFilter,
+    SwapTarget, Transpose, UpFilter,
 };
+use serde::Deserialize;
 use std::fs;
 use std::path::Path;
+use webp_glitch_context::WebpGlitchContext;
 
 const SEED: u64 = 42;
+
+#[derive(Deserialize)]
+struct RecipeFile {
+    filters: Vec<FilterConfig>,
+}
+
+fn generate_png(
+    sample_bytes: &[u8],
+    out_path: &Path,
+    filters: impl IntoIterator<Item = FilterConfig>,
+) -> Result<()> {
+    let mut ctx = GlitchContext::new(sample_bytes, Some(SEED))?;
+    for filter in filters {
+        ctx.add_from_config(filter)?;
+    }
+    ctx.execute();
+    ctx.save(out_path)?;
+    Ok(())
+}
+
+fn generate_webp(
+    sample_bytes: &[u8],
+    out_path: &Path,
+    filters: impl IntoIterator<Item = FilterConfig>,
+) -> Result<()> {
+    let mut ctx = WebpGlitchContext::new(sample_bytes, Some(SEED))?;
+    for filter in filters {
+        ctx.add_from_config(filter)?;
+    }
+    ctx.execute();
+    ctx.save(out_path)?;
+    Ok(())
+}
+
+/// Renders every `*.yaml` recipe in `dir` next to itself.
+fn generate_recipes(png_sample: &[u8], webp_sample: &[u8], dir: &Path) -> Result<usize> {
+    let mut paths: Vec<_> = fs::read_dir(dir)?
+        .map(|entry| entry.map(|e| e.path()))
+        .collect::<std::io::Result<_>>()?;
+    paths.retain(|p| p.extension().is_some_and(|ext| ext == "yaml"));
+    paths.sort();
+
+    for path in &paths {
+        let yaml = fs::read_to_string(path)?;
+        let recipe: RecipeFile = serde_saphyr::from_str(&yaml)
+            .with_context(|| format!("failed to parse {}", path.display()))?;
+        let stem = path.file_stem().unwrap().to_string_lossy();
+        if stem.starts_with("webp-") {
+            generate_webp(webp_sample, &path.with_extension("webp"), recipe.filters)?;
+        } else {
+            generate_png(png_sample, &path.with_extension("png"), recipe.filters)?;
+        }
+    }
+    Ok(paths.len())
+}
 
 fn generate_one(
     sample_bytes: &[u8],
@@ -138,6 +208,67 @@ fn main() -> Result<()> {
         ChangeFilterType { magnitude: 0.1 },
     )?;
 
-    println!("Generated 18 gallery images in {}", out_dir.display());
+    let more_png = [
+        ("darken.png", FilterConfig::Darken { strength: 40 }),
+        (
+            "pixel_sort.png",
+            FilterConfig::PixelSort {
+                magnitude: 0.3,
+                criterion: Some(SortCriterion::Brightness),
+            },
+        ),
+        (
+            "channel_swap.png",
+            FilterConfig::ChannelSwap {
+                magnitude: 0.3,
+                target: Some(SwapTarget::Rg),
+            },
+        ),
+        ("remove_filter.png", FilterConfig::RemoveFilter),
+        (
+            "substitute.png",
+            FilterConfig::Substitute {
+                index: 100,
+                value: 255,
+            },
+        ),
+    ];
+    for (filename, filter) in &more_png {
+        generate_png(&sample_bytes, &out_dir.join(filename), [filter.clone()])?;
+    }
+
+    let webp_sample = fs::read(root.join("crates/webp-glitch/etc/sample00.webp"))?;
+    let webp_dir = out_dir.join("webp");
+    fs::create_dir_all(&webp_dir)?;
+    let webp = [
+        (
+            "macroblock_glitch.webp",
+            FilterConfig::MacroblockGlitch { magnitude: 0.15 },
+        ),
+        (
+            "lossy_artifact.webp",
+            FilterConfig::LossyArtifact { quality: 5.0 },
+        ),
+        (
+            "pixel_sort.webp",
+            FilterConfig::PixelSort {
+                magnitude: 0.3,
+                criterion: Some(SortCriterion::Brightness),
+            },
+        ),
+    ];
+    for (filename, filter) in &webp {
+        generate_webp(&webp_sample, &webp_dir.join(filename), [filter.clone()])?;
+    }
+
+    let recipes = generate_recipes(&sample_bytes, &webp_sample, &out_dir.join("recipes"))?;
+
+    println!(
+        "Generated {} effect images, {} WebP images and {} recipe images in {}",
+        18 + more_png.len(),
+        webp.len(),
+        recipes,
+        out_dir.display()
+    );
     Ok(())
 }
