@@ -5,7 +5,7 @@
 //! A caller that wants randomness draws the parameters from its own RNG.
 
 use super::{Effect, ScanLinesEffect};
-use crate::{FilterType, Pixel, PngGlitch, ScanLine, ScanLines};
+use crate::{ColorType, FilterType, Pixel, PngGlitch, ScanLine, ScanLines};
 
 #[cfg(test)]
 mod reference;
@@ -630,38 +630,40 @@ impl ChannelShift {
 impl ScanLinesEffect for ChannelShift {
     fn apply_to_scan_lines(&self, lines: &mut ScanLines<'_>) {
         let width = lines.width() as usize;
-        if width == 0 {
+        let channels = match lines.color_type() {
+            ColorType::TrueColor => 3,
+            ColorType::TrueColorAlpha => 4,
+            // The effect only touches RGB and RGBA pixels.
+            _ => return,
+        };
+        let sample = usize::from(lines.bit_depth() / 8);
+        if width == 0 || sample == 0 {
             return;
         }
-        let (color_type, bit_depth) = (lines.color_type(), lines.bit_depth());
+        let offsets = [self.r_offset, self.g_offset, self.b_offset];
         for &row in &self.rows {
-            let Some((mut line, scratch)) = lines.row_and_scratch(row as usize) else {
+            let Some((line, scratch)) = lines.row_and_scratch(row as usize) else {
                 continue;
             };
             // The original row, copied into the scratch buffer, is what the shifted channels read.
-            let Some(copy) = scratch.get_mut(..line.data.len()) else {
+            let Some(original) = scratch.get_mut(..line.data.len()) else {
                 continue;
             };
-            copy.copy_from_slice(line.data);
-            let original = ScanLine::new(copy, color_type, bit_depth, width as u32);
-            let value_at = |x: usize, offset: i32, channel: fn(&Pixel) -> u16| {
-                let nx = (x as i64 + i64::from(offset)).rem_euclid(width as i64) as usize;
-                original.get_pixel(nx).map_or(0, |p| channel(&p))
-            };
-            line.process_pixels(|x, p| match p {
-                Pixel::RGB(_, _, _) => Pixel::RGB(
-                    value_at(x, self.r_offset, Pixel::r),
-                    value_at(x, self.g_offset, Pixel::g),
-                    value_at(x, self.b_offset, Pixel::b),
-                ),
-                Pixel::RGBA(_, _, _, _) => Pixel::RGBA(
-                    value_at(x, self.r_offset, Pixel::r),
-                    value_at(x, self.g_offset, Pixel::g),
-                    value_at(x, self.b_offset, Pixel::b),
-                    original.get_pixel(x).map_or(0, |p| p.a()),
-                ),
-                _ => p,
-            });
+            original.copy_from_slice(line.data);
+            let start = line.pixel_data_offset();
+            for x in 0..width {
+                for (channel, offset) in offsets.iter().enumerate() {
+                    let nx = (x as i64 + i64::from(*offset)).rem_euclid(width as i64) as usize;
+                    let from = start + (nx * channels + channel) * sample;
+                    let to = start + (x * channels + channel) * sample;
+                    if let (Some(src), Some(dst)) = (
+                        original.get(from..from + sample),
+                        line.data.get_mut(to..to + sample),
+                    ) {
+                        dst.copy_from_slice(src);
+                    }
+                }
+            }
         }
     }
 }
