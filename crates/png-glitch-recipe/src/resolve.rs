@@ -7,8 +7,8 @@
 
 use crate::{FilterConfig, GlitchFilter, RecipeError, Result, filter_from_config};
 use png_glitch::effects as fx;
-use png_glitch::effects::Effect;
-use png_glitch::{ColorType, PngGlitch};
+use png_glitch::effects::{Effect, ScanLinesEffect};
+use png_glitch::{ColorType, PngGlitch, ScanLines};
 use rand::{RngCore, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use std::fmt;
@@ -48,27 +48,69 @@ impl ImageHeader {
 trait ErasedEffect: Effect + fmt::Debug + Send + Sync {}
 impl<T: Effect + fmt::Debug + Send + Sync> ErasedEffect for T {}
 
-/// A user-defined `png-glitch` [`Effect`] with concrete parameters, as produced by a
-/// [`RecipeStep`]. Cheap to clone; two values are equal only if they are the same instance.
+trait ErasedLiveEffect: ScanLinesEffect + fmt::Debug + Send + Sync {}
+impl<T: ScanLinesEffect + fmt::Debug + Send + Sync> ErasedLiveEffect for T {}
+
 #[derive(Clone)]
-pub struct ResolvedEffect(Arc<dyn ErasedEffect>);
+enum EffectKind {
+    /// Any [`Effect`]: file workflow only.
+    File(Arc<dyn ErasedEffect>),
+    /// A [`ScanLinesEffect`]: file workflow and live loop.
+    Live(Arc<dyn ErasedLiveEffect>),
+}
+
+/// A user-defined `png-glitch` effect with concrete parameters, as produced by a
+/// [`RecipeStep`]. Cheap to clone; two values are equal only if they are the same instance.
+///
+/// It wraps either a plain [`Effect`] ([`new`](Self::new)), which runs on files only, or a
+/// [`ScanLinesEffect`] ([`new_live`](Self::new_live)), which also runs in a
+/// [`LiveRecipe`](crate::LiveRecipe). Both give the same bytes in the file workflow.
+#[derive(Clone)]
+pub struct ResolvedEffect(EffectKind);
 
 impl ResolvedEffect {
-    /// Wraps an effect so a [`ResolvedRecipe`] can hold it.
+    /// Wraps an effect so a [`ResolvedRecipe`] can hold it. The effect cannot run in a live loop;
+    /// use [`new_live`](Self::new_live) for that.
     pub fn new(effect: impl Effect + fmt::Debug + Send + Sync + 'static) -> Self {
-        Self(Arc::new(effect))
+        Self(EffectKind::File(Arc::new(effect)))
+    }
+
+    /// Wraps a [`ScanLinesEffect`], which can run both on a file and in a
+    /// [`LiveRecipe`](crate::LiveRecipe).
+    pub fn new_live(effect: impl ScanLinesEffect + fmt::Debug + Send + Sync + 'static) -> Self {
+        Self(EffectKind::Live(Arc::new(effect)))
+    }
+
+    /// Whether this effect can run in a live loop (it was made with
+    /// [`new_live`](Self::new_live)).
+    pub fn is_live(&self) -> bool {
+        matches!(self.0, EffectKind::Live(_))
+    }
+
+    fn apply_to(&self, png: &mut PngGlitch) {
+        match &self.0 {
+            EffectKind::File(e) => e.apply_to(png),
+            EffectKind::Live(e) => e.apply_to_scan_lines(&mut png.scan_lines_mut()),
+        }
     }
 }
 
 impl fmt::Debug for ResolvedEffect {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
+        match &self.0 {
+            EffectKind::File(e) => e.fmt(f),
+            EffectKind::Live(e) => e.fmt(f),
+        }
     }
 }
 
 impl PartialEq for ResolvedEffect {
     fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
+        match (&self.0, &other.0) {
+            (EffectKind::File(a), EffectKind::File(b)) => Arc::ptr_eq(a, b),
+            (EffectKind::Live(a), EffectKind::Live(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        }
     }
 }
 
@@ -180,7 +222,64 @@ impl ResolvedStep {
             Self::Brighten(e) => e.apply_to(png),
             Self::Darken(e) => e.apply_to(png),
             Self::ShiftChannels(e) => e.apply_to(png),
-            Self::Custom(e) => e.0.apply_to(png),
+            Self::Custom(e) => e.apply_to(png),
+        }
+    }
+
+    /// Applies the step to the scan lines of a live frame. Deterministic; uses no RNG.
+    ///
+    /// Fails with [`RecipeError::NotLive`] for a step that recomputes filtered values
+    /// ([`Refilter`](fx::Refilter); [`LiveRecipe`](crate::LiveRecipe) runs it as a generation
+    /// boundary instead) and for a [`Custom`](Self::Custom) step made with
+    /// [`ResolvedEffect::new`]. Gives the same bytes as [`execute`](Self::execute).
+    pub(crate) fn execute_live(&self, lines: &mut ScanLines<'_>) -> Result<()> {
+        match self {
+            Self::Noop => {}
+            Self::Refilter(_) => return Err(self.not_live()),
+            Self::SetFilterTypes(e) => e.apply_to_scan_lines(lines),
+            Self::SetBytes(e) => e.apply_to_scan_lines(lines),
+            Self::Substitute(e) => e.apply_to_scan_lines(lines),
+            Self::SwapLines(e) => e.apply_to_scan_lines(lines),
+            Self::CopyLines(e) => e.apply_to_scan_lines(lines),
+            Self::ShiftLines(e) => e.apply_to_scan_lines(lines),
+            Self::PixelSort(e) => e.apply_to_scan_lines(lines),
+            Self::Bitwise(e) => e.apply_to_scan_lines(lines),
+            Self::SwapChannels(e) => e.apply_to_scan_lines(lines),
+            Self::OffsetColors(e) => e.apply_to_scan_lines(lines),
+            Self::HslShift(e) => e.apply_to_scan_lines(lines),
+            Self::ChannelShift(e) => e.apply_to_scan_lines(lines),
+            Self::SwapBlocks(e) => e.apply_to_scan_lines(lines),
+            Self::Invert(e) => e.apply_to_scan_lines(lines),
+            Self::Brighten(e) => e.apply_to_scan_lines(lines),
+            Self::Darken(e) => e.apply_to_scan_lines(lines),
+            Self::ShiftChannels(e) => e.apply_to_scan_lines(lines),
+            Self::Custom(e) => match &e.0 {
+                EffectKind::Live(e) => e.apply_to_scan_lines(lines),
+                EffectKind::File(_) => return Err(self.not_live()),
+            },
+        }
+        Ok(())
+    }
+
+    /// The filter type if this step is a generation boundary (`Refilter`).
+    pub(crate) fn refilter_type(&self) -> Option<png_glitch::FilterType> {
+        match self {
+            Self::Refilter(r) => Some(r.filter_type),
+            _ => None,
+        }
+    }
+
+    /// Whether the live runner can run this step (as a scan-line effect or a boundary).
+    pub(crate) fn is_live(&self) -> bool {
+        match self {
+            Self::Custom(e) => e.is_live(),
+            _ => true,
+        }
+    }
+
+    pub(crate) fn not_live(&self) -> RecipeError {
+        RecipeError::NotLive {
+            step: format!("{self:?}"),
         }
     }
 }
