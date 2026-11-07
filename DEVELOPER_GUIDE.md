@@ -26,7 +26,7 @@ The parser is responsible for reading the PNG signature and iterating through ch
 
 ### 2. The `Png` & `PngGlitch` Container
 - **`Png`**: The internal representation of the image. It holds the `MetaData` (from `IHDR`), a list of `Chunk` objects, and the raw `DecodedData`.
-- **`PngGlitch`**: The public-facing wrapper that provides the fluent API. It owns a `Png` instance and manages high-level operations like `apply(preset)` or `save()`.
+- **`PngGlitch`**: The public-facing wrapper that provides the fluent API. It owns a `Png` instance and manages high-level operations like `apply(effect)` or `save()`.
 
 ### 3. ScanLines & Filters (`src/png/scan_line.rs`)
 The core of the glitching logic happens at the `ScanLine` level. A PNG image is a series of scanlines, each starting with a **Filter Type** byte.
@@ -111,6 +111,9 @@ Because `png-glitch` operates at both the PNG container level and the artistic e
 | **Effect** (`Effect`) | `png-glitch::effects` | A deterministic operation on a PNG, with parameters (`Invert`, `Brighten`, `Darken`, `ShiftChannels`), applied via `PngGlitch::apply`. Effects are infallible. Formerly called *preset* (`GlitchPreset`, `presets`; deprecated aliases kept for one release). |
 | **`LineEffect`** | `png-glitch::effects` | Helper trait for effects that transform each scan line independently. Every `LineEffect` is an `Effect` and runs in parallel per line. |
 | **Glitch Filter / Effect** (`GlitchFilter` / `Effect`) | `png-glitch-recipe` | A high-level glitch effect (possibly randomized with an RNG) queued into a `GlitchContext` via `add_filter`. |
+| **Recipe** (`Recipe`) | `png-glitch-recipe` | An ordered list of steps (`FilterConfig` steps, user-defined `RecipeStep`s and fixed `Effect`s), independent of any image. Reusable for any image and seed; serializable as `filters: [...]` when it has no user-defined steps. |
+| **`ResolvedRecipe`** | `png-glitch-recipe` | The result of `Recipe::resolve(&ImageHeader, seed)`: every random choice drawn, only deterministic `png-glitch` effects left. `execute` uses no RNG and rejects an image whose header differs from the one it was resolved for. |
+| **`RecipeStep`** | `png-glitch-recipe` | User-defined recipe step: draws its choices from the RNG and returns a `ResolvedEffect`. Closures `Fn(&ImageHeader, &mut dyn RngCore) -> ResolvedEffect` implement it. |
 | **`RecipeError`** | `png-glitch-recipe` | Typed error returned by every fallible `png-glitch-recipe` function (open, parse, encode, save, invalid random specification, unsupported effect). Replaces `anyhow` in the library. |
 | **`png_glitch::Transpose`** | `png-glitch` | A deterministic operation trait (`PngGlitch::transpose(src, dst, lines)`) that swaps two contiguous blocks of scanlines. |
 | **`png_glitch_recipe::Transpose`** (`RandomTranspose`) | `png-glitch-recipe` | A randomized effect that iterates through scanlines and swaps rows with probability `magnitude`. Also exported as `RandomTranspose` to avoid ambiguity with `png_glitch::Transpose`. |
@@ -139,7 +142,7 @@ For detailed information on specific subsystems, refer to the following document
 - [**Filter System**](crates/png-glitch/specs/FILTER_SYSTEM.md): How the 5 PNG filters work and how to abuse them.
 - [**Pixel Formats**](crates/png-glitch/specs/PIXEL_FORMATS.md): Details on bit depth packing and color type handling.
 - [**Parsing & Encoding**](crates/png-glitch/specs/PARSING_ENCODING.md): The lifecycle of a PNG file within the library.
-- [**Glitch Operations**](crates/png-glitch/specs/GLITCH_OPERATIONS.md): Technical details on transposition and presets.
+- [**Glitch Operations**](crates/png-glitch/specs/GLITCH_OPERATIONS.md): Technical details on transposition and effects.
 
 ## Fuzzing & Security
 Because we parse raw bytes from potentially untrusted files, we maintain `cargo-fuzz` targets in the top-level `fuzz/` directory. It is a standalone crate (it has its own `[workspace]` table and `Cargo.lock`), so run the commands below from inside `fuzz/`.
@@ -147,7 +150,7 @@ Because we parse raw bytes from potentially untrusted files, we maintain `cargo-
 | Target | What it exercises |
 | --- | --- |
 | `png_parse` | `PngGlitch::from_bytes_with_options` in lenient and strict mode, then re-encode. |
-| `png_glitch_ops` | Parse, then `remove_filter`/`apply_filter`, presets, `transpose`, and encode. |
+| `png_glitch_ops` | Parse, then `remove_filter`/`apply_filter`, effects, `transpose`, and encode. |
 | `glitch_context_pipeline` | `GlitchContext` (PNG): parse, queue every PNG-capable `FilterConfig` variant, execute, encode. |
 | `webp_pipeline` | `WebpGlitchContext` (WebP): parse, queue every WebP-capable `FilterConfig` variant, execute, encode. |
 | `webp_riff` | `RiffContainer::parse`, encode/re-parse round trip, and every chunk mutation. |

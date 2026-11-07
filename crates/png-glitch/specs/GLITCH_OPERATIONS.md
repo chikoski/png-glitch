@@ -1,6 +1,6 @@
 # Glitch Operations
 
-`png-glitch` provides a variety of operations to manipulate image data, ranging from high-level "presets" to low-level pixel manipulation and scanline transposition.
+`png-glitch` provides a variety of operations to manipulate image data, ranging from high-level effects to low-level pixel manipulation and scanline transposition.
 
 ## 1. Transposition
 
@@ -10,15 +10,22 @@ The `transpose` method allows for the swapping of scanline chunks. This creates 
 *   **Behavior:** It swaps the block of `lines` scanlines starting at `src` with the block of `lines` scanlines starting at `dst`.
 *   **Glitch Utility:** Effective for "slicing" an image horizontally.
 
-## 2. Glitch Presets (Recipes)
+## 2. Effects
 
-Presets are pre-defined glitch effects that can be applied to the entire image using a fluent API.
+Effects (`png_glitch::effects`) are deterministic glitch operations applied with `PngGlitch::apply`. An effect implements the `Effect` trait (it gets `&mut PngGlitch`); the `LineEffect` helper trait is for effects that transform each scan line independently, and every `LineEffect` is an `Effect` that runs in parallel per line. Effects take any "random" choice (rows, offsets, bytes) as an explicit parameter, so the same image and parameters always give the same bytes. Drawing those choices from a seeded RNG is the job of `png-glitch-recipe` (ADR 0003).
 
-| Preset | Description |
+These effects were called *presets* before; `png_glitch::presets` and `GlitchPreset` remain as deprecated aliases for one release.
+
+Per-pixel effects (`LineEffect`):
+
+| Effect | Description |
 | :--- | :--- |
 | `Invert` | Inverts all color channels for every pixel in the scanline. |
 | `ShiftChannels` | Shifts R, G, and B values by a specified `(i16, i16, i16)` amount. |
 | `Brighten` | Adds a `strength` value to each color channel (saturating at the max value). |
+| `Darken` | Subtracts a `strength` value from each color channel (saturating at `0`). |
+
+Targeted effects (`Effect`, parameters chosen by the caller): `Refilter`, `SetFilterTypes`, `SetBytes`, `Substitute`, `SwapLines`, `CopyLines`, `ShiftLines`, `PixelSort`, `Bitwise`, `SwapChannels`, `OffsetColors`, `HslShift`, `ChannelShift` and `SwapBlocks`. See the rustdoc of `png_glitch::effects` for their parameters.
 
 **Fluent usage example:**
 ```rust
@@ -49,7 +56,7 @@ For custom glitch effects, the `process_pixels` API on `ScanLine` is the most ef
 *   **Why use it?** It resolves the scanline's bit depth and color type **once**, then iterates over pixels in a branch-free loop. 
 *   **Utility:** Ideal for threshold-based glitches, noise addition, or channel swapping.
 
-## 4. Parallel Processing
+## 5. Parallel Processing
 
 The library utilizes the `rayon` crate to provide parallel manipulation of scanlines.
 

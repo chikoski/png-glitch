@@ -7,7 +7,7 @@
 1.  **Low-Level Access:** Provide direct access to raw scanlines and individual pixels before and after filter application.
 2.  **Intentional Misinterpretation:** Allow users to manipulate PNG filter types and data in ways that standard decoders must "fight" to render, resulting in glitches.
 3.  **Performance:** Enable high-speed glitching through optimized pixel processing and parallel scanline manipulation.
-4.  **Simplicity:** Offer a fluent, chainable API for common glitching recipes (presets).
+4.  **Simplicity:** Offer a fluent, chainable API for common glitch effects.
 
 ## Core Architecture
 
@@ -27,4 +27,4 @@ The `ScanLine` struct (`src/png/scan_line.rs`) represents a single row of pixels
 
 *   **Filtered vs. Unfiltered Data:** PNG data on disk is filtered. To glitch it effectively, you typically "remove" the filter (undoing the prediction), manipulate the raw pixel values, and then either leave it unfiltered or "apply" a different filter type to cause divergent rendering.
 *   **Transposition:** Swapping scanlines or chunks of scanlines to create horizontal shearing effects.
-*   **Presets:** Pre-defined closures or structs that implement the `GlitchPreset` trait for common effects like inverting colors or shifting channels.
+*   **Effects:** Deterministic operations that implement the `Effect` trait (whole image) or the `LineEffect` helper trait (per scan line, run in parallel), applied with `PngGlitch::apply`. Any "random" choice is an explicit parameter; drawing it from an RNG is the job of `png-glitch-recipe` (ADR 0003). The `presets` module and `GlitchPreset` are deprecated aliases of `effects` and `LineEffect`.
