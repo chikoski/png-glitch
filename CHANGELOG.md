@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### png-glitch: `ScanLinesEffect` (#161)
+
+#### Added
+- `effects::ScanLinesEffect` (`apply_to_scan_lines(&self, &mut ScanLines)`). The blanket impls are now a chain, `LineEffect → ScanLinesEffect → Effect`; existing `LineEffect` and `Effect` implementations keep compiling. A built-in `ScanLinesEffect` makes no heap allocation, and uses the view's scratch buffer for temporary rows.
+
+#### Changed
+- All built-in effects except `Refilter` implement `ScanLinesEffect` instead of `Effect`. Their output bytes are unchanged. `PixelSort` still allocates a pixel list per sorted row (a stable sort); this is documented.
+
 ### png-glitch-bench (#98)
 
 #### Added

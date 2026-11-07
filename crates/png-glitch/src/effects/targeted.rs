@@ -4,15 +4,17 @@
 //! choices as values instead, so the same image and parameters always give the same bytes.
 //! A caller that wants randomness draws the parameters from its own RNG.
 
-use super::Effect;
-use crate::{FilterType, Pixel, PngGlitch, ScanLine};
+use super::{Effect, ScanLinesEffect};
+use crate::{ColorType, FilterType, Pixel, PngGlitch, ScanLine, ScanLines};
+
+#[cfg(test)]
+mod reference;
 
 /// Runs `f` on each listed row, in the given order. Rows outside the image are ignored.
-fn for_rows(png: &mut PngGlitch, rows: &[u32], mut f: impl FnMut(&mut ScanLine)) {
-    let mut lines = png.scan_lines();
+fn for_rows(lines: &mut ScanLines<'_>, rows: &[u32], mut f: impl FnMut(&mut ScanLine)) {
     for &row in rows {
-        if let Some(line) = lines.get_mut(row as usize) {
-            f(line);
+        if let Some(mut line) = lines.get_mut(row as usize) {
+            f(&mut line);
         }
     }
 }
@@ -56,12 +58,11 @@ impl SetFilterTypes {
     }
 }
 
-impl Effect for SetFilterTypes {
-    fn apply_to(&self, png: &mut PngGlitch) {
-        let mut lines = png.scan_lines();
-        for (line, filter_type) in lines.iter_mut().zip(&self.filter_types) {
+impl ScanLinesEffect for SetFilterTypes {
+    fn apply_to_scan_lines(&self, lines: &mut ScanLines<'_>) {
+        for (row, filter_type) in self.filter_types.iter().enumerate() {
             if let Some(filter_type) = filter_type {
-                line.set_filter_type(*filter_type);
+                lines.set_filter_type(row, *filter_type);
             }
         }
     }
@@ -94,11 +95,10 @@ impl SetBytes {
     }
 }
 
-impl Effect for SetBytes {
-    fn apply_to(&self, png: &mut PngGlitch) {
-        let mut lines = png.scan_lines();
+impl ScanLinesEffect for SetBytes {
+    fn apply_to_scan_lines(&self, lines: &mut ScanLines<'_>) {
         for edit in &self.edits {
-            if let Some(line) = lines.get_mut(edit.line as usize) {
+            if let Some(mut line) = lines.get_mut(edit.line as usize) {
                 line.update(edit.index, edit.value);
             }
         }
@@ -121,9 +121,9 @@ impl Substitute {
     }
 }
 
-impl Effect for Substitute {
-    fn apply_to(&self, png: &mut PngGlitch) {
-        png.foreach_scanline(|line| {
+impl ScanLinesEffect for Substitute {
+    fn apply_to_scan_lines(&self, lines: &mut ScanLines<'_>) {
+        lines.for_each_mut(|line| {
             if self.index < line.size() {
                 line.update(self.index, self.value);
             }
@@ -145,12 +145,11 @@ impl SwapLines {
     }
 }
 
-impl Effect for SwapLines {
-    fn apply_to(&self, png: &mut PngGlitch) {
-        let height = png.height();
+impl ScanLinesEffect for SwapLines {
+    fn apply_to_scan_lines(&self, lines: &mut ScanLines<'_>) {
         for &(a, b) in &self.swaps {
-            if a != b && a < height && b < height {
-                png.transpose(a, b, 1);
+            if a != b {
+                lines.swap(a as usize, b as usize);
             }
         }
     }
@@ -172,28 +171,12 @@ impl CopyLines {
     }
 }
 
-impl Effect for CopyLines {
-    fn apply_to(&self, png: &mut PngGlitch) {
-        let mut lines = png.scan_lines();
+impl ScanLinesEffect for CopyLines {
+    fn apply_to_scan_lines(&self, lines: &mut ScanLines<'_>) {
         for &(src, dst) in &self.copies {
-            let (src, dst) = (src as usize, dst as usize);
-            if src == dst || src >= lines.len() || dst >= lines.len() {
-                continue;
+            if src != dst {
+                lines.copy(src as usize, dst as usize);
             }
-            let Some(source) = lines.get(src) else {
-                continue;
-            };
-            let filter_type = source.filter_type();
-            let buffer: Vec<u8> = (0..source.size())
-                .map(|i| source.index(i).unwrap_or(0))
-                .collect();
-            let Some(dest) = lines.get_mut(dst) else {
-                continue;
-            };
-            for (i, &byte) in buffer.iter().enumerate() {
-                dest.update(i, byte);
-            }
-            dest.set_filter_type(filter_type);
         }
     }
 }
@@ -221,9 +204,8 @@ impl ShiftLines {
     }
 }
 
-impl Effect for ShiftLines {
-    fn apply_to(&self, png: &mut PngGlitch) {
-        let mut lines = png.scan_lines();
+impl ScanLinesEffect for ShiftLines {
+    fn apply_to_scan_lines(&self, lines: &mut ScanLines<'_>) {
         for s in &self.shifts {
             let Some(line) = lines.get_mut(s.line as usize) else {
                 continue;
@@ -232,10 +214,9 @@ impl Effect for ShiftLines {
             if size <= 1 {
                 continue;
             }
-            let shift = s.shift % size;
-            let buffer: Vec<u8> = (0..size).map(|i| line.index(i).unwrap_or(0)).collect();
-            for (i, &byte) in buffer.iter().enumerate() {
-                line.update((i + shift) % size, byte);
+            let offset = line.pixel_data_offset();
+            if let Some(data) = line.data.get_mut(offset..) {
+                data.rotate_right(s.shift % size);
             }
         }
     }
@@ -252,6 +233,9 @@ pub enum SortCriterion {
 }
 
 /// Sorts the pixels of the listed rows by brightness or hue.
+///
+/// The sort is stable, so it **allocates** a pixel list for each sorted row. It is the one
+/// built-in [`ScanLinesEffect`] that breaks the allocation rule.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PixelSort {
     /// Criterion used to compare pixels.
@@ -289,9 +273,9 @@ impl PixelSort {
     }
 }
 
-impl Effect for PixelSort {
-    fn apply_to(&self, png: &mut PngGlitch) {
-        for_rows(png, &self.rows, |line| {
+impl ScanLinesEffect for PixelSort {
+    fn apply_to_scan_lines(&self, lines: &mut ScanLines<'_>) {
+        for_rows(lines, &self.rows, |line| {
             let mut pixels = Vec::with_capacity(line.pixels_count() as usize);
             for i in 0..line.pixels_count() as usize {
                 if let Some(p) = line.get_pixel(i) {
@@ -340,9 +324,9 @@ impl Bitwise {
     }
 }
 
-impl Effect for Bitwise {
-    fn apply_to(&self, png: &mut PngGlitch) {
-        for_rows(png, &self.rows, |line| {
+impl ScanLinesEffect for Bitwise {
+    fn apply_to_scan_lines(&self, lines: &mut ScanLines<'_>) {
+        for_rows(lines, &self.rows, |line| {
             for i in 0..line.size() {
                 if let Some(b) = line.index(i) {
                     let new_b = match self.op {
@@ -385,9 +369,9 @@ impl SwapChannels {
     }
 }
 
-impl Effect for SwapChannels {
-    fn apply_to(&self, png: &mut PngGlitch) {
-        for_rows(png, &self.rows, |line| {
+impl ScanLinesEffect for SwapChannels {
+    fn apply_to_scan_lines(&self, lines: &mut ScanLines<'_>) {
+        for_rows(lines, &self.rows, |line| {
             line.process_pixels(|_, p| match p {
                 Pixel::RGB(r, g, b) => match self.target {
                     SwapTarget::Rg => Pixel::RGB(g, r, b),
@@ -430,11 +414,10 @@ impl OffsetColors {
     }
 }
 
-impl Effect for OffsetColors {
-    fn apply_to(&self, png: &mut PngGlitch) {
-        let mut lines = png.scan_lines();
+impl ScanLinesEffect for OffsetColors {
+    fn apply_to_scan_lines(&self, lines: &mut ScanLines<'_>) {
         for entry in &self.lines {
-            let Some(line) = lines.get_mut(entry.line as usize) else {
+            let Some(mut line) = lines.get_mut(entry.line as usize) else {
                 continue;
             };
             line.process_pixels(|x, p| {
@@ -496,8 +479,8 @@ impl HslShift {
     }
 }
 
-impl Effect for HslShift {
-    fn apply_to(&self, png: &mut PngGlitch) {
+impl ScanLinesEffect for HslShift {
+    fn apply_to_scan_lines(&self, lines: &mut ScanLines<'_>) {
         let hue_shift = if self.hue_shift.is_finite() {
             self.hue_shift
         } else {
@@ -520,7 +503,7 @@ impl Effect for HslShift {
             let l = (l * light_mult).clamp(0.0, 1.0);
             hsl_to_rgb(h, s, l)
         };
-        for_rows(png, &self.rows, |line| {
+        for_rows(lines, &self.rows, |line| {
             line.process_pixels(|_, p| match p {
                 Pixel::RGB(r, g, b) => {
                     let (r, g, b) = transform(r, g, b);
@@ -644,48 +627,44 @@ impl ChannelShift {
     }
 }
 
-impl Effect for ChannelShift {
-    fn apply_to(&self, png: &mut PngGlitch) {
-        let width = png.width() as usize;
-        if width == 0 {
+impl ScanLinesEffect for ChannelShift {
+    fn apply_to_scan_lines(&self, lines: &mut ScanLines<'_>) {
+        let width = lines.width() as usize;
+        let channels = match lines.color_type() {
+            ColorType::TrueColor => 3,
+            ColorType::TrueColorAlpha => 4,
+            // The effect only touches RGB and RGBA pixels.
+            _ => return,
+        };
+        let sample = usize::from(lines.bit_depth() / 8);
+        if width == 0 || sample == 0 {
             return;
         }
-        for_rows(png, &self.rows, |line| {
-            let mut r_channel = Vec::with_capacity(width);
-            let mut g_channel = Vec::with_capacity(width);
-            let mut b_channel = Vec::with_capacity(width);
-            let mut alpha = Vec::with_capacity(width);
-
+        let offsets = [self.r_offset, self.g_offset, self.b_offset];
+        for &row in &self.rows {
+            let Some((line, scratch)) = lines.row_and_scratch(row as usize) else {
+                continue;
+            };
+            // The original row, copied into the scratch buffer, is what the shifted channels read.
+            let Some(original) = scratch.get_mut(..line.data.len()) else {
+                continue;
+            };
+            original.copy_from_slice(line.data);
+            let start = line.pixel_data_offset();
             for x in 0..width {
-                if let Some(p) = line.get_pixel(x) {
-                    r_channel.push(p.r());
-                    g_channel.push(p.g());
-                    b_channel.push(p.b());
-                    alpha.push(p.a());
+                for (channel, offset) in offsets.iter().enumerate() {
+                    let nx = (x as i64 + i64::from(*offset)).rem_euclid(width as i64) as usize;
+                    let from = start + (nx * channels + channel) * sample;
+                    let to = start + (x * channels + channel) * sample;
+                    if let (Some(src), Some(dst)) = (
+                        original.get(from..from + sample),
+                        line.data.get_mut(to..to + sample),
+                    ) {
+                        dst.copy_from_slice(src);
+                    }
                 }
             }
-
-            line.process_pixels(|x, p| {
-                let get_val = |chan: &[u16], offset: i32| {
-                    let nx = (x as i64 + i64::from(offset)).rem_euclid(width as i64) as usize;
-                    chan.get(nx).copied().unwrap_or(0)
-                };
-                match p {
-                    Pixel::RGB(_, _, _) => Pixel::RGB(
-                        get_val(&r_channel, self.r_offset),
-                        get_val(&g_channel, self.g_offset),
-                        get_val(&b_channel, self.b_offset),
-                    ),
-                    Pixel::RGBA(_, _, _, _) => Pixel::RGBA(
-                        get_val(&r_channel, self.r_offset),
-                        get_val(&g_channel, self.g_offset),
-                        get_val(&b_channel, self.b_offset),
-                        alpha.get(x).copied().unwrap_or(0),
-                    ),
-                    _ => p,
-                }
-            });
-        });
+        }
     }
 }
 
@@ -727,10 +706,10 @@ impl SwapBlocks {
     }
 }
 
-impl Effect for SwapBlocks {
-    fn apply_to(&self, png: &mut PngGlitch) {
-        let width = png.width();
-        let height = png.height();
+impl ScanLinesEffect for SwapBlocks {
+    fn apply_to_scan_lines(&self, lines: &mut ScanLines<'_>) {
+        let width = lines.width();
+        let height = lines.len() as u32;
         let block_size = self.block_size;
         if width == 0 || height == 0 || block_size == 0 {
             return;
@@ -740,8 +719,6 @@ impl Effect for SwapBlocks {
         if num_blocks_x == 0 || num_blocks_y == 0 {
             return;
         }
-
-        let mut scan_lines = png.scan_lines();
 
         for swap in &self.swaps {
             let (src_bx, src_by) = swap.src;
@@ -761,46 +738,35 @@ impl Effect for SwapBlocks {
                 if src_y >= height || dst_y >= height {
                     continue;
                 }
+                let columns = (0..block_size).filter_map(|x_off| {
+                    let src_x = (src_bx * block_size + x_off) as usize;
+                    let dst_x = (dst_bx * block_size + x_off) as usize;
+                    (src_x < width as usize && dst_x < width as usize).then_some((src_x, dst_x))
+                });
 
                 if src_y == dst_y {
-                    let Some(line) = scan_lines.get_mut(src_y as usize) else {
+                    let Some(mut line) = lines.get_mut(src_y as usize) else {
                         continue;
                     };
-                    for x_off in 0..block_size {
-                        let src_x = src_bx * block_size + x_off;
-                        let dst_x = dst_bx * block_size + x_off;
-                        if src_x < width && dst_x < width {
-                            let p_src = line.get_pixel(src_x as usize);
-                            let p_dst = line.get_pixel(dst_x as usize);
-                            if let (Some(ps), Some(pd)) = (p_src, p_dst) {
-                                line.set_pixel(src_x as usize, pd);
-                                line.set_pixel(dst_x as usize, ps);
-                            }
+                    for (src_x, dst_x) in columns {
+                        if let (Some(ps), Some(pd)) = (line.get_pixel(src_x), line.get_pixel(dst_x))
+                        {
+                            line.set_pixel(src_x, pd);
+                            line.set_pixel(dst_x, ps);
                         }
                     }
                 } else {
-                    let (low, high) = (src_y.min(dst_y) as usize, src_y.max(dst_y) as usize);
-                    let (left, right) = scan_lines.split_at_mut(high);
-                    let (Some(low_line), Some(high_line)) = (left.get_mut(low), right.first_mut())
+                    let Some((mut src_line, mut dst_line)) =
+                        lines.pair_mut(src_y as usize, dst_y as usize)
                     else {
                         continue;
                     };
-                    let (src_line, dst_line) = if src_y < dst_y {
-                        (low_line, high_line)
-                    } else {
-                        (high_line, low_line)
-                    };
-
-                    for x_off in 0..block_size {
-                        let src_x = src_bx * block_size + x_off;
-                        let dst_x = dst_bx * block_size + x_off;
-                        if src_x < width && dst_x < width {
-                            let p_src = src_line.get_pixel(src_x as usize);
-                            let p_dst = dst_line.get_pixel(dst_x as usize);
-                            if let (Some(ps), Some(pd)) = (p_src, p_dst) {
-                                src_line.set_pixel(src_x as usize, pd);
-                                dst_line.set_pixel(dst_x as usize, ps);
-                            }
+                    for (src_x, dst_x) in columns {
+                        if let (Some(ps), Some(pd)) =
+                            (src_line.get_pixel(src_x), dst_line.get_pixel(dst_x))
+                        {
+                            src_line.set_pixel(src_x, pd);
+                            dst_line.set_pixel(dst_x, ps);
                         }
                     }
                 }
@@ -899,5 +865,198 @@ mod tests {
         assert_eq!(out[..stride], original[..stride]);
         assert_eq!(out[stride], 4);
         assert_eq!(out[stride + 1..], original[stride + 1..]);
+    }
+}
+
+#[cfg(test)]
+mod oracle_tests {
+    //! Each ported effect must give the same bytes as its pre-port implementation in
+    //! `reference`, on random images of every colour type and bit depth, with random parameters
+    //! and out-of-range rows.
+
+    use super::*;
+    use proptest::prelude::*;
+
+    fn chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
+        out.extend_from_slice(&(data.len() as u32).to_be_bytes());
+        out.extend_from_slice(kind);
+        out.extend_from_slice(data);
+        let mut hasher = crc32fast::Hasher::new();
+        hasher.update(kind);
+        hasher.update(data);
+        out.extend_from_slice(&hasher.finalize().to_be_bytes());
+    }
+
+    fn build(width: u32, height: u32, color_type: u8, bit_depth: u8, raw: &[u8]) -> Vec<u8> {
+        let mut png = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+        let mut ihdr = Vec::new();
+        ihdr.extend_from_slice(&width.to_be_bytes());
+        ihdr.extend_from_slice(&height.to_be_bytes());
+        ihdr.extend_from_slice(&[bit_depth, color_type, 0, 0, 0]);
+        chunk(&mut png, b"IHDR", &ihdr);
+        if color_type == 3 {
+            chunk(&mut png, b"PLTE", &[0u8; 768]);
+        }
+        let mut compressor = fdeflate::Compressor::new(Vec::new()).unwrap();
+        compressor.write_data(raw).unwrap();
+        chunk(&mut png, b"IDAT", &compressor.finish().unwrap());
+        chunk(&mut png, b"IEND", &[]);
+        png
+    }
+
+    const FORMATS: [(u8, u8); 15] = [
+        (0, 1),
+        (0, 2),
+        (0, 4),
+        (0, 8),
+        (0, 16),
+        (2, 8),
+        (2, 16),
+        (3, 1),
+        (3, 2),
+        (3, 4),
+        (3, 8),
+        (4, 8),
+        (4, 16),
+        (6, 8),
+        (6, 16),
+    ];
+
+    fn image() -> impl Strategy<Value = Vec<u8>> {
+        (0..FORMATS.len(), 1u32..24, 1u32..24).prop_flat_map(|(f, w, h)| {
+            let (color_type, bit_depth) = FORMATS[f];
+            let channels = match color_type {
+                0 | 3 => 1,
+                2 => 3,
+                4 => 2,
+                _ => 4,
+            };
+            let row = (w as usize * channels * bit_depth as usize).div_ceil(8) + 1;
+            proptest::collection::vec(any::<u8>(), row * h as usize).prop_map(move |mut raw| {
+                for tag in raw.chunks_exact_mut(row).map(|r| &mut r[0]) {
+                    *tag %= 5;
+                }
+                build(w, h, color_type, bit_depth, &raw)
+            })
+        })
+    }
+
+    fn rows() -> impl Strategy<Value = Vec<u32>> {
+        proptest::collection::vec(0u32..30, 0..8)
+    }
+
+    fn pairs() -> impl Strategy<Value = Vec<(u32, u32)>> {
+        proptest::collection::vec((0u32..30, 0u32..30), 0..8)
+    }
+
+    fn filter_type() -> impl Strategy<Value = FilterType> {
+        prop_oneof![
+            Just(FilterType::None),
+            Just(FilterType::Sub),
+            Just(FilterType::Up),
+            Just(FilterType::Average),
+            Just(FilterType::Paeth),
+        ]
+    }
+
+    /// Applies `effect` through `PngGlitch::apply` and through a `ScanLines` view, and
+    /// `reference` to a third copy; all three must agree.
+    fn check<E: ScanLinesEffect>(
+        file: Vec<u8>,
+        effect: E,
+        reference: impl Fn(&E, &mut PngGlitch),
+    ) -> Result<(), TestCaseError> {
+        let parse = || PngGlitch::from_bytes(file.clone()).unwrap();
+        let mut expected = parse();
+        reference(&effect, &mut expected);
+        let mut applied = parse();
+        Effect::apply_to(&effect, &mut applied);
+        let mut viewed = parse();
+        effect.apply_to_scan_lines(&mut viewed.scan_lines_mut());
+        prop_assert_eq!(applied.data(), expected.data());
+        prop_assert_eq!(viewed.data(), expected.data());
+        Ok(())
+    }
+
+    proptest! {
+        #[test]
+        fn set_filter_types(png in image(), types in proptest::collection::vec(proptest::option::of(filter_type()), 0..30)) {
+            check(png, SetFilterTypes::new(types), reference::set_filter_types)?;
+        }
+
+        #[test]
+        fn set_bytes(png in image(), edits in proptest::collection::vec((0u32..30, 0usize..200, any::<u8>()), 0..10)) {
+            let edits = edits.into_iter().map(|(line, index, value)| ByteEdit { line, index, value }).collect();
+            check(png, SetBytes::new(edits), reference::set_bytes)?;
+        }
+
+        #[test]
+        fn substitute(png in image(), index in 0usize..200, value in any::<u8>()) {
+            check(png, Substitute::new(index, value), reference::substitute)?;
+        }
+
+        #[test]
+        fn swap_lines(png in image(), swaps in pairs()) {
+            check(png, SwapLines::new(swaps), reference::swap_lines)?;
+        }
+
+        #[test]
+        fn copy_lines(png in image(), copies in pairs()) {
+            check(png, CopyLines::new(copies), reference::copy_lines)?;
+        }
+
+        #[test]
+        fn shift_lines(png in image(), shifts in proptest::collection::vec((0u32..30, 0usize..400), 0..8)) {
+            let shifts = shifts.into_iter().map(|(line, shift)| LineShift { line, shift }).collect();
+            check(png, ShiftLines::new(shifts), reference::shift_lines)?;
+        }
+
+        #[test]
+        fn pixel_sort(png in image(), hue in any::<bool>(), rows in rows()) {
+            let criterion = if hue { SortCriterion::Hue } else { SortCriterion::Brightness };
+            check(png, PixelSort::new(criterion, rows), reference::pixel_sort)?;
+        }
+
+        #[test]
+        fn bitwise(png in image(), op in 0..3usize, value in any::<u8>(), rows in rows()) {
+            let op = [BitOp::And, BitOp::Or, BitOp::Xor][op];
+            check(png, Bitwise::new(op, value, rows), reference::bitwise)?;
+        }
+
+        #[test]
+        fn swap_channels(png in image(), target in 0..3usize, rows in rows()) {
+            let target = [SwapTarget::Rg, SwapTarget::Gb, SwapTarget::Br][target];
+            check(png, SwapChannels::new(target, rows), reference::swap_channels)?;
+        }
+
+        #[test]
+        fn offset_colors(
+            png in image(),
+            lines in proptest::collection::vec(
+                (0u32..30, proptest::collection::vec(any::<[i16; 3]>(), 0..30)), 0..6),
+        ) {
+            let lines = lines.into_iter().map(|(line, offsets)| LineOffsets { line, offsets }).collect();
+            check(png, OffsetColors::new(lines), reference::offset_colors)?;
+        }
+
+        #[test]
+        fn hsl_shift(png in image(), hue in -720.0f64..720.0, sat in 0.0f64..3.0, light in 0.0f64..3.0, rows in rows()) {
+            check(png, HslShift::new(hue, sat, light, rows), reference::hsl_shift)?;
+        }
+
+        #[test]
+        fn channel_shift(png in image(), r in -40i32..40, g in -40i32..40, b in -40i32..40, rows in rows()) {
+            check(png, ChannelShift::new(r, g, b, rows), reference::channel_shift)?;
+        }
+
+        #[test]
+        fn swap_blocks(
+            png in image(),
+            block_size in 0u32..6,
+            swaps in proptest::collection::vec(((0u32..6, 0u32..6), (0u32..6, 0u32..6)), 0..8),
+        ) {
+            let swaps = swaps.into_iter().map(|(src, dst)| BlockSwap { src, dst }).collect();
+            check(png, SwapBlocks::new(block_size, swaps), reference::swap_blocks)?;
+        }
     }
 }
