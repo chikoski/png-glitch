@@ -1,6 +1,6 @@
 use crate::{FilterType, ScanLine};
 
-mod kernels;
+pub(crate) mod kernels;
 #[cfg(test)]
 mod reference;
 

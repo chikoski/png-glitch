@@ -748,6 +748,7 @@ dependencies = [
  "crc32fast",
  "fdeflate",
  "image",
+ "png",
  "proptest",
  "rayon",
  "thiserror",

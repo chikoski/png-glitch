@@ -41,6 +41,36 @@ impl Header {
         })
     }
 
+    /// Builds a header for an image created in memory (no file involved), with the standard
+    /// compression, filter and (non-)interlace methods. The IHDR chunk gets a fresh CRC.
+    pub(crate) fn from_parts(
+        width: u32,
+        height: u32,
+        bit_depth: u8,
+        color_type: ColorType,
+    ) -> Result<Header, PngError> {
+        if width == 0 || height == 0 || width > MAX_PNG_DIMENSION || height > MAX_PNG_DIMENSION {
+            return Err(PngError::InvalidDimensions { width, height });
+        }
+        if !color_type.is_valid_bit_depth(bit_depth) {
+            return Err(PngError::InvalidBitDepth {
+                color_type: color_type.code(),
+                bit_depth,
+            });
+        }
+        let mut data = Vec::with_capacity(13);
+        data.extend_from_slice(&width.to_be_bytes());
+        data.extend_from_slice(&height.to_be_bytes());
+        data.extend_from_slice(&[bit_depth, color_type.code(), 0, 0, 0]);
+        Header::new(
+            width,
+            height,
+            bit_depth,
+            color_type,
+            Chunk::with_recomputed_crc(ChunkType::Start, data),
+        )
+    }
+
     /// The method returns the width of the PNG image.
     pub fn width(&self) -> u32 {
         self.metadata.width

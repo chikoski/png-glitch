@@ -9,7 +9,7 @@ pub use pixel::Pixel;
 use std::io::{Read, Write};
 use std::ops::{Index, IndexMut, Range};
 
-mod filter;
+pub(crate) mod filter;
 mod filter_type;
 mod pixel;
 

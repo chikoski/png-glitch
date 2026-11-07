@@ -100,6 +100,99 @@ pub fn filter(ft: FilterType, bpp: usize, cur: &mut [u8], prev: Option<&[u8]>) {
     }
 }
 
+// ---- Heuristic cost (for adaptive filter selection) -------------------------------------------
+
+/// libpng's "minimum sum of absolute differences" cost of filtering `cur` with `ft`: the sum of
+/// `|filtered byte as i8|`. Nothing is written and nothing is allocated, so a caller can compare
+/// all five filter types for a row without a scratch row.
+pub fn filter_cost(ft: FilterType, bpp: usize, cur: &[u8], prev: Option<&[u8]>) -> u64 {
+    match ft {
+        FilterType::None => cost_by(bpp, cur, prev, |_, _, _| 0),
+        FilterType::Sub => cost_by(bpp, cur, prev, |left, _, _| left),
+        FilterType::Up => cost_by(bpp, cur, prev, |_, top, _| top),
+        FilterType::Average => cost_by(bpp, cur, prev, |left, top, _| average(left, top)),
+        FilterType::Paeth => cost_by(bpp, cur, prev, paeth),
+    }
+}
+
+fn cost_by(bpp: usize, cur: &[u8], prev: Option<&[u8]>, predict: impl Fn(u8, u8, u8) -> u8) -> u64 {
+    if let Some(prev) = prev
+        && let Some(sum) = cost_flat(bpp, cur, prev, &predict)
+    {
+        return sum;
+    }
+    // First row (no row above) or rows of different lengths: the simple iterator form.
+    let lefts = std::iter::repeat_n(0u8, bpp).chain(cur.iter().copied());
+    match prev {
+        Some(prev) => cost_sum(
+            cur,
+            lefts,
+            prev.iter().copied(),
+            std::iter::repeat_n(0u8, bpp).chain(prev.iter().copied()),
+            predict,
+        ),
+        None => cost_sum(
+            cur,
+            lefts,
+            std::iter::repeat(0u8),
+            std::iter::repeat(0u8),
+            predict,
+        ),
+    }
+}
+
+#[inline(always)]
+fn cost_of(c: u8, predicted: u8) -> u64 {
+    u64::from((c.wrapping_sub(predicted) as i8).unsigned_abs())
+}
+
+/// The same cost as `cost_sum`, as flat zips over shifted slices (left = `cur` shifted by `bpp`,
+/// top-left = `prev` shifted by `bpp`) so LLVM can vectorise it. `None` if the rows do not have
+/// the same length or are shorter than one pixel.
+fn cost_flat(
+    bpp: usize,
+    cur: &[u8],
+    prev: &[u8],
+    predict: &impl Fn(u8, u8, u8) -> u8,
+) -> Option<u64> {
+    if prev.len() != cur.len() {
+        return None;
+    }
+    let (cur_first, cur_rest) = cur.split_at_checked(bpp)?;
+    let (top_first, top_rest) = prev.split_at_checked(bpp)?;
+    let shifted = cur.len() - bpp;
+    let (cur_left, top_left) = (cur.get(..shifted)?, prev.get(..shifted)?);
+
+    let first: u64 = cur_first
+        .iter()
+        .zip(top_first)
+        .map(|(&c, &t)| cost_of(c, predict(0, t, 0)))
+        .sum();
+    let rest: u64 = cur_rest
+        .iter()
+        .zip(cur_left)
+        .zip(top_rest)
+        .zip(top_left)
+        .map(|(((&c, &l), &t), &tl)| cost_of(c, predict(l, t, tl)))
+        .sum();
+    Some(first + rest)
+}
+
+fn cost_sum(
+    cur: &[u8],
+    lefts: impl Iterator<Item = u8>,
+    tops: impl Iterator<Item = u8>,
+    top_lefts: impl Iterator<Item = u8>,
+    predict: impl Fn(u8, u8, u8) -> u8,
+) -> u64 {
+    let mut sum = 0u64;
+    for (((c, l), t), tl) in cur.iter().zip(lefts).zip(tops).zip(top_lefts) {
+        let filtered = c.wrapping_sub(predict(l, t, tl)) as i8;
+        sum += u64::from(filtered.unsigned_abs());
+    }
+    sum
+}
+
 // ---- Up -------------------------------------------------------------------------------------
 
 fn up_unfilter(cur: &mut [u8], prev: Option<&[u8]>) {

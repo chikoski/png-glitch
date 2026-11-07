@@ -4,6 +4,7 @@
 #![allow(clippy::indexing_slicing)]
 
 use crate::operation::{Encode, Scan, Transpose};
+pub use crate::png::live::{Encoding, FilterStrategy, PixelSource};
 use crate::png::parser::Header;
 use crate::png::parser::Parser;
 use crate::png::parser::Terminator;
@@ -20,6 +21,7 @@ use std::fs::File;
 use std::ops::Range;
 use std::path::Path;
 
+mod live;
 mod parser;
 mod png_error;
 mod scan_line;
