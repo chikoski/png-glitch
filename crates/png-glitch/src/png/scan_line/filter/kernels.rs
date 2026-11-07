@@ -203,26 +203,46 @@ fn average_filter_n<const BPP: usize>(cur: &mut [u8], prev: Option<&[u8]>) {
 
 // ---- Paeth ----------------------------------------------------------------------------------
 
-/// Arithmetic type of the Paeth predictor. `a + b - 2c` needs 10 bits, so `i16` is enough; wasm
-/// measured faster with 32-bit lanes (four of them fill a `v128`), native with 16-bit lanes.
+/// Arithmetic type of the Paeth predictor when reconstructing. `a + b - 2c` needs 10 bits, so
+/// `i16` is enough; wasm measured faster with 32-bit lanes for reconstruction (four of them fill
+/// a `v128`), native with 16-bit lanes. Filtering always uses `i16` (see [`paeth_filter_n`]).
 #[cfg(target_arch = "wasm32")]
 type Lane = i32;
 #[cfg(not(target_arch = "wasm32"))]
 type Lane = i16;
 
-/// The Paeth predictor. The comparisons are written as selects (no data-dependent branches) so
-/// LLVM can lower them to `select` / `bitselect` and run all channels of a pixel together.
+/// Defines a Paeth predictor `$name(a, b, c)` computed in `$lane` arithmetic. The comparisons are
+/// written as selects (no data-dependent branches) so LLVM can lower them to `select` /
+/// `bitselect`.
+macro_rules! paeth_predictor {
+    ($name:ident, $lane:ty) => {
+        #[inline(always)]
+        fn $name(a: $lane, b: $lane, c: $lane) -> $lane {
+            let pa = (b - c).abs(); // |p - a| with p = a + b - c
+            let pb = (a - c).abs(); // |p - b|
+            let pc = (a + b - c - c).abs(); // |p - c|
+            // Sequential minimum with ties going to the earlier candidate (a, then b, then c),
+            // which is the order the PNG specification requires.
+            let (best, pr) = if pb < pa { (pb, b) } else { (pa, a) };
+            if pc < best { c } else { pr }
+        }
+    };
+}
+paeth_predictor!(paeth_lane, Lane);
+paeth_predictor!(paeth_i16, i16);
+paeth_predictor!(paeth_i32, i32);
+
+/// The Paeth predictor for reconstruction.
 #[inline(always)]
 fn paeth(a: u8, b: u8, c: u8) -> u8 {
-    let (a, b, c) = (Lane::from(a), Lane::from(b), Lane::from(c));
-    let pa = (b - c).abs(); // |p - a| with p = a + b - c
-    let pb = (a - c).abs(); // |p - b|
-    let pc = (a + b - c - c).abs(); // |p - c|
-    // Sequential minimum with ties going to the earlier candidate (a, then b, then c), which is
-    // the order the PNG specification requires. Each step is a compare and two selects.
-    let (best, pr) = if pb < pa { (pb, b) } else { (pa, a) };
-    let pr = if pc < best { c } else { pr };
-    pr as u8
+    paeth_lane(Lane::from(a), Lane::from(b), Lane::from(c)) as u8
+}
+
+/// The Paeth predictor for filtering. 16-bit lanes put eight bytes in a `v128`; with `simd128`
+/// this was 4x faster than 32-bit lanes for the flat filter loop.
+#[inline(always)]
+fn paeth16(a: u8, b: u8, c: u8) -> u8 {
+    paeth_i16(i16::from(a), i16::from(b), i16::from(c)) as u8
 }
 
 fn paeth_unfilter_n<const BPP: usize>(cur: &mut [u8], prev: Option<&[u8]>) {
@@ -245,23 +265,74 @@ fn paeth_unfilter_n<const BPP: usize>(cur: &mut [u8], prev: Option<&[u8]>) {
     }
 }
 
+/// Bytes per block in [`paeth_filter_n`]. A multiple of every specialised pixel size, small
+/// enough for the two scratch arrays to stay on the stack.
+const PAETH_BLOCK: usize = 384;
+
+/// Paeth filtering. The predictor only reads *original* bytes, so unlike reconstruction there is
+/// no dependency along the row. The row is processed in blocks: the left and top-left
+/// neighbours of a block are copied into stack arrays first, and then one flat loop over the
+/// block computes every byte, which LLVM vectorises along the row (16 bytes at a time with
+/// `simd128`). No allocation.
 fn paeth_filter_n<const BPP: usize>(cur: &mut [u8], prev: Option<&[u8]>) {
-    match prev {
-        None => sub_filter_n::<BPP>(cur, None),
-        Some(prev) => {
-            let (pixels, _) = cur.as_chunks_mut::<BPP>();
-            let (tops, _) = prev.as_chunks::<BPP>();
-            let mut left = [0u8; BPP];
-            let mut top_left = [0u8; BPP];
-            for (px, top) in pixels.iter_mut().zip(tops) {
-                let original = *px;
-                for (((c, l), t), tl) in px.iter_mut().zip(&left).zip(top).zip(&top_left) {
-                    *c = c.wrapping_sub(paeth(*l, *t, *tl));
-                }
-                left = original;
-                top_left = *top;
-            }
+    let Some(prev) = prev else {
+        return sub_filter_n::<BPP>(cur, None);
+    };
+    if prev.len() != cur.len() {
+        // Not reachable through `filter::apply`, which pads the previous row.
+        return paeth_filter_pixels::<BPP>(cur, prev);
+    }
+    // Original bytes of the last pixel before the current block, in the current and the
+    // previous row.
+    let mut left = [0u8; BPP];
+    let mut top_left = [0u8; BPP];
+    // `lefts[k]` / `top_lefts[k]` are the bytes `BPP` positions before byte `k` of the block.
+    let mut lefts = [0u8; PAETH_BLOCK];
+    let mut top_lefts = [0u8; PAETH_BLOCK];
+    for (block, top) in cur.chunks_mut(PAETH_BLOCK).zip(prev.chunks(PAETH_BLOCK)) {
+        // `cur.len()` is a whole number of pixels and `PAETH_BLOCK` a multiple of `BPP`, so
+        // every block holds at least one pixel.
+        let Some(body_len) = block.len().checked_sub(BPP) else {
+            break;
+        };
+        let (body, last) = block.split_at(body_len);
+        let (top_body, top_last) = top.split_at(body_len);
+        let (lefts_head, lefts_tail) = lefts.split_at_mut(BPP);
+        let (top_lefts_head, top_lefts_tail) = top_lefts.split_at_mut(BPP);
+        copy(lefts_head, &left);
+        copy(lefts_tail, body);
+        copy(top_lefts_head, &top_left);
+        copy(top_lefts_tail, top_body);
+        copy(&mut left, last);
+        copy(&mut top_left, top_last);
+        for (((c, l), t), tl) in block.iter_mut().zip(&lefts).zip(top).zip(&top_lefts) {
+            *c = c.wrapping_sub(paeth16(*l, *t, *tl));
         }
+    }
+}
+
+/// Copies as many bytes as both slices hold (no length assertion, unlike `copy_from_slice`).
+#[inline(always)]
+fn copy(dst: &mut [u8], src: &[u8]) {
+    for (d, s) in dst.iter_mut().zip(src) {
+        *d = *s;
+    }
+}
+
+/// Per-pixel Paeth filtering for a previous row of another length: pixels past the shorter
+/// row are left unchanged, as in the other kernels.
+fn paeth_filter_pixels<const BPP: usize>(cur: &mut [u8], prev: &[u8]) {
+    let (pixels, _) = cur.as_chunks_mut::<BPP>();
+    let (tops, _) = prev.as_chunks::<BPP>();
+    let mut left = [0u8; BPP];
+    let mut top_left = [0u8; BPP];
+    for (px, top) in pixels.iter_mut().zip(tops) {
+        let original = *px;
+        for (((c, l), t), tl) in px.iter_mut().zip(&left).zip(top).zip(&top_left) {
+            *c = c.wrapping_sub(paeth(*l, *t, *tl));
+        }
+        left = original;
+        top_left = *top;
     }
 }
 
@@ -355,8 +426,60 @@ fn average_filter_4(cur: &mut [u8], prev: Option<&[u8]>) {
     }
 }
 
+/// Paeth reconstruction for 4-byte pixels. On wasm this uses [`paeth_unfilter_4_lanes`]. Other
+/// targets keep the per-channel loop: on x86-64, baseline SSE2 has no 32-bit `abs` / `min` and
+/// the lane form measured several times slower; other native targets were not measured.
 fn paeth_unfilter_4(cur: &mut [u8], prev: Option<&[u8]>) {
-    paeth_unfilter_n::<4>(cur, prev)
+    if cfg!(target_arch = "wasm32") {
+        paeth_unfilter_4_lanes(cur, prev)
+    } else {
+        paeth_unfilter_n::<4>(cur, prev)
+    }
+}
+
+/// Paeth reconstruction for 4-byte pixels, the four channels of a pixel computed together. The
+/// left-neighbour dependency rules out vectorising along the row, and the per-channel loop in
+/// [`paeth_unfilter_n`] is not vectorised across channels either. Here every step is a
+/// whole-array operation on `[i32; 4]`, which the SLP vectoriser turns into one `i32x4`
+/// instruction with `simd128`. The left pixel is carried widened, so it is not re-extended for
+/// every pixel. Compiled on every target so the native tests check it.
+pub(super) fn paeth_unfilter_4_lanes(cur: &mut [u8], prev: Option<&[u8]>) {
+    type Px = [i32; 4];
+    #[inline(always)]
+    fn widen(px: &[u8; 4]) -> Px {
+        let mut out: Px = [0; 4];
+        for (o, v) in out.iter_mut().zip(px) {
+            *o = i32::from(*v);
+        }
+        out
+    }
+
+    let Some(prev) = prev else {
+        return sub_unfilter_4(cur, None);
+    };
+    let mut left: Px = [0; 4];
+    let mut top_left: Px = [0; 4];
+    for (px, top) in cur
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
+        .zip(prev.as_chunks::<4>().0)
+    {
+        let top = widen(top);
+        let mut raw: Px = [0; 4];
+        for ((((r, x), a), b), c) in raw
+            .iter_mut()
+            .zip(px.iter())
+            .zip(&left)
+            .zip(&top)
+            .zip(&top_left)
+        {
+            *r = (i32::from(*x) + paeth_i32(*a, *b, *c)) & 0xff;
+        }
+        *px = raw.map(|v| v as u8);
+        left = raw;
+        top_left = top;
+    }
 }
 
 fn paeth_filter_4(cur: &mut [u8], prev: Option<&[u8]>) {
