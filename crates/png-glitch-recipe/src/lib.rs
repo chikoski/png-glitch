@@ -38,11 +38,13 @@ mod config;
 mod context;
 mod error;
 mod filters;
+mod live;
 
 pub use config::*;
 pub use context::*;
 pub use error::*;
 pub use filters::*;
+pub use live::{LiveRecipe, SeedMode, frame_seed};
 use resolve::{BuiltinFilter, Resolve};
 pub use resolve::{
     ImageHeader, Recipe, RecipeStep, ResolvedEffect, ResolvedRecipe, ResolvedStep, Step,

@@ -88,6 +88,33 @@ Add a deterministic `png-glitch` effect with `Recipe::then_effect`, or a step th
 cargo run -p png-glitch-recipe --example custom_effect
 ```
 
+### Live loop
+
+`LiveRecipe` runs a recipe on every frame of a `png_glitch::LivePipeline` (webcam frames, a canvas, game output). `SeedMode::Static` resolves once and reuses the same choices on every frame (no allocation per frame); `SeedMode::PerFrame` resolves before frame `n` with `frame_seed(seed, n)`. Both give the same bytes as `Recipe::run` on that frame's pixels with the same seed.
+
+```rust
+use png_glitch::{Encoding, FilterStrategy, FilterType, LivePipeline, PixelSource};
+use png_glitch_recipe::{FilterConfig, ImageHeader, LiveRecipe, Recipe, SeedMode};
+
+let (w, h) = (16u32, 16u32);
+let first = vec![128u8; (w * h * 4) as usize];
+let mut live = LivePipeline::new(
+    PixelSource::rgba8(w, h, &first),
+    Encoding::rgba8(FilterStrategy::Fixed(FilterType::Paeth)),
+)?;
+let recipe = Recipe::new().then(FilterConfig::Transpose { magnitude: 0.3 });
+let header = ImageHeader::of(live.model());
+let mut runner = LiveRecipe::new(recipe, header, Some(42), SeedMode::Static)?;
+
+let mut out = vec![0u8; first.len()];
+live.encode(&first)?;          // E
+runner.run(&mut live)?;        // G
+live.decode_into(&mut out)?;   // D
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+Steps such as `sub-filter` run as `regenerate(Fixed(t))`, a generation boundary. A user-defined step must wrap a `ScanLinesEffect` (`ResolvedEffect::new_live`), otherwise `LiveRecipe::new` returns `RecipeError::NotLive`. Without a seed, one OS seed is drawn when the runner is built and reported by `seed()`.
+
 ### GlitchContext
 
 ```rust

@@ -55,4 +55,11 @@ pub enum RecipeError {
     /// Enable the `os-rng` feature, or pass `Some(seed)`.
     #[error("a seed is required: this build has no OS random number generator (`os-rng` feature)")]
     SeedRequired,
+    /// A step cannot run in a live loop: it is a user-defined effect that is not a
+    /// `ScanLinesEffect` (wrap it with `ResolvedEffect::new_live`).
+    #[error("step cannot run in a live loop (it is not a ScanLinesEffect): {step}")]
+    NotLive {
+        /// Debug representation of the rejected step.
+        step: String,
+    },
 }

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### png-glitch-recipe: live recipes (#163)
+
+#### Added
+- `LiveRecipe`, `SeedMode` (`Static`, `PerFrame`) and `frame_seed(seed, frame)` (SplitMix64, with the ADR 0005 test vectors): run a `Recipe` on every frame of a `png_glitch::LivePipeline`. In both modes a frame equals `Recipe::run` on that frame's pixels with the same (per-frame) seed; `Refilter`-type steps (`sub-filter`, ...) run as `regenerate(Fixed(t))`. Without a seed, one OS seed is drawn when the runner is built and reported by `seed()`. A `Static` frame makes no heap allocation.
+- `ResolvedEffect::new_live` wraps a `ScanLinesEffect` so a user-defined step can run live; `ResolvedEffect::is_live`.
+- `RecipeError::NotLive`: a step that cannot run live (a user-defined `Effect` that is not a `ScanLinesEffect`), returned when the `LiveRecipe` is built.
+
 ### png-glitch: `regenerate` (#162)
 
 #### Added
