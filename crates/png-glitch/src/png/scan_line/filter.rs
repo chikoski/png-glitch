@@ -115,11 +115,17 @@ mod tests {
         }
     }
 
-    /// Random rows: bytes-per-pixel, pixel count, current row, previous row, whether a previous
-    /// row exists. Rows are arbitrary bytes, so "glitched" (not really filtered) input is covered.
+    /// Random rows of 1..=64 pixels.
     fn rows() -> impl Strategy<Value = (usize, Vec<u8>, Vec<u8>, bool)> {
-        prop::sample::select(vec![1usize, 2, 3, 4, 6, 8]).prop_flat_map(|bpp| {
-            (1usize..=64).prop_flat_map(move |pixels| {
+        rows_up_to(64)
+    }
+
+    /// Random rows: bytes-per-pixel, current row, previous row, whether a previous row exists.
+    /// Rows hold 1..=`max_pixels` pixels of arbitrary bytes, so "glitched" (not really
+    /// filtered) input is covered.
+    fn rows_up_to(max_pixels: usize) -> impl Strategy<Value = (usize, Vec<u8>, Vec<u8>, bool)> {
+        prop::sample::select(vec![1usize, 2, 3, 4, 6, 8]).prop_flat_map(move |bpp| {
+            (1usize..=max_pixels).prop_flat_map(move |pixels| {
                 let len = pixels * bpp;
                 (
                     Just(bpp),
@@ -153,35 +159,12 @@ mod tests {
 
         #[test]
         fn unfilter_matches_reference((bpp, cur, prev, has_prev) in rows()) {
-            for filter_type in FILTER_TYPES {
-                let mut prev_data = [vec![0u8], prev.clone()].concat();
-                let (color, depth) = format_for(bpp);
-                let width = (cur.len() / bpp) as u32;
-                let prev_line = ScanLine::new(&mut prev_data, color, depth, width);
-                let prev_ref = has_prev.then_some(&prev_line);
-
-                let (_, expected) =
-                    with_line(bpp, filter_type, &cur, |l| reference::remove(l, prev_ref));
-                let (_, actual) = with_line(bpp, filter_type, &cur, |l| remove(l, prev_ref));
-                prop_assert_eq!(actual, expected, "unfilter {:?} bpp {}", filter_type, bpp);
-            }
+            check_unfilter_matches_reference(bpp, &cur, &prev, has_prev)?;
         }
 
         #[test]
         fn filter_matches_reference((bpp, cur, prev, has_prev) in rows()) {
-            for filter_type in FILTER_TYPES {
-                let mut prev_data = [vec![0u8], prev.clone()].concat();
-                let (color, depth) = format_for(bpp);
-                let width = (cur.len() / bpp) as u32;
-                let prev_line = ScanLine::new(&mut prev_data, color, depth, width);
-                let prev_ref = has_prev.then_some(&prev_line);
-
-                let (_, expected) =
-                    with_line(bpp, FilterType::None, &cur, |l| reference::apply(filter_type, l, prev_ref));
-                let (_, actual) =
-                    with_line(bpp, FilterType::None, &cur, |l| apply(filter_type, l, prev_ref));
-                prop_assert_eq!(actual, expected, "filter {:?} bpp {}", filter_type, bpp);
-            }
+            check_filter_matches_reference(bpp, &cur, &prev, has_prev)?;
         }
 
         #[test]
@@ -193,6 +176,85 @@ mod tests {
                 kernels::unfilter(filter_type, bpp, &mut bytes, prev_row);
                 prop_assert_eq!(&bytes, &cur, "{:?} bpp {}", filter_type, bpp);
             }
+        }
+    }
+
+    fn check_unfilter_matches_reference(
+        bpp: usize,
+        cur: &[u8],
+        prev: &[u8],
+        has_prev: bool,
+    ) -> Result<(), TestCaseError> {
+        for filter_type in FILTER_TYPES {
+            let mut prev_data = [&[0u8][..], prev].concat();
+            let (color, depth) = format_for(bpp);
+            let width = (cur.len() / bpp) as u32;
+            let prev_line = ScanLine::new(&mut prev_data, color, depth, width);
+            let prev_ref = has_prev.then_some(&prev_line);
+
+            let (_, expected) =
+                with_line(bpp, filter_type, cur, |l| reference::remove(l, prev_ref));
+            let (_, actual) = with_line(bpp, filter_type, cur, |l| remove(l, prev_ref));
+            prop_assert_eq!(actual, expected, "unfilter {:?} bpp {}", filter_type, bpp);
+        }
+        Ok(())
+    }
+
+    fn check_filter_matches_reference(
+        bpp: usize,
+        cur: &[u8],
+        prev: &[u8],
+        has_prev: bool,
+    ) -> Result<(), TestCaseError> {
+        for filter_type in FILTER_TYPES {
+            let mut prev_data = [&[0u8][..], prev].concat();
+            let (color, depth) = format_for(bpp);
+            let width = (cur.len() / bpp) as u32;
+            let prev_line = ScanLine::new(&mut prev_data, color, depth, width);
+            let prev_ref = has_prev.then_some(&prev_line);
+
+            let (_, expected) = with_line(bpp, FilterType::None, cur, |l| {
+                reference::apply(filter_type, l, prev_ref)
+            });
+            let (_, actual) = with_line(bpp, FilterType::None, cur, |l| {
+                apply(filter_type, l, prev_ref)
+            });
+            prop_assert_eq!(actual, expected, "filter {:?} bpp {}", filter_type, bpp);
+        }
+        Ok(())
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(64))]
+
+        /// Rows longer than the Paeth filter's block (`PAETH_BLOCK` bytes), so that block
+        /// boundaries, and a short last block, are crossed for every pixel size.
+        #[test]
+        fn long_rows_match_reference((bpp, cur, prev, has_prev) in rows_up_to(400)) {
+            check_unfilter_matches_reference(bpp, &cur, &prev, has_prev)?;
+            check_filter_matches_reference(bpp, &cur, &prev, has_prev)?;
+        }
+
+        /// The lane-wise RGBA Paeth reconstruction that wasm builds use. Native builds don't
+        /// dispatch to it, so it is checked here directly against the reference.
+        #[test]
+        fn paeth_unfilter_4_lanes_matches_reference(
+            (cur, prev, has_prev) in (1usize..=400).prop_flat_map(|pixels| (
+                prop::collection::vec(any::<u8>(), pixels * 4),
+                prop::collection::vec(any::<u8>(), pixels * 4),
+                any::<bool>(),
+            ))
+        ) {
+            let mut prev_data = [&[0u8][..], &prev].concat();
+            let width = (cur.len() / 4) as u32;
+            let prev_line = ScanLine::new(&mut prev_data, ColorType::TrueColorAlpha, 8, width);
+            let prev_ref = has_prev.then_some(&prev_line);
+            let (_, expected) =
+                with_line(4, FilterType::Paeth, &cur, |l| reference::remove(l, prev_ref));
+
+            let mut actual = cur.clone();
+            kernels::paeth_unfilter_4_lanes(&mut actual, has_prev.then_some(prev.as_slice()));
+            prop_assert_eq!(actual, expected);
         }
     }
 
