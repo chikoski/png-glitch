@@ -1,4 +1,4 @@
-use crate::{Pixel, PngGlitch, ScanLine};
+use crate::{Pixel, PngGlitch, ScanLine, ScanLines};
 
 mod targeted;
 pub use targeted::{
@@ -13,25 +13,90 @@ pub use targeted::{
 /// Effects are infallible: out-of-range parameters are clamped or turn the effect
 /// into a no-op. Apply an effect with [`PngGlitch::apply`].
 ///
-/// Effects that only transform one scan line at a time should implement [`LineEffect`]
-/// instead; every [`LineEffect`] is an [`Effect`] automatically.
+/// The traits form a chain: every [`LineEffect`] is a [`ScanLinesEffect`], and every
+/// [`ScanLinesEffect`] is an [`Effect`]. Implement the narrowest trait that fits:
+/// [`LineEffect`] for per-row transforms, [`ScanLinesEffect`] for effects that look at
+/// several rows but only edit the scan-line layer, and [`Effect`] for effects that need the
+/// whole [`PngGlitch`] (such as [`Refilter`]).
 pub trait Effect {
     /// Applies the effect to the whole image.
     fn apply_to(&self, png: &mut PngGlitch);
 }
 
-/// A helper for implementing [`Effect`]s that transform each scan line independently.
+/// An effect that edits the scan-line layer through a [`ScanLines`] view.
 ///
-/// Anything that implements `LineEffect` (and is `Sync + Send`) implements [`Effect`]
-/// automatically, and is applied to all scan lines in parallel.
+/// The view has no operation that recomputes filtered values, changes the header or resizes
+/// the image, so a `ScanLinesEffect` can run in the live pipeline as well as on a file.
+/// Every `ScanLinesEffect` is an [`Effect`] automatically, and so is every [`LineEffect`]
+/// (applied to all rows in parallel).
+///
+/// # Allocation rule
+///
+/// `apply_to_scan_lines` should make **no heap allocation**: the live pipeline calls it once
+/// per frame. All built-in `ScanLinesEffect`s follow the rule except [`PixelSort`], which
+/// allocates a temporary pixel list per sorted row. Use [`ScanLines::scratch`] (or
+/// [`ScanLines::row_and_scratch`]) for temporary rows instead of a `Vec`, and use
+/// [`ScanLines::get_mut`] instead of [`PngGlitch::scan_lines`], which returns a `Vec`. The
+/// scratch buffer is one scan line long; an effect that needs more should not claim the rule.
+///
+/// # Examples
+/// A user type that implements only [`LineEffect`], or only [`Effect`], still compiles:
+/// ```
+/// use png_glitch::effects::{Effect, LineEffect, ScanLinesEffect};
+/// use png_glitch::{PngGlitch, ScanLine, ScanLines};
+///
+/// struct PerRow;
+/// impl LineEffect for PerRow {
+///     fn apply_to_line(&self, _: &mut ScanLine) {}
+/// }
+/// struct Whole;
+/// impl Effect for Whole {
+///     fn apply_to(&self, _: &mut PngGlitch) {}
+/// }
+/// struct Rows;
+/// impl ScanLinesEffect for Rows {
+///     fn apply_to_scan_lines(&self, lines: &mut ScanLines<'_>) {
+///         lines.swap(0, 1);
+///     }
+/// }
+/// fn takes_effect<E: Effect>(_: E) {}
+/// fn takes_scan_lines_effect<E: ScanLinesEffect>(_: E) {}
+/// takes_effect(PerRow);
+/// takes_effect(Whole);
+/// takes_effect(Rows);
+/// takes_scan_lines_effect(PerRow);
+/// takes_scan_lines_effect(Rows);
+/// ```
+///
+/// [`Refilter`] recomputes filtered values, so it is not a `ScanLinesEffect`:
+/// ```compile_fail
+/// use png_glitch::effects::{Refilter, ScanLinesEffect};
+/// fn takes_scan_lines_effect<E: ScanLinesEffect>(_: E) {}
+/// takes_scan_lines_effect(Refilter::new(png_glitch::FilterType::Sub));
+/// ```
+pub trait ScanLinesEffect {
+    /// Applies the effect to the scan lines of an image.
+    fn apply_to_scan_lines(&self, lines: &mut ScanLines<'_>);
+}
+
+/// A helper for implementing effects that transform each scan line independently.
+///
+/// Anything that implements `LineEffect` (and is `Sync + Send`) is a [`ScanLinesEffect`] and
+/// so an [`Effect`] automatically, and is applied to all scan lines in parallel.
 pub trait LineEffect {
     /// Applies the effect to a single scan line.
     fn apply_to_line(&self, line: &mut ScanLine);
 }
 
-impl<T: LineEffect + Sync + Send> Effect for T {
+impl<T: LineEffect + Sync + Send> ScanLinesEffect for T {
+    fn apply_to_scan_lines(&self, lines: &mut ScanLines<'_>) {
+        lines.par_for_each(|line| self.apply_to_line(line));
+    }
+}
+
+impl<T: ScanLinesEffect> Effect for T {
     fn apply_to(&self, png: &mut PngGlitch) {
-        png.par_foreach_scanline(|line| self.apply_to_line(line));
+        self.apply_to_scan_lines(&mut png.scan_lines_mut());
     }
 }
 
