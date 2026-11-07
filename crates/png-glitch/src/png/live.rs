@@ -179,6 +179,18 @@ fn fill(
         }
     }
 
+    filter_rows(data, stride, bpp, filter);
+}
+
+/// Filters every row of `data` (unfiltered scan lines, each with a filter-type byte slot) in
+/// place according to `filter` and writes the filter-type bytes. Allocation-free.
+///
+/// Rows are filtered bottom-up: row `y` needs row `y - 1` still unfiltered. An empty `Pattern`
+/// must be rejected by the caller; here it falls back to `None` rows.
+pub(crate) fn filter_rows(data: &mut [u8], stride: usize, bpp: usize, filter: &FilterStrategy) {
+    if stride == 0 {
+        return;
+    }
     let height = data.len() / stride;
     for y in (0..height).rev() {
         let (above, rest) = data.split_at_mut(y * stride);
@@ -258,6 +270,21 @@ impl Png {
             data,
             warnings: Vec::new(),
         })
+    }
+
+    /// `D` then `E` in place: see [`crate::PngGlitch::regenerate`].
+    pub(crate) fn regenerate(&mut self, strategy: &FilterStrategy) -> Result<(), PngError> {
+        if matches!(strategy, FilterStrategy::Pattern(p) if p.is_empty()) {
+            return Err(PngError::EmptyFilterPattern);
+        }
+        self.remove_filter();
+        let bpp = crate::png::scan_line::bytes_per_pixel(
+            self.header.color_type(),
+            self.header.bit_depth(),
+        );
+        let stride = self.header.scan_line_width();
+        filter_rows(&mut self.data, stride, bpp, strategy);
+        Ok(())
     }
 
     /// Refills the scan lines from `rgba` without allocating. `enc` must be the encoding the
