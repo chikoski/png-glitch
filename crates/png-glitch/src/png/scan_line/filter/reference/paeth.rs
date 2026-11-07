@@ -4,7 +4,7 @@
 #![allow(clippy::indexing_slicing)]
 
 use crate::ScanLine;
-use crate::png::scan_line::filter::byte::{
+use crate::png::scan_line::filter::reference::byte::{
     add_without_overflow, byte_in_pixel, byte_in_previous_line, byte_in_previous_pixel,
     byte_in_previous_pixel_in_previous_line, sub_without_overflow,
 };

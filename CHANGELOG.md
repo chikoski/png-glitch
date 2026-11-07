@@ -32,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### png-glitch
 
+#### Changed
+- Rewrote the scan-line filter and unfilter kernels (#97): slice-based loops specialised per filter type and bytes per pixel, wrapping arithmetic, no per-byte bounds checks, a branch-free Paeth predictor, and `u32` SWAR arithmetic for 4-byte pixels. Output is byte-identical (checked against the previous implementation, kept as a test-only oracle, with property tests). 1080p RGBA at one thread, p50, native: unfilter Sub 9.8 → 2.3 ms, Average 14.0 → 4.9 ms, Paeth 38.4 → 10.3 ms; filter Paeth 40.6 → 6.3 ms. See the PR for wasm numbers.
+- `proptest` is a new dev-dependency of `png-glitch`.
+
 #### Added
 - `parallel` feature (default on). Without it `par_foreach_scanline` runs sequentially with the same signature and output.
 

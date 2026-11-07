@@ -4,8 +4,8 @@
 #![allow(clippy::indexing_slicing)]
 
 use crate::ScanLine;
-use crate::png::scan_line::filter::byte;
-use crate::png::scan_line::filter::byte::{add_without_overflow, sub_without_overflow};
+use crate::png::scan_line::filter::reference::byte;
+use crate::png::scan_line::filter::reference::byte::{add_without_overflow, sub_without_overflow};
 
 /// The function removes the average filter from a scan line.
 /// The `line` parameter is the scan line to remove the filter from.

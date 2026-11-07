@@ -17,6 +17,7 @@ thiserror.workspace = true
 
 [dev-dependencies]
 image.workspace = true
+proptest = "1"
 
 [features]
 default = ["parallel"]
