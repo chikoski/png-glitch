@@ -1,6 +1,6 @@
 //! `LivePipeline`: the per-frame loop `D(G(E(frame)))` as one owner (ADR 0005, decision 1).
 
-use super::{Encoding, PixelSource, PngError, Renderer, ScanLines};
+use super::{Encoding, FilterStrategy, PixelSource, PngError, Renderer, ScanLines};
 use crate::PngGlitch;
 
 /// A live frame loop over one model: encode pixels into scan lines (`E`), glitch the scan lines
@@ -91,6 +91,17 @@ impl LivePipeline {
     /// The errors of [`Renderer::render_into`].
     pub fn decode_into(&mut self, out: &mut [u8]) -> Result<(), PngError> {
         self.renderer.render_into(&self.model, out)
+    }
+
+    /// An explicit generation boundary: [`PngGlitch::regenerate`] on the model. Removes the
+    /// filters (`D`) and applies `strategy` (`E`), so glitches so far are baked into the pixels.
+    /// It does not count as a frame, and the pipeline's [`encoding`](Self::encoding) is
+    /// unchanged: the next [`encode`](Self::encode) still uses it.
+    ///
+    /// # Errors
+    /// [`PngError::EmptyFilterPattern`] for an empty `Pattern`.
+    pub fn regenerate(&mut self, strategy: &FilterStrategy) -> Result<(), PngError> {
+        self.model.regenerate(strategy).map(|_| ())
     }
 
     /// Serializes the current scan lines as a PNG (compression and checksums run here; it

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### png-glitch: `regenerate` (#162)
+
+#### Added
+- `PngGlitch::regenerate(&FilterStrategy) -> Result<&mut Self, PngError>` and `LivePipeline::regenerate`: an explicit generation boundary that removes the filters (`D`) and applies `Fixed`, `Pattern` or `Adaptive` (`E`) in place, on any model. An empty `Pattern` is `PngError::EmptyFilterPattern`, returned before anything changes. `regenerate(&FilterStrategy::Fixed(t))` gives the same bytes as `reencode_with(t)`. It makes no heap allocation for `Fixed` and `Pattern`.
+
 ### png-glitch: `ScanLinesEffect` (#161)
 
 #### Added

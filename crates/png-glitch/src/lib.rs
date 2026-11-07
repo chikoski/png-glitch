@@ -215,6 +215,39 @@ impl PngGlitch {
         self.png.reload_pixels(rgba, enc)
     }
 
+    /// Recomputes every filtered value with `strategy`, in place: an **explicit generation
+    /// boundary**. It removes the filters (`D`) and applies new ones (`E`), so earlier glitches
+    /// are baked into the pixels; the reconstructed pixels do not change, only the scan lines.
+    ///
+    /// It works on any model, including ones opened from files, for every color type and bit
+    /// depth, and uses the same [`FilterStrategy`] as [`from_pixels`](Self::from_pixels), with
+    /// the same filter-type bytes for the same pixels.
+    /// `regenerate(&FilterStrategy::Fixed(t))` gives the same bytes as
+    /// [`reencode_with(t)`](Self::reencode_with), which is that special case. It makes no heap
+    /// allocation for `Fixed` and `Pattern`.
+    ///
+    /// A model made by `from_pixels` keeps its original [`Encoding`]: a later
+    /// [`reload_pixels`](Self::reload_pixels) uses that encoding's strategy, not `strategy`.
+    ///
+    /// # Errors
+    /// [`PngError::EmptyFilterPattern`] for an empty `Pattern`, before anything is changed.
+    ///
+    /// ```
+    /// use png_glitch::{Encoding, FilterStrategy, FilterType, PixelSource, PngGlitch};
+    /// let pixels = vec![200u8; 4 * 4 * 4];
+    /// let mut png = PngGlitch::from_pixels(
+    ///     PixelSource::rgba8(4, 4, &pixels),
+    ///     Encoding::rgba8(FilterStrategy::Fixed(FilterType::Sub)),
+    /// )?;
+    /// png.regenerate(&FilterStrategy::Fixed(FilterType::Paeth))?;
+    /// assert!(png.regenerate(&FilterStrategy::Pattern(vec![])).is_err());
+    /// # Ok::<(), png_glitch::PngError>(())
+    /// ```
+    pub fn regenerate(&mut self, strategy: &FilterStrategy) -> Result<&mut Self, PngError> {
+        self.png.regenerate(strategy)?;
+        Ok(self)
+    }
+
     /// Creates a `PngGlitch` object from a byte buffer (`Vec<u8>` or `&[u8]`).
     #[deprecated(
         since = "0.8.0",
@@ -339,6 +372,7 @@ impl PngGlitch {
     }
 
     /// Re-encodes all scan lines with the given PNG filter type (`remove_filter` followed by `apply_filter`).
+    /// This is the special case [`regenerate(&FilterStrategy::Fixed(filter_type))`](Self::regenerate).
     pub fn reencode_with(&mut self, filter_type: FilterType) -> &mut Self {
         self.png.change_filter_type(filter_type);
         self

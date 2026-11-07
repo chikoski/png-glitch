@@ -86,6 +86,7 @@ Current operations:
 | `PngGlitch::remove_filter`, `remove_filter_from` | Reconstructs rows (`D`) | **Yes** |
 | `PngGlitch::apply_filter`, `apply_filter_from` | Filters rows (`E`) | **Yes** |
 | `PngGlitch::reencode_with`, `change_filter_type` (alias) | Removes the filter, then applies another one | **Yes** (full `D` then `E`) |
+| `PngGlitch::regenerate`, `LivePipeline::regenerate` | Removes the filters, then applies a `FilterStrategy` (`Fixed`, `Pattern`, `Adaptive`); `reencode_with` is the `Fixed` case | **Yes** (full `D` then `E`) |
 | png-glitch-recipe `RemoveFilter`, `SubFilter`, `UpFilter`, `AverageFilter`, `PaethFilter`; CLI `--remove-filter`, `--sub`, `--up`, `--average`, `--paeth`, `--pre-process` | Call `change_filter_type` internally | **Yes** |
 
 ### Review checklist
@@ -129,6 +130,7 @@ Because `png-glitch` operates at both the PNG container level and the artistic e
 | Term | Crate | Meaning |
 | :--- | :--- | :--- |
 | **PNG Filter** (`FilterType`) | `png-glitch` | One of the 5 PNG scanline prediction algorithms (`None`, `Sub`, `Up`, `Average`, `Paeth`) from the PNG spec. Manipulated via `PngGlitch::reencode_with`, `set_filter_type`, `apply_filter`, and `remove_filter`. |
+| **`regenerate`** | `png-glitch` | `PngGlitch::regenerate(&FilterStrategy)` / `LivePipeline::regenerate`: an explicit generation boundary. Full `D` then `E` in place with `Fixed`, `Pattern` or `Adaptive`; earlier glitches are baked into the pixels. `reencode_with(t)` is the `Fixed(t)` case. |
 | **Effect** (`Effect`) | `png-glitch::effects` | A deterministic operation on a PNG, with parameters (`Invert`, `Brighten`, `Darken`, `ShiftChannels`), applied via `PngGlitch::apply`. Effects are infallible. Formerly called *preset* (`GlitchPreset`, `presets`; deprecated aliases kept for one release). |
 | **`ScanLinesEffect`** | `png-glitch::effects` | Trait for effects that edit the scan-line layer through a `ScanLines` view (`apply_to_scan_lines`). Every `ScanLinesEffect` is an `Effect`. A built-in one makes no heap allocation (temporary rows use `ScanLines::scratch()`); `PixelSort` is the documented exception. `Refilter` is not one, because it recomputes filtered values. |
 | **`LineEffect`** | `png-glitch::effects` | Helper trait for effects that transform each scan line independently. Every `LineEffect` is a `ScanLinesEffect`, and so an `Effect`, and runs in parallel per line. |
