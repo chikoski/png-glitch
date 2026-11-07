@@ -5,6 +5,7 @@
 
 use crate::operation::{Encode, Scan, Transpose};
 pub use crate::png::live::{Encoding, FilterStrategy, PixelSource};
+pub use crate::png::live_pipeline::LivePipeline;
 use crate::png::parser::Header;
 use crate::png::parser::Parser;
 use crate::png::parser::Terminator;
@@ -14,6 +15,7 @@ pub use crate::png::png_error::{PngError, PngWarning};
 pub use crate::png::render::Renderer;
 pub use crate::png::scan_line::Pixel;
 pub use crate::png::scan_line::ScanLine;
+pub use crate::png::scan_lines::ScanLines;
 pub use parser::ColorType;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -23,10 +25,12 @@ use std::ops::Range;
 use std::path::Path;
 
 mod live;
+mod live_pipeline;
 mod parser;
 mod png_error;
 mod render;
 mod scan_line;
+mod scan_lines;
 
 /// A type alias for a vector of bytes representing decoded PNG data.
 pub type DecodedData = Vec<u8>;
