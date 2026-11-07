@@ -276,7 +276,7 @@ impl Recipe {
     pub fn resolve(&self, header: &ImageHeader, seed: Option<u64>) -> Result<ResolvedRecipe> {
         let (mut rng, seed) = match seed {
             Some(seed) => (ChaCha8Rng::seed_from_u64(seed), Some(seed)),
-            None => (ChaCha8Rng::from_os_rng(), None),
+            None => (crate::context::rng_from_seed(None)?, None),
         };
         let steps = self
             .steps

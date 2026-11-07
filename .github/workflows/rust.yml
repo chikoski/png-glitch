@@ -46,6 +46,8 @@ jobs:
       run: cargo test --workspace --release --verbose
     - name: Run doc tests
       run: cargo test --workspace --doc --verbose
+    - name: Run tests without default features
+      run: cargo test -p png-glitch -p png-glitch-recipe --no-default-features --verbose
 
   msrv:
     name: MSRV (1.89)
@@ -58,6 +60,21 @@ jobs:
     - uses: Swatinem/rust-cache@v2
     - name: Check workspace with the minimum supported Rust version
       run: cargo check --workspace
+
+  wasm:
+    name: WebAssembly build
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v7
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: wasm32-unknown-unknown,wasm32-wasip2
+    - uses: Swatinem/rust-cache@v2
+    - name: Build for wasm32-unknown-unknown
+      run: cargo build -p png-glitch -p png-glitch-recipe --no-default-features --target wasm32-unknown-unknown
+    - name: Build for wasm32-wasip2
+      run: cargo build -p png-glitch -p png-glitch-recipe --no-default-features --target wasm32-wasip2
 
   coverage:
     name: Coverage (informational)

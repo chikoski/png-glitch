@@ -89,6 +89,10 @@ Built-in effects available in `png_glitch::effects`:
 - **Memory Safety**: 100% safe Rust code with no `unsafe` blocks.
 - **Structured Pixels**: Manipulate images at the pixel level without worrying about raw byte offsets.
 
+# Cargo Features
+
+- `parallel` *(enabled by default)*: Runs `par_foreach_scanline` on a [rayon](https://crates.io/crates/rayon) thread pool. Without it the method keeps the same signature and runs sequentially in row order, with byte-identical output. Disable it for a smaller WebAssembly build: `png-glitch = { version = "0.7", default-features = false }`.
+
 # Contribution
 
 See the workspace [CONTRIBUTING.md](../../CONTRIBUTING.md) guide for setup, testing, and step-by-step instructions on adding new glitch filters.
