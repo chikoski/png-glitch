@@ -1,0 +1,5 @@
+# Darken after remove-filter: a plain brightness change instead of a glitch.
+filters:
+  - type: remove-filter
+  - type: darken
+    strength: 60

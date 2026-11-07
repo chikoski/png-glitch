@@ -1,0 +1,24 @@
+# The pipeline from the README's "Configuration File (YAML)" section.
+filters:
+  - type: remove-filter
+  - type: block-scramble
+    magnitude: 0.1
+    block_size: 32
+  - type: color-space-glitch
+    magnitude: 0.2
+    hue_shift: 90.0
+  - type: chromatic-aberration
+    magnitude: 0.1
+    r_offset: 3
+    b_offset: -3
+  - type: invert
+  - type: invert
+  - type: pixel-sort
+    magnitude: 0.1
+    criterion: hue
+  - type: horizontal-shift
+    magnitude: 0.05
+  - type: bitwise
+    magnitude: 0.02
+    op: xor
+    value: 255

@@ -1,0 +1,10 @@
+# Remove PNG filtering so pixel effects act on real colors, sort rows by hue, then rotate and boost the colors.
+filters:
+  - type: remove-filter
+  - type: pixel-sort
+    magnitude: 0.4
+    criterion: hue
+  - type: color-space-glitch
+    magnitude: 0.3
+    hue_shift: 60.0
+    saturation_mult: 1.6

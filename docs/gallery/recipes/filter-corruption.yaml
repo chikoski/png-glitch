@@ -1,0 +1,7 @@
+# Corrupt the PNG filter layer: wrong filter types make the decoder smear bytes down the image.
+filters:
+  - type: sub-filter
+  - type: change-filter-type
+    magnitude: 0.2
+  - type: replace
+    magnitude: 0.01

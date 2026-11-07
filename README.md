@@ -139,6 +139,8 @@ Run it with:
 % png-glitch input.png --config my_glitch.yaml
 ```
 
+See the [recipe gallery](docs/CLI_GUIDE.md#6-recipes) for ready-made recipes and the images they produce.
+
 ## Documentation
 
 - **[CLI Usage & Visual Gallery](docs/CLI_GUIDE.md)**: A comprehensive guide with visual examples.

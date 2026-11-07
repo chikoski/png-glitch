@@ -1,0 +1,13 @@
+# Shuffle large blocks, swap channels, then flip bits in a few scanlines.
+filters:
+  - type: remove-filter
+  - type: block-scramble
+    magnitude: 0.15
+    block_size: 64
+  - type: channel-swap
+    magnitude: 0.3
+    target: gb
+  - type: bitwise
+    magnitude: 0.03
+    op: xor
+    value: 255
