@@ -178,6 +178,9 @@ pub enum ResolvedStep {
     /// Does nothing (the step had nothing to do for this image).
     Noop,
     Refilter(fx::Refilter),
+    /// Recomputes the filtered values with a strategy (`PngGlitch::regenerate`). An empty
+    /// `Pattern` does nothing when executed.
+    Regenerate(png_glitch::FilterStrategy),
     SetFilterTypes(fx::SetFilterTypes),
     SetBytes(fx::SetBytes),
     Substitute(fx::Substitute),
@@ -205,6 +208,10 @@ impl ResolvedStep {
         match self {
             Self::Noop => {}
             Self::Refilter(e) => e.apply_to(png),
+            Self::Regenerate(strategy) => {
+                // Fails only for an empty pattern, and then changes nothing.
+                let _ = png.regenerate(strategy);
+            }
             Self::SetFilterTypes(e) => e.apply_to(png),
             Self::SetBytes(e) => e.apply_to(png),
             Self::Substitute(e) => e.apply_to(png),
@@ -235,7 +242,7 @@ impl ResolvedStep {
     pub(crate) fn execute_live(&self, lines: &mut ScanLines<'_>) -> Result<()> {
         match self {
             Self::Noop => {}
-            Self::Refilter(_) => return Err(self.not_live()),
+            Self::Refilter(_) | Self::Regenerate(_) => return Err(self.not_live()),
             Self::SetFilterTypes(e) => e.apply_to_scan_lines(lines),
             Self::SetBytes(e) => e.apply_to_scan_lines(lines),
             Self::Substitute(e) => e.apply_to_scan_lines(lines),
@@ -261,12 +268,15 @@ impl ResolvedStep {
         Ok(())
     }
 
-    /// The filter type if this step is a generation boundary (`Refilter`).
-    pub(crate) fn refilter_type(&self) -> Option<png_glitch::FilterType> {
-        match self {
-            Self::Refilter(r) => Some(r.filter_type),
-            _ => None,
-        }
+    /// Runs the step as a generation boundary if it is one (`Refilter`, `Regenerate`), else
+    /// returns `None`.
+    pub(crate) fn run_boundary(&self, live: &mut png_glitch::LivePipeline) -> Option<Result<()>> {
+        let result = match self {
+            Self::Refilter(r) => live.regenerate(&png_glitch::FilterStrategy::Fixed(r.filter_type)),
+            Self::Regenerate(strategy) => live.regenerate(strategy),
+            _ => return None,
+        };
+        Some(result.map_err(RecipeError::Encode))
     }
 
     /// Whether the live runner can run this step (as a scan-line effect or a boundary).
@@ -325,7 +335,7 @@ pub(crate) fn take_buffer<T>(
 macro_rules! builtin_filters {
     ($($name:ident),* $(,)?) => {
         /// A built-in filter, built from a [`FilterConfig`] without a heap allocation.
-        #[derive(Clone, Copy, Debug)]
+        #[derive(Clone, Debug)]
         pub(crate) enum Builtin {
             $($name($name),)*
         }
@@ -361,19 +371,17 @@ macro_rules! builtin_filters {
 }
 
 use crate::{
-    AverageFilter, Bitwise, BlockScramble, ChangeFilterType, ChannelSwap, ChromaticAberration,
-    ColorDistortion, ColorSpaceGlitch, HorizontalShift, PaethFilter, PixelSort, RandomCopy,
-    RemoveFilter, Replace, SetZero, SubFilter, Substitute, Transpose, UpFilter,
+    Bitwise, BlockScramble, ChangeFilterType, ChannelSwap, ChromaticAberration, ColorDistortion,
+    ColorSpaceGlitch, HorizontalShift, PixelSort, RandomCopy, Regenerate, Replace, SetFilterType,
+    SetZero, Substitute, Transpose, filters::Reencode,
 };
 use png_glitch::effects::{Brighten, Darken, Invert, ShiftChannels};
 
 builtin_filters!(
     ChangeFilterType,
-    RemoveFilter,
-    SubFilter,
-    UpFilter,
-    AverageFilter,
-    PaethFilter,
+    SetFilterType,
+    Regenerate,
+    Reencode,
     Replace,
     Transpose,
     RandomCopy,

@@ -56,11 +56,13 @@ Multiple filters can be combined and are applied in the exact order they appear 
 | `--random-copy <COUNT>` | `random-copy` / `RandomCopy` | PNG only | `times` (`usize`) | Copies random scanline bytes `COUNT` times. |
 | `--substitute <INDEX:VALUE>` | `substitute` / `Substitute` | PNG only | `index` (`usize`), `value` (`u8`) | Substitutes a single byte in the middle scanline. |
 | `--change-filter-type <MAG>` | `change-filter-type` / `ChangeFilterType` | PNG only | `magnitude` (`0.0..=1.0`) | Randomly changes PNG filter types across scanlines. |
-| `--remove-filter` | `remove-filter` / `RemoveFilter` | PNG only | — | Re-encodes all scanlines with PNG filter type `None` (recomputes the filtered values; it does not just change the filter-type tag). |
-| `--sub` (`--sub-filter`) | `sub-filter` / `SubFilter` | PNG only | — | Re-encodes all scanlines with PNG filter type `Sub` (recomputes the filtered values; it does not just change the filter-type tag). |
-| `--up` (`--up-filter`) | `up-filter` / `UpFilter` | PNG only | — | Re-encodes all scanlines with PNG filter type `Up` (recomputes the filtered values; it does not just change the filter-type tag). |
-| `--average` (`--average-filter`) | `average-filter` / `AverageFilter` | PNG only | — | Re-encodes all scanlines with PNG filter type `Average` (recomputes the filtered values; it does not just change the filter-type tag). |
-| `--paeth` (`--paeth-filter`) | `paeth-filter` / `PaethFilter` | PNG only | — | Re-encodes all scanlines with PNG filter type `Paeth` (recomputes the filtered values; it does not just change the filter-type tag). |
+| `-f set-filter-type=<TYPE>` | `set-filter-type` / `SetFilterType` | PNG only | `filter` (`none` \| `sub` \| `up` \| `average` \| `paeth`) | Overwrites the filter-type tag of **every** scanline and leaves the filtered bytes as they are (tag only; no value is recomputed). |
+| `-f regenerate=<STRATEGY>` | `regenerate` / `Regenerate` | PNG only | `strategy`: `{ fixed: <TYPE> }` \| `{ pattern: [<TYPE>, ..] }` \| `adaptive` (CLI: `paeth`, `sub,up,paeth`, `adaptive`) | Starts a new generation: recomputes every filtered value with the strategy. |
+| `--remove-filter` | `remove-filter` / `RemoveFilter` | PNG only | — | **Deprecated**, use `regenerate`. Re-encodes all scanlines with PNG filter type `None` (recomputes the filtered values; it does not just change the filter-type tag). |
+| `--sub` (`--sub-filter`) | `sub-filter` / `SubFilter` | PNG only | — | **Deprecated**, use `regenerate`. Re-encodes all scanlines with PNG filter type `Sub` (recomputes the filtered values; it does not just change the filter-type tag). |
+| `--up` (`--up-filter`) | `up-filter` / `UpFilter` | PNG only | — | **Deprecated**, use `regenerate`. Re-encodes all scanlines with PNG filter type `Up` (recomputes the filtered values; it does not just change the filter-type tag). |
+| `--average` (`--average-filter`) | `average-filter` / `AverageFilter` | PNG only | — | **Deprecated**, use `regenerate`. Re-encodes all scanlines with PNG filter type `Average` (recomputes the filtered values; it does not just change the filter-type tag). |
+| `--paeth` (`--paeth-filter`) | `paeth-filter` / `PaethFilter` | PNG only | — | **Deprecated**, use `regenerate`. Re-encodes all scanlines with PNG filter type `Paeth` (recomputes the filtered values; it does not just change the filter-type tag). |
 | `--macroblock-glitch <MAG>` | `macroblock-glitch` / `MacroblockGlitch` | WebP only | `magnitude` (`0.0..=1.0`) | Corrupts 16x16 VP8 macroblocks by swapping, duplicating, or zeroing. |
 | `--alpha-glitch <STRATEGY>` | `alpha-glitch` / `AlphaGlitch` | WebP only | `magnitude=1.0`, `strategy=noise` (`noise` \| `invert` \| `shift` \| `zero`) | Corrupts the alpha channel of RGBA WebP images. |
 | `--lossy-quality <QUALITY>` | `lossy-artifact` / `LossyArtifact` | WebP only | `quality` (`0.0..=100.0`) | Re-encodes through lossy VP8 at low quality to introduce block artifacts. |
@@ -74,6 +76,28 @@ Multiple filters can be combined and are applied in the exact order they appear 
 ```
 
 Accepted values: `remove-filter`, `sub-filter`, `up-filter`, `average-filter`, `paeth-filter`
+
+### Overwrite the tag, or recompute the values
+
+Two different operations (see the [Developer Guide](DEVELOPER_GUIDE.md)):
+
+```zsh
+# Tag only: every row is now *labelled* Paeth, the bytes are untouched. The decoder misreads them.
+% png-glitch input.png -f set-filter-type=paeth
+
+# New generation: the values are recomputed, so the image looks the same but its bytes change.
+% png-glitch input.png -f regenerate=paeth
+% png-glitch input.png -f regenerate=adaptive
+% png-glitch input.png -f regenerate=sub,up,paeth   # row i uses pattern[i % 3]
+```
+
+```yaml
+filters:
+  - type: regenerate
+    strategy: { fixed: paeth }   # or: adaptive, or { pattern: [sub, up, paeth] }
+  - type: set-filter-type
+    filter: up
+```
 
 ### Output & Reproducibility
 

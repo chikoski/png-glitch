@@ -34,3 +34,5 @@ This policy covers the library crates: `png-glitch`, `png-glitch-recipe`, `webp-
 | `PngGlitch::change_filter_type` | `PngGlitch::reencode_with` (recomputes values) or `PngGlitch::set_filter_type` (tag only) | png-glitch 0.8.0 |
 | `GlitchContext::change_filter_type` | `png_mut().reencode_with(..)` / `png_mut().set_filter_type(..)` | png-glitch-recipe 0.3.0 |
 | `RandomTranspose` | `Transpose` | png-glitch-recipe 0.3.0 |
+| `RemoveFilter`, `SubFilter`, `UpFilter`, `AverageFilter`, `PaethFilter` (structs; the `FilterConfig` variants and YAML/`-f` names keep loading and are documented as deprecated) | `Regenerate` with `RegenerateStrategy::Fixed(..)` (recompute) or `SetFilterType` (tag only) | png-glitch-recipe 0.3.0 |
+| CLI flags `--remove-filter`, `--sub`, `--up`, `--average`, `--paeth` | `-f regenerate=<type>` (recompute) or `-f set-filter-type=<type>` (tag only) | png-glitch-cli (next release) |

@@ -195,25 +195,25 @@ PNG Prediction Filter Re-encoding:
           - paeth-filter:   Re-encodes all scanlines with [`FilterType::Paeth`]
 
       --remove-filter
-          Re-encode all PNG scanlines with PNG prediction filter `None` (pipeline step, PNG only)
+          [deprecated: use `-f regenerate=none`] Re-encode all PNG scanlines with PNG prediction filter `None` (pipeline step, PNG only)
 
       --sub
-          Re-encode all PNG scanlines with PNG prediction filter `Sub` (pipeline step, PNG only)
+          [deprecated: use `-f regenerate=sub`] Re-encode all PNG scanlines with PNG prediction filter `Sub` (pipeline step, PNG only)
           
           [aliases: --sub-filter]
 
       --up
-          Re-encode all PNG scanlines with PNG prediction filter `Up` (pipeline step, PNG only)
+          [deprecated: use `-f regenerate=up`] Re-encode all PNG scanlines with PNG prediction filter `Up` (pipeline step, PNG only)
           
           [aliases: --up-filter]
 
       --average
-          Re-encode all PNG scanlines with PNG prediction filter `Average` (pipeline step, PNG only)
+          [deprecated: use `-f regenerate=average`] Re-encode all PNG scanlines with PNG prediction filter `Average` (pipeline step, PNG only)
           
           [aliases: --average-filter]
 
       --paeth
-          Re-encode all PNG scanlines with PNG prediction filter `Paeth` (pipeline step, PNG only)
+          [deprecated: use `-f regenerate=paeth`] Re-encode all PNG scanlines with PNG prediction filter `Paeth` (pipeline step, PNG only)
           
           [aliases: --paeth-filter]
 

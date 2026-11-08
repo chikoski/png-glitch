@@ -187,13 +187,7 @@ impl GlitchContext {
 
     /// Queues a pre-process filter that re-encodes all scanlines with a uniform PNG filter type.
     pub fn pre_process(&mut self, pre_process: PreProcess) {
-        match pre_process {
-            PreProcess::RemoveFilter => self.add_filter(RemoveFilter),
-            PreProcess::SubFilter => self.add_filter(SubFilter),
-            PreProcess::UpFilter => self.add_filter(UpFilter),
-            PreProcess::AverageFilter => self.add_filter(AverageFilter),
-            PreProcess::PaethFilter => self.add_filter(PaethFilter),
-        }
+        self.add_filter(Regenerate::new(RegenerateStrategy::Fixed(pre_process)));
     }
 
     /// Adds a filter from a [`FilterConfig`] definition.

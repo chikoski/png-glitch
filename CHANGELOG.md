@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### png-glitch-recipe, CLI: separate "set the filter type tag" from "recompute filtered values" (#139)
+
+#### Added
+- `FilterConfig::SetFilterType { filter }` (YAML `type: set-filter-type`, CLI `-f set-filter-type=paeth`): overwrites the tag of every row, tag only. Resolves to `SetFilterTypes`.
+- `FilterConfig::Regenerate { strategy }` (YAML `type: regenerate`, CLI `-f regenerate=paeth|adaptive|sub,up,paeth`): recomputes the filtered values with `PngGlitch::regenerate`. `RegenerateStrategy` (`Fixed`, `Pattern`, `Adaptive`) is the serializable strategy; YAML `strategy: adaptive`, `{ fixed: paeth }`, `{ pattern: [sub, up, paeth] }`. An empty pattern is an error when the recipe is parsed or resolved. `ResolvedStep::Regenerate`, the filters `SetFilterType` and `Regenerate`, and `PreProcess::filter_type()`. A `LiveRecipe` runs `Regenerate` as a generation boundary.
+- A trailing comma in `-f regenerate=` makes a one-element pattern (`regenerate=sub,`).
+
+#### Deprecated
+- The structs `RemoveFilter`, `SubFilter`, `UpFilter`, `AverageFilter`, `PaethFilter` (png-glitch-recipe 0.3.0) and the CLI flags `--remove-filter`, `--sub`, `--up`, `--average`, `--paeth` (they print a one-line warning to stderr; stdout and the output file are unchanged). The YAML types and `-f` specs `remove-filter`, `sub-filter`, ... keep loading and give the same bytes. `--pre-process` is kept.
+- Migration: `remove-filter` → `regenerate=none`, `sub-filter` → `regenerate=sub`, `up-filter` → `regenerate=up`, `average-filter` → `regenerate=average`, `paeth-filter` → `regenerate=paeth` (YAML: `type: regenerate`, `strategy: { fixed: <type> }`). Use `set-filter-type` if you want to overwrite the tag only.
+
+#### Changed
+- Output bytes of existing recipes are unchanged. The `--help` text of the five deprecated flags now starts with `[deprecated: ...]`.
+- `GlitchContext::pre_process` now queues `Regenerate` (same bytes).
+
 ### png-glitch-recipe: allocation-free `PerFrame` frames (#165)
 
 #### Added

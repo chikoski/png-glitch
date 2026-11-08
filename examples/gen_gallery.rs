@@ -12,10 +12,10 @@
 
 use anyhow::{Context, Result};
 use png_glitch_recipe::{
-    AverageFilter, BitOp, Bitwise, BlockScramble, Brighten, ChangeFilterType, ChromaticAberration,
+    BitOp, Bitwise, BlockScramble, Brighten, ChangeFilterType, ChromaticAberration,
     ColorDistortion, ColorSpaceGlitch, FilterConfig, GlitchContext, GlitchFilter, HorizontalShift,
-    Invert, PaethFilter, RandomCopy, Replace, SetZero, ShiftChannels, SortCriterion, SubFilter,
-    SwapTarget, Transpose, UpFilter,
+    Invert, PreProcess, RandomCopy, Regenerate, RegenerateStrategy, Replace, SetZero,
+    ShiftChannels, SortCriterion, SwapTarget, Transpose,
 };
 use serde::Deserialize;
 use std::fs;
@@ -197,10 +197,30 @@ fn main() -> Result<()> {
             value: 128,
         },
     )?;
-    generate_one(&sample_bytes, &out_dir, "sub.png", SubFilter)?;
-    generate_one(&sample_bytes, &out_dir, "up.png", UpFilter)?;
-    generate_one(&sample_bytes, &out_dir, "average.png", AverageFilter)?;
-    generate_one(&sample_bytes, &out_dir, "paeth.png", PaethFilter)?;
+    generate_one(
+        &sample_bytes,
+        &out_dir,
+        "sub.png",
+        Regenerate::new(RegenerateStrategy::Fixed(PreProcess::SubFilter)),
+    )?;
+    generate_one(
+        &sample_bytes,
+        &out_dir,
+        "up.png",
+        Regenerate::new(RegenerateStrategy::Fixed(PreProcess::UpFilter)),
+    )?;
+    generate_one(
+        &sample_bytes,
+        &out_dir,
+        "average.png",
+        Regenerate::new(RegenerateStrategy::Fixed(PreProcess::AverageFilter)),
+    )?;
+    generate_one(
+        &sample_bytes,
+        &out_dir,
+        "paeth.png",
+        Regenerate::new(RegenerateStrategy::Fixed(PreProcess::PaethFilter)),
+    )?;
     generate_one(
         &sample_bytes,
         &out_dir,
