@@ -287,15 +287,116 @@ impl ResolvedStep {
 /// Turns a built-in filter's parameters and random specification into a concrete step.
 pub(crate) trait Resolve {
     fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep;
+
+    /// Writes into `out` exactly what [`resolve`](Self::resolve) returns, with the same RNG
+    /// draws in the same order, but reuses the buffers already in `out` (and `scratch`) when
+    /// `out` holds the same kind of step. Capacity grows to the largest size seen, then stays.
+    ///
+    /// The default allocates like `resolve`; it is enough for steps without lists.
+    fn resolve_into(
+        &self,
+        header: &ImageHeader,
+        rng: &mut dyn RngCore,
+        out: &mut ResolvedStep,
+        _scratch: &mut StepScratch,
+    ) {
+        *out = self.resolve(header, rng);
+    }
 }
 
-/// A built-in filter: usable directly ([`GlitchFilter`]) and resolvable ([`Resolve`]).
-pub(crate) trait BuiltinFilter: GlitchFilter + Resolve {}
-impl<T: GlitchFilter + Resolve> BuiltinFilter for T {}
+/// Buffers a step keeps between [`Recipe::resolve_into`] calls that its [`ResolvedStep`] cannot
+/// hold: spare per-row lists of `ColorDistortion`, so that the number of distorted rows can
+/// change from frame to frame without allocating.
+#[derive(Default)]
+pub(crate) struct StepScratch {
+    pub(crate) offsets: Vec<Vec<[i16; 3]>>,
+}
 
-impl GlitchFilter for Box<dyn BuiltinFilter> {
+/// Takes the list that `field` finds in `out` (empty, with its capacity), or an empty `Vec`.
+pub(crate) fn take_buffer<T>(
+    out: &mut ResolvedStep,
+    field: impl FnOnce(&mut ResolvedStep) -> Option<&mut Vec<T>>,
+) -> Vec<T> {
+    let mut buf = field(out).map(std::mem::take).unwrap_or_default();
+    buf.clear();
+    buf
+}
+
+macro_rules! builtin_filters {
+    ($($name:ident),* $(,)?) => {
+        /// A built-in filter, built from a [`FilterConfig`] without a heap allocation.
+        #[derive(Clone, Copy, Debug)]
+        pub(crate) enum Builtin {
+            $($name($name),)*
+        }
+
+        $(
+            impl From<$name> for Builtin {
+                fn from(filter: $name) -> Self {
+                    Self::$name(filter)
+                }
+            }
+        )*
+
+        impl Resolve for Builtin {
+            fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
+                match self {
+                    $(Self::$name(f) => f.resolve(header, rng),)*
+                }
+            }
+
+            fn resolve_into(
+                &self,
+                header: &ImageHeader,
+                rng: &mut dyn RngCore,
+                out: &mut ResolvedStep,
+                scratch: &mut StepScratch,
+            ) {
+                match self {
+                    $(Self::$name(f) => f.resolve_into(header, rng, out, scratch),)*
+                }
+            }
+        }
+    };
+}
+
+use crate::{
+    AverageFilter, Bitwise, BlockScramble, ChangeFilterType, ChannelSwap, ChromaticAberration,
+    ColorDistortion, ColorSpaceGlitch, HorizontalShift, PaethFilter, PixelSort, RandomCopy,
+    RemoveFilter, Replace, SetZero, SubFilter, Substitute, Transpose, UpFilter,
+};
+use png_glitch::effects::{Brighten, Darken, Invert, ShiftChannels};
+
+builtin_filters!(
+    ChangeFilterType,
+    RemoveFilter,
+    SubFilter,
+    UpFilter,
+    AverageFilter,
+    PaethFilter,
+    Replace,
+    Transpose,
+    RandomCopy,
+    Substitute,
+    SetZero,
+    PixelSort,
+    Bitwise,
+    ChannelSwap,
+    HorizontalShift,
+    BlockScramble,
+    ColorDistortion,
+    ColorSpaceGlitch,
+    ChromaticAberration,
+    Invert,
+    Brighten,
+    Darken,
+    ShiftChannels,
+);
+
+impl GlitchFilter for Builtin {
     fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
-        (**self).apply(png, rng)
+        let header = ImageHeader::of(png);
+        self.resolve(&header, rng).execute(png);
     }
 }
 
@@ -381,10 +482,7 @@ impl Recipe {
             .steps
             .iter()
             .map(|step| match step {
-                Step::Config(config) => {
-                    let filter = filter_from_config(config.clone())?;
-                    Ok(filter.resolve(header, &mut rng))
-                }
+                Step::Config(config) => Ok(filter_from_config(config)?.resolve(header, &mut rng)),
                 Step::Custom(step) => Ok(ResolvedStep::Custom(step.resolve(header, &mut rng))),
             })
             .collect::<Result<Vec<_>>>()?;
@@ -392,7 +490,59 @@ impl Recipe {
             header: *header,
             seed,
             steps,
+            scratch: Vec::new(),
         })
+    }
+
+    /// Like [`resolve`](Self::resolve), but writes the result into `out`, reusing its buffers.
+    ///
+    /// `out` afterwards equals what `resolve(header, seed)` returns: the RNG draws are the same,
+    /// so seeds reproduce the same output. `out` can hold anything before, such as the result
+    /// for another seed, header or recipe.
+    ///
+    /// # Allocation
+    ///
+    /// When `out` already holds a step of the same kind at the same position (as it does when
+    /// the same recipe is resolved again for the same header, e.g. once per frame in a live loop),
+    /// that step's lists are cleared and refilled in place. On the first such call each list
+    /// reserves its upper bound (for "each row with probability `p`", the image height; for
+    /// `random-copy`, `times`; for `block-scramble`, the number of swaps), so later calls make
+    /// no heap allocation for built-in steps, whatever the seed. `color-distortion` also keeps
+    /// one spare offset list per image row, allocated on that first call (6 bytes per pixel).
+    ///
+    /// A user-defined step ([`Step::Custom`]) cannot reuse buffers: it is resolved as in
+    /// `resolve`, with whatever allocation its [`RecipeStep::resolve`] makes.
+    ///
+    /// # Errors
+    ///
+    /// The same as [`resolve`](Self::resolve). On error the content of `out` is unspecified
+    /// (still a valid value); resolve again before using it.
+    pub fn resolve_into(
+        &self,
+        header: &ImageHeader,
+        seed: Option<u64>,
+        out: &mut ResolvedRecipe,
+    ) -> Result<()> {
+        let (mut rng, seed) = match seed {
+            Some(seed) => (ChaCha8Rng::seed_from_u64(seed), Some(seed)),
+            None => (crate::context::rng_from_seed(None)?, None),
+        };
+        let n = self.steps.len();
+        out.steps.truncate(n);
+        out.steps.resize(n, ResolvedStep::Noop);
+        out.scratch.resize_with(n, StepScratch::default);
+        let slots = out.steps.iter_mut().zip(out.scratch.iter_mut());
+        for (step, (slot, scratch)) in self.steps.iter().zip(slots) {
+            match step {
+                Step::Config(config) => {
+                    filter_from_config(config)?.resolve_into(header, &mut rng, slot, scratch)
+                }
+                Step::Custom(step) => *slot = ResolvedStep::Custom(step.resolve(header, &mut rng)),
+            }
+        }
+        out.header = *header;
+        out.seed = seed;
+        Ok(())
     }
 
     /// Resolves the recipe for `png` and executes it on it.
@@ -404,11 +554,40 @@ impl Recipe {
 }
 
 /// A recipe whose parameters are all concrete, tied to the header it was resolved for.
-#[derive(Clone, Debug, PartialEq)]
 pub struct ResolvedRecipe {
     header: ImageHeader,
     seed: Option<u64>,
     steps: Vec<ResolvedStep>,
+    /// Spare buffers for [`Recipe::resolve_into`], one per step. Not part of the value: it is
+    /// ignored by `PartialEq` and `Debug`, and not cloned.
+    scratch: Vec<StepScratch>,
+}
+
+impl Clone for ResolvedRecipe {
+    fn clone(&self) -> Self {
+        Self {
+            header: self.header,
+            seed: self.seed,
+            steps: self.steps.clone(),
+            scratch: Vec::new(),
+        }
+    }
+}
+
+impl PartialEq for ResolvedRecipe {
+    fn eq(&self, other: &Self) -> bool {
+        self.header == other.header && self.seed == other.seed && self.steps == other.steps
+    }
+}
+
+impl fmt::Debug for ResolvedRecipe {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ResolvedRecipe")
+            .field("header", &self.header)
+            .field("seed", &self.seed)
+            .field("steps", &self.steps)
+            .finish()
+    }
 }
 
 impl ResolvedRecipe {

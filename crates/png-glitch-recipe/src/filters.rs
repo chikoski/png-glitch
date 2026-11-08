@@ -3,12 +3,44 @@
 
 use crate::*;
 
-/// Decides, for each row in order, whether it is selected with probability `magnitude`.
-pub(crate) fn draw_rows(header: &ImageHeader, rng: &mut dyn RngCore, magnitude: f64) -> Vec<u32> {
+/// Decides, for each row in order, whether it is selected with probability `magnitude`, and
+/// pushes the selected rows to `rows` (reserving the bound, the image height, first).
+pub(crate) fn draw_rows(
+    header: &ImageHeader,
+    rng: &mut dyn RngCore,
+    magnitude: f64,
+    rows: &mut Vec<u32>,
+) {
     let magnitude = clamp_magnitude(magnitude);
-    (0..header.height)
-        .filter(|_| rng.random_bool(magnitude))
-        .collect()
+    rows.reserve(header.height as usize);
+    rows.extend((0..header.height).filter(|_| rng.random_bool(magnitude)));
+}
+
+/// Implements [`Resolve`] for a filter with a `build(&self, header, rng, buf) -> ResolvedStep`
+/// method: `resolve` builds into a new list, and `resolve_into` into the list taken from `out`
+/// when `out` is a `$variant` (field `$field`).
+macro_rules! resolve_via_build {
+    ($t:ty, $variant:ident, $field:ident) => {
+        impl Resolve for $t {
+            fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
+                self.build(header, rng, Vec::new())
+            }
+
+            fn resolve_into(
+                &self,
+                header: &ImageHeader,
+                rng: &mut dyn RngCore,
+                out: &mut ResolvedStep,
+                _scratch: &mut StepScratch,
+            ) {
+                let buf = take_buffer(out, |step| match step {
+                    ResolvedStep::$variant(e) => Some(&mut e.$field),
+                    _ => None,
+                });
+                *out = self.build(header, rng, buf);
+            }
+        }
+    };
 }
 
 pub(crate) fn clamp_magnitude(m: f64) -> f64 {
@@ -37,24 +69,30 @@ impl ChangeFilterType {
     }
 }
 
-impl Resolve for ChangeFilterType {
-    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
+impl ChangeFilterType {
+    fn build(
+        &self,
+        header: &ImageHeader,
+        rng: &mut dyn RngCore,
+        mut filter_types: Vec<Option<FilterType>>,
+    ) -> ResolvedStep {
         let magnitude = clamp_magnitude(self.magnitude);
-        let filter_types = (0..header.height)
-            .map(|_| {
-                rng.random_bool(magnitude)
-                    .then(|| match rng.random_range(0..5) {
-                        0 => FilterType::None,
-                        1 => FilterType::Sub,
-                        2 => FilterType::Up,
-                        3 => FilterType::Average,
-                        _ => FilterType::Paeth,
-                    })
-            })
-            .collect();
+        filter_types.reserve(header.height as usize);
+        filter_types.extend((0..header.height).map(|_| {
+            rng.random_bool(magnitude)
+                .then(|| match rng.random_range(0..5) {
+                    0 => FilterType::None,
+                    1 => FilterType::Sub,
+                    2 => FilterType::Up,
+                    3 => FilterType::Average,
+                    _ => FilterType::Paeth,
+                })
+        }));
         ResolvedStep::SetFilterTypes(fx::SetFilterTypes::new(filter_types))
     }
 }
+
+resolve_via_build!(ChangeFilterType, SetFilterTypes, filter_types);
 
 /// Filter that re-encodes all scanlines with [`FilterType::None`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -163,12 +201,17 @@ impl Replace {
     }
 }
 
-impl Resolve for Replace {
-    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
+impl Replace {
+    fn build(
+        &self,
+        header: &ImageHeader,
+        rng: &mut dyn RngCore,
+        mut edits: Vec<fx::ByteEdit>,
+    ) -> ResolvedStep {
         let magnitude = clamp_magnitude(self.magnitude);
         let size = header.line_size();
-        let mut edits = Vec::new();
         if size > 0 {
+            edits.reserve(header.height as usize);
             for line in 0..header.height {
                 if rng.random_bool(magnitude) {
                     let value: u8 = rng.random();
@@ -180,6 +223,8 @@ impl Resolve for Replace {
         ResolvedStep::SetBytes(fx::SetBytes::new(edits))
     }
 }
+
+resolve_via_build!(Replace, SetBytes, edits);
 
 /// Filter that swaps scanlines randomly.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -207,14 +252,19 @@ impl Transpose {
 #[deprecated(since = "0.3.0", note = "use `Transpose`; removed before 1.0")]
 pub type RandomTranspose = Transpose;
 
-impl Resolve for Transpose {
-    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
+impl Transpose {
+    fn build(
+        &self,
+        header: &ImageHeader,
+        rng: &mut dyn RngCore,
+        mut swaps: Vec<(u32, u32)>,
+    ) -> ResolvedStep {
         let magnitude = clamp_magnitude(self.magnitude);
         let height = header.height;
         if height <= 1 {
             return ResolvedStep::Noop;
         }
-        let mut swaps = Vec::new();
+        swaps.reserve(height as usize);
         for i in 0..height {
             if rng.random_bool(magnitude) {
                 let target = rng.random_range(0..height);
@@ -224,6 +274,8 @@ impl Resolve for Transpose {
         ResolvedStep::SwapLines(fx::SwapLines::new(swaps))
     }
 }
+
+resolve_via_build!(Transpose, SwapLines, swaps);
 
 /// Filter that copies random scanlines onto other scanlines.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -245,23 +297,29 @@ impl RandomCopy {
     }
 }
 
-impl Resolve for RandomCopy {
-    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
+impl RandomCopy {
+    fn build(
+        &self,
+        header: &ImageHeader,
+        rng: &mut dyn RngCore,
+        mut copies: Vec<(u32, u32)>,
+    ) -> ResolvedStep {
         let height = header.height;
         if height <= 1 {
             return ResolvedStep::Noop;
         }
         let times = self.times.min(MAX_RANDOM_COPY_TIMES);
-        let copies = (0..times)
-            .map(|_| {
-                let src = rng.random_range(0..height);
-                let dst = rng.random_range(0..height);
-                (src, dst)
-            })
-            .collect();
+        copies.reserve(times as usize);
+        copies.extend((0..times).map(|_| {
+            let src = rng.random_range(0..height);
+            let dst = rng.random_range(0..height);
+            (src, dst)
+        }));
         ResolvedStep::CopyLines(fx::CopyLines::new(copies))
     }
 }
+
+resolve_via_build!(RandomCopy, CopyLines, copies);
 
 /// Filter that sets a byte at a specific index to a specific value across all scanlines.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -307,12 +365,17 @@ impl SetZero {
     }
 }
 
-impl Resolve for SetZero {
-    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
+impl SetZero {
+    fn build(
+        &self,
+        header: &ImageHeader,
+        rng: &mut dyn RngCore,
+        mut edits: Vec<fx::ByteEdit>,
+    ) -> ResolvedStep {
         let magnitude = clamp_magnitude(self.magnitude);
         let size = header.line_size();
-        let mut edits = Vec::new();
         if size > 0 {
+            edits.reserve(header.height as usize);
             for line in 0..header.height {
                 if rng.random_bool(magnitude) {
                     let index = rng.random_range(0..size);
@@ -327,6 +390,8 @@ impl Resolve for SetZero {
         ResolvedStep::SetBytes(fx::SetBytes::new(edits))
     }
 }
+
+resolve_via_build!(SetZero, SetBytes, edits);
 
 /// Criterion used by [`PixelSort`] to order pixels within a scanline.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -376,9 +441,14 @@ impl PixelSort {
     }
 }
 
-impl Resolve for PixelSort {
-    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
-        let rows = draw_rows(header, rng, self.magnitude);
+impl PixelSort {
+    fn build(
+        &self,
+        header: &ImageHeader,
+        rng: &mut dyn RngCore,
+        mut rows: Vec<u32>,
+    ) -> ResolvedStep {
+        draw_rows(header, rng, self.magnitude, &mut rows);
         let criterion = match self.criterion {
             SortCriterion::Brightness => fx::SortCriterion::Brightness,
             SortCriterion::Hue => fx::SortCriterion::Hue,
@@ -386,6 +456,8 @@ impl Resolve for PixelSort {
         ResolvedStep::PixelSort(fx::PixelSort::new(criterion, rows))
     }
 }
+
+resolve_via_build!(PixelSort, PixelSort, rows);
 
 /// Bitwise operation performed by [`Bitwise`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -447,9 +519,14 @@ impl Bitwise {
     }
 }
 
-impl Resolve for Bitwise {
-    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
-        let rows = draw_rows(header, rng, self.magnitude);
+impl Bitwise {
+    fn build(
+        &self,
+        header: &ImageHeader,
+        rng: &mut dyn RngCore,
+        mut rows: Vec<u32>,
+    ) -> ResolvedStep {
+        draw_rows(header, rng, self.magnitude, &mut rows);
         let op = match self.op {
             BitOp::And => fx::BitOp::And,
             BitOp::Or => fx::BitOp::Or,
@@ -458,6 +535,8 @@ impl Resolve for Bitwise {
         ResolvedStep::Bitwise(fx::Bitwise::new(op, self.value, rows))
     }
 }
+
+resolve_via_build!(Bitwise, Bitwise, rows);
 
 /// Pair of color channels to swap in [`ChannelSwap`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -510,9 +589,14 @@ impl ChannelSwap {
     }
 }
 
-impl Resolve for ChannelSwap {
-    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
-        let rows = draw_rows(header, rng, self.magnitude);
+impl ChannelSwap {
+    fn build(
+        &self,
+        header: &ImageHeader,
+        rng: &mut dyn RngCore,
+        mut rows: Vec<u32>,
+    ) -> ResolvedStep {
+        draw_rows(header, rng, self.magnitude, &mut rows);
         let target = match self.target {
             SwapTarget::Rg => fx::SwapTarget::Rg,
             SwapTarget::Gb => fx::SwapTarget::Gb,
@@ -521,6 +605,8 @@ impl Resolve for ChannelSwap {
         ResolvedStep::SwapChannels(fx::SwapChannels::new(target, rows))
     }
 }
+
+resolve_via_build!(ChannelSwap, SwapChannels, rows);
 
 /// Filter that shifts scanlines horizontally by a random byte offset.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -544,12 +630,17 @@ impl HorizontalShift {
     }
 }
 
-impl Resolve for HorizontalShift {
-    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
+impl HorizontalShift {
+    fn build(
+        &self,
+        header: &ImageHeader,
+        rng: &mut dyn RngCore,
+        mut shifts: Vec<fx::LineShift>,
+    ) -> ResolvedStep {
         let magnitude = clamp_magnitude(self.magnitude);
         let size = header.line_size();
-        let mut shifts = Vec::new();
         if size > 1 {
+            shifts.reserve(header.height as usize);
             for line in 0..header.height {
                 if rng.random_bool(magnitude) {
                     let shift = rng.random_range(0..size);
@@ -560,6 +651,8 @@ impl Resolve for HorizontalShift {
         ResolvedStep::ShiftLines(fx::ShiftLines::new(shifts))
     }
 }
+
+resolve_via_build!(HorizontalShift, ShiftLines, shifts);
 
 /// Filter that scrambles square blocks of pixels.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -595,8 +688,13 @@ impl BlockScramble {
     }
 }
 
-impl Resolve for BlockScramble {
-    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
+impl BlockScramble {
+    fn build(
+        &self,
+        header: &ImageHeader,
+        rng: &mut dyn RngCore,
+        mut swaps: Vec<fx::BlockSwap>,
+    ) -> ResolvedStep {
         let width = header.width;
         let height = header.height;
         let block_size = self.block_size;
@@ -615,21 +713,22 @@ impl Resolve for BlockScramble {
         let total_blocks = (num_blocks_x * num_blocks_y) as usize;
         let num_scrambles = (total_blocks as f64 * clamp_magnitude(self.magnitude)) as usize;
 
-        let swaps = (0..num_scrambles)
-            .map(|_| {
-                let src_bx = rng.random_range(0..num_blocks_x);
-                let src_by = rng.random_range(0..num_blocks_y);
-                let dst_bx = rng.random_range(0..num_blocks_x);
-                let dst_by = rng.random_range(0..num_blocks_y);
-                fx::BlockSwap {
-                    src: (src_bx, src_by),
-                    dst: (dst_bx, dst_by),
-                }
-            })
-            .collect();
+        swaps.reserve(num_scrambles);
+        swaps.extend((0..num_scrambles).map(|_| {
+            let src_bx = rng.random_range(0..num_blocks_x);
+            let src_by = rng.random_range(0..num_blocks_y);
+            let dst_bx = rng.random_range(0..num_blocks_x);
+            let dst_by = rng.random_range(0..num_blocks_y);
+            fx::BlockSwap {
+                src: (src_bx, src_by),
+                dst: (dst_bx, dst_by),
+            }
+        }));
         ResolvedStep::SwapBlocks(fx::SwapBlocks::new(block_size, swaps))
     }
 }
+
+resolve_via_build!(BlockScramble, SwapBlocks, swaps);
 
 /// Filter that adds random per-channel color distortion.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -665,30 +764,78 @@ impl ColorDistortion {
     }
 }
 
-impl Resolve for ColorDistortion {
-    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
-        let strength = self.strength.saturating_abs();
-        let magnitude = clamp_magnitude(self.magnitude);
-        let pixels = if header.bit_depth == 0 {
+impl ColorDistortion {
+    /// Offsets per pixel of a distorted row.
+    fn pixels(header: &ImageHeader) -> usize {
+        if header.bit_depth == 0 {
             0
         } else {
             header.width as usize
-        };
-        let mut lines = Vec::new();
+        }
+    }
+
+    /// Pushes the distorted rows to `lines`, taking each row's offset list from `spare` when it
+    /// has one.
+    fn build(
+        &self,
+        header: &ImageHeader,
+        rng: &mut dyn RngCore,
+        mut lines: Vec<fx::LineOffsets>,
+        spare: &mut Vec<Vec<[i16; 3]>>,
+    ) -> ResolvedStep {
+        let strength = self.strength.saturating_abs();
+        let magnitude = clamp_magnitude(self.magnitude);
+        let pixels = Self::pixels(header);
+        lines.reserve(header.height as usize);
         for line in 0..header.height {
             if rng.random_bool(magnitude) {
-                let offsets = (0..pixels)
-                    .map(|_| {
-                        let r = rng.random_range(-strength..=strength);
-                        let g = rng.random_range(-strength..=strength);
-                        let b = rng.random_range(-strength..=strength);
-                        [r, g, b]
-                    })
-                    .collect();
+                let mut offsets = spare.pop().unwrap_or_default();
+                offsets.clear();
+                offsets.reserve(pixels);
+                offsets.extend((0..pixels).map(|_| {
+                    let r = rng.random_range(-strength..=strength);
+                    let g = rng.random_range(-strength..=strength);
+                    let b = rng.random_range(-strength..=strength);
+                    [r, g, b]
+                }));
                 lines.push(fx::LineOffsets { line, offsets });
             }
         }
         ResolvedStep::OffsetColors(fx::OffsetColors::new(lines))
+    }
+}
+
+impl Resolve for ColorDistortion {
+    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
+        self.build(header, rng, Vec::new(), &mut Vec::new())
+    }
+
+    /// Reuses the row list and, through `scratch`, every row's offset list: the offset lists
+    /// of the previous result go back to the spare pool, which is topped up to one list per
+    /// image row (each sized for one row) so any number of distorted rows fits.
+    fn resolve_into(
+        &self,
+        header: &ImageHeader,
+        rng: &mut dyn RngCore,
+        out: &mut ResolvedStep,
+        scratch: &mut StepScratch,
+    ) {
+        let height = header.height as usize;
+        let spare = &mut scratch.offsets;
+        let mut lines = match out {
+            ResolvedStep::OffsetColors(e) => std::mem::take(&mut e.lines),
+            _ => Vec::new(),
+        };
+        // Room for one list per row (`reserve` counts from the current length).
+        spare.reserve(height.saturating_sub(spare.len()));
+        spare.extend(lines.drain(..).map(|l| l.offsets));
+        if clamp_magnitude(self.magnitude) > 0.0 {
+            let pixels = Self::pixels(header);
+            while spare.len() < height {
+                spare.push(Vec::with_capacity(pixels));
+            }
+        }
+        *out = self.build(header, rng, lines, spare);
     }
 }
 
@@ -744,9 +891,14 @@ impl ColorSpaceGlitch {
     }
 }
 
-impl Resolve for ColorSpaceGlitch {
-    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
-        let rows = draw_rows(header, rng, self.magnitude);
+impl ColorSpaceGlitch {
+    fn build(
+        &self,
+        header: &ImageHeader,
+        rng: &mut dyn RngCore,
+        mut rows: Vec<u32>,
+    ) -> ResolvedStep {
+        draw_rows(header, rng, self.magnitude, &mut rows);
         ResolvedStep::HslShift(fx::HslShift::new(
             self.hue_shift,
             self.saturation_mult,
@@ -755,6 +907,8 @@ impl Resolve for ColorSpaceGlitch {
         ))
     }
 }
+
+resolve_via_build!(ColorSpaceGlitch, HslShift, rows);
 
 /// Filter that creates chromatic aberration by horizontally shifting R, G, and B channels.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -798,12 +952,17 @@ impl ChromaticAberration {
     }
 }
 
-impl Resolve for ChromaticAberration {
-    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
+impl ChromaticAberration {
+    fn build(
+        &self,
+        header: &ImageHeader,
+        rng: &mut dyn RngCore,
+        mut rows: Vec<u32>,
+    ) -> ResolvedStep {
         if header.width == 0 {
             return ResolvedStep::Noop;
         }
-        let rows = draw_rows(header, rng, self.magnitude);
+        draw_rows(header, rng, self.magnitude, &mut rows);
         ResolvedStep::ChannelShift(fx::ChannelShift::new(
             self.r_offset,
             self.g_offset,
@@ -812,6 +971,8 @@ impl Resolve for ChromaticAberration {
         ))
     }
 }
+
+resolve_via_build!(ChromaticAberration, ChannelShift, rows);
 
 impl Resolve for Invert {
     fn resolve(&self, __header: &ImageHeader, _rng: &mut dyn RngCore) -> ResolvedStep {

@@ -38,7 +38,10 @@ pub enum SeedMode {
     /// Resolve once with the seed and execute the same [`ResolvedRecipe`] on every frame.
     /// A frame makes no heap allocation.
     Static,
-    /// Before frame `n`, resolve with [`frame_seed`]`(seed, n)`. Resolving allocates.
+    /// Before frame `n`, resolve with [`frame_seed`]`(seed, n)`, into the previous frame's
+    /// [`ResolvedRecipe`] ([`Recipe::resolve_into`]). [`LiveRecipe::new`] sizes the buffers, so
+    /// with built-in steps a frame makes no heap allocation either; a user-defined
+    /// [`RecipeStep`](crate::RecipeStep) allocates whatever its `resolve` does.
     PerFrame,
 }
 
@@ -106,7 +109,12 @@ impl LiveRecipe {
             Some(seed) => seed,
             None => crate::context::rng_from_seed(None)?.next_u64(),
         };
-        let current = resolve_live(&recipe, &header, seed, mode, 0)?;
+        let mut current = resolve_live(&recipe, &header, seed, mode, 0)?;
+        if mode == SeedMode::PerFrame {
+            // Same result again, but it sizes the buffers that later frames resolve into, so
+            // that frames make no allocation from the first one on.
+            recipe.resolve_into(&header, Some(frame_seed(seed, 0)), &mut current)?;
+        }
         Ok(Self {
             recipe,
             header,
@@ -145,7 +153,7 @@ impl LiveRecipe {
     ///
     /// Steps that resolve to `Refilter` run as `live.regenerate(Fixed(t))`. In
     /// [`SeedMode::Static`] this makes no heap allocation (apart from what the steps
-    /// themselves need).
+    /// themselves need); in [`SeedMode::PerFrame`] neither, for built-in steps (see there).
     ///
     /// # Errors
     /// [`RecipeError::HeaderMismatch`] if `live`'s image is not the one the runner was built for;
@@ -160,8 +168,13 @@ impl LiveRecipe {
             });
         }
         if self.mode == SeedMode::PerFrame && self.current_frame != self.frame {
-            self.current =
-                resolve_live(&self.recipe, &self.header, self.seed, self.mode, self.frame)?;
+            // Resolve into the previous frame's recipe, reusing its buffers (#165).
+            self.recipe.resolve_into(
+                &self.header,
+                Some(frame_seed(self.seed, self.frame)),
+                &mut self.current,
+            )?;
+            check_live(&self.current)?;
             self.current_frame = self.frame;
         }
         for step in self.current.steps() {
@@ -190,9 +203,15 @@ fn resolve_live(
         SeedMode::PerFrame => frame_seed(seed, frame),
     };
     let resolved = recipe.resolve(header, Some(frame_seed))?;
+    check_live(&resolved)?;
+    Ok(resolved)
+}
+
+/// Fails with [`RecipeError::NotLive`] if a step of `resolved` cannot run live.
+fn check_live(resolved: &ResolvedRecipe) -> Result<()> {
     match resolved.steps().iter().find(|s| !s.is_live()) {
         Some(step) => Err(step.not_live()),
-        None => Ok(resolved),
+        None => Ok(()),
     }
 }
 

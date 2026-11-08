@@ -90,7 +90,7 @@ cargo run -p png-glitch-recipe --example custom_effect
 
 ### Live loop
 
-`LiveRecipe` runs a recipe on every frame of a `png_glitch::LivePipeline` (webcam frames, a canvas, game output). `SeedMode::Static` resolves once and reuses the same choices on every frame (no allocation per frame); `SeedMode::PerFrame` resolves before frame `n` with `frame_seed(seed, n)`. Both give the same bytes as `Recipe::run` on that frame's pixels with the same seed.
+`LiveRecipe` runs a recipe on every frame of a `png_glitch::LivePipeline` (webcam frames, a canvas, game output). `SeedMode::Static` resolves once and reuses the same choices on every frame (no allocation per frame); `SeedMode::PerFrame` resolves before frame `n` with `frame_seed(seed, n)`, into the buffers of the previous frame (`Recipe::resolve_into`), so with built-in steps it makes no allocation per frame either. Both give the same bytes as `Recipe::run` on that frame's pixels with the same seed.
 
 ```rust
 use png_glitch::{Encoding, FilterStrategy, FilterType, LivePipeline, PixelSource};

@@ -796,6 +796,7 @@ dependencies = [
  "png-glitch",
  "rand 0.9.5",
  "rand_chacha",
+ "rayon",
  "serde",
  "serde-saphyr",
  "thiserror",

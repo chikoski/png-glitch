@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### png-glitch-recipe: allocation-free `PerFrame` frames (#165)
+
+#### Added
+- `Recipe::resolve_into(&self, header, seed, &mut ResolvedRecipe) -> Result<()>`: the same result as `resolve` (same RNG draws, so seeds reproduce the same output), written into an existing `ResolvedRecipe` whose step lists are cleared and refilled. Lists reserve their upper bound (the image height for per-row steps, `times` for `random-copy`, the swap count for `block-scramble`) the first time, so later calls make no heap allocation for built-in steps; `color-distortion` keeps one spare offset list per row (6 bytes per pixel). User-defined steps are resolved as before.
+
+#### Changed
+- `SeedMode::PerFrame` resolves each frame with `resolve_into` into the previous frame's recipe, and `LiveRecipe::new` sizes those buffers, so a `PerFrame` frame with built-in steps makes no heap allocation. Outputs are unchanged.
+- Resolving a built-in step no longer boxes the filter, and per-row lists reserve the image height. `ResolvedRecipe`'s `Clone`, `PartialEq` and `Debug` are now hand-written; they behave as before.
+
 ### png-glitch-recipe: live recipes (#163)
 
 #### Added

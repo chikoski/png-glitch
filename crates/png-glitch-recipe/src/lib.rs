@@ -45,7 +45,7 @@ pub use context::*;
 pub use error::*;
 pub use filters::*;
 pub use live::{LiveRecipe, SeedMode, frame_seed};
-use resolve::{BuiltinFilter, Resolve};
+use resolve::{Builtin, Resolve, StepScratch, take_buffer};
 pub use resolve::{
     ImageHeader, Recipe, RecipeStep, ResolvedEffect, ResolvedRecipe, ResolvedStep, Step,
 };

@@ -12,19 +12,23 @@ macro_rules! bail_spec {
 pub const MAX_RANDOM_COPY_TIMES: u32 = 100_000;
 
 /// Builds the filter a [`FilterConfig`] step describes, validating its parameters.
-pub(crate) fn filter_from_config(config: FilterConfig) -> Result<Box<dyn BuiltinFilter>> {
-    Ok(match config {
-        FilterConfig::ChangeFilterType { magnitude } => Box::new(ChangeFilterType::new(magnitude)),
-        FilterConfig::Replace { magnitude } => Box::new(Replace::new(magnitude)),
-        FilterConfig::Transpose { magnitude } => Box::new(Transpose::new(magnitude)),
-        FilterConfig::SetZero { magnitude } => Box::new(SetZero::new(magnitude)),
+///
+/// Makes no heap allocation unless it fails, so a live loop can call it on every frame.
+pub(crate) fn filter_from_config(config: &FilterConfig) -> Result<Builtin> {
+    Ok(match *config {
+        FilterConfig::ChangeFilterType { magnitude } => {
+            Builtin::from(ChangeFilterType::new(magnitude))
+        }
+        FilterConfig::Replace { magnitude } => Builtin::from(Replace::new(magnitude)),
+        FilterConfig::Transpose { magnitude } => Builtin::from(Transpose::new(magnitude)),
+        FilterConfig::SetZero { magnitude } => Builtin::from(SetZero::new(magnitude)),
         FilterConfig::RandomCopy { times } => {
             if times > MAX_RANDOM_COPY_TIMES {
                 bail_spec!("random-copy `times` must be <= {MAX_RANDOM_COPY_TIMES}, got {times}");
             }
-            Box::new(RandomCopy::new(times))
+            Builtin::from(RandomCopy::new(times))
         }
-        FilterConfig::Substitute { index, value } => Box::new(Substitute::new(index, value)),
+        FilterConfig::Substitute { index, value } => Builtin::from(Substitute::new(index, value)),
         FilterConfig::PixelSort {
             magnitude,
             criterion,
@@ -33,7 +37,7 @@ pub(crate) fn filter_from_config(config: FilterConfig) -> Result<Box<dyn Builtin
             if let Some(c) = criterion {
                 f.criterion = c;
             }
-            Box::new(f)
+            Builtin::from(f)
         }
         FilterConfig::Bitwise {
             magnitude,
@@ -47,16 +51,18 @@ pub(crate) fn filter_from_config(config: FilterConfig) -> Result<Box<dyn Builtin
             if let Some(v) = value {
                 f.value = v;
             }
-            Box::new(f)
+            Builtin::from(f)
         }
         FilterConfig::ChannelSwap { magnitude, target } => {
             let mut f = ChannelSwap::new(magnitude);
             if let Some(t) = target {
                 f.target = t;
             }
-            Box::new(f)
+            Builtin::from(f)
         }
-        FilterConfig::HorizontalShift { magnitude } => Box::new(HorizontalShift::new(magnitude)),
+        FilterConfig::HorizontalShift { magnitude } => {
+            Builtin::from(HorizontalShift::new(magnitude))
+        }
         FilterConfig::BlockScramble {
             magnitude,
             block_size,
@@ -65,7 +71,7 @@ pub(crate) fn filter_from_config(config: FilterConfig) -> Result<Box<dyn Builtin
             if let Some(bs) = block_size {
                 f.block_size = bs;
             }
-            Box::new(f)
+            Builtin::from(f)
         }
         FilterConfig::ColorDistortion {
             magnitude,
@@ -78,7 +84,7 @@ pub(crate) fn filter_from_config(config: FilterConfig) -> Result<Box<dyn Builtin
                 }
                 f.strength = s;
             }
-            Box::new(f)
+            Builtin::from(f)
         }
         FilterConfig::ColorSpaceGlitch {
             magnitude,
@@ -109,7 +115,7 @@ pub(crate) fn filter_from_config(config: FilterConfig) -> Result<Box<dyn Builtin
                 }
                 f.lightness_mult = l;
             }
-            Box::new(f)
+            Builtin::from(f)
         }
         FilterConfig::ChromaticAberration {
             magnitude,
@@ -127,17 +133,17 @@ pub(crate) fn filter_from_config(config: FilterConfig) -> Result<Box<dyn Builtin
             if let Some(b) = b_offset {
                 f.b_offset = b;
             }
-            Box::new(f)
+            Builtin::from(f)
         }
-        FilterConfig::Invert => Box::new(Invert),
-        FilterConfig::Brighten { strength } => Box::new(Brighten::new(strength)),
-        FilterConfig::Darken { strength } => Box::new(Darken::new(strength)),
-        FilterConfig::ShiftChannels { r, g, b } => Box::new(ShiftChannels::new(r, g, b)),
-        FilterConfig::RemoveFilter => Box::new(RemoveFilter),
-        FilterConfig::SubFilter => Box::new(SubFilter),
-        FilterConfig::UpFilter => Box::new(UpFilter),
-        FilterConfig::AverageFilter => Box::new(AverageFilter),
-        FilterConfig::PaethFilter => Box::new(PaethFilter),
+        FilterConfig::Invert => Builtin::from(Invert),
+        FilterConfig::Brighten { strength } => Builtin::from(Brighten::new(strength)),
+        FilterConfig::Darken { strength } => Builtin::from(Darken::new(strength)),
+        FilterConfig::ShiftChannels { r, g, b } => Builtin::from(ShiftChannels::new(r, g, b)),
+        FilterConfig::RemoveFilter => Builtin::from(RemoveFilter),
+        FilterConfig::SubFilter => Builtin::from(SubFilter),
+        FilterConfig::UpFilter => Builtin::from(UpFilter),
+        FilterConfig::AverageFilter => Builtin::from(AverageFilter),
+        FilterConfig::PaethFilter => Builtin::from(PaethFilter),
         FilterConfig::MacroblockGlitch { .. }
         | FilterConfig::AlphaGlitch { .. }
         | FilterConfig::LossyArtifact { .. } => {

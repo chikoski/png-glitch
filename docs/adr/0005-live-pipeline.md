@@ -122,7 +122,7 @@ The wasm `session` resource (#87) maps onto `LivePipeline` one to one.
 
 - **`SeedMode`** is part of the live configuration and is recorded with any snapshot or recording:
   - `Static`: resolve once with `seed` and execute the same `ResolvedRecipe` on every frame. A frame allocates nothing.
-  - `PerFrame`: before frame `n`, resolve with `frame_seed(seed, n)`.
+  - `PerFrame`: before frame `n`, resolve with `frame_seed(seed, n)`. Since #165 the runner resolves into the previous frame's buffers, so built-in steps allocate nothing per frame here either.
 - **`frame_seed(seed, n)`** is the `n`-th output (0-based) of SplitMix64 started at `seed`:
 
   ```rust
@@ -152,7 +152,7 @@ The wasm `session` resource (#87) maps onto `LivePipeline` one to one.
 ## Consequences
 
 - **Laws in #100** become tests on `LivePipeline`. Law 1 (`D(E(x)) == x`) and law 3 (a snapshot is a valid PNG and equals `to_bytes()`) are new property tests. Law 2 (`D` equals a reference decoder) is already guaranteed by `Renderer` (#96).
-- **Allocation-free frames.** The #100 criterion "a frame performs no allocation" applies to `E`, `D`, the view and `Static` mode. `PerFrame` mode allocates while resolving. That is reported by the bench harness, not asserted, until resolving into reused buffers is designed (a follow-up issue). The zero-heap-growth assertion in #147 covers `E`, `D` and `Static` `G`.
+- **Allocation-free frames.** The #100 criterion "a frame performs no allocation" applies to `E`, `D`, the view and `Static` mode. `PerFrame` mode allocated while resolving at first; since #165 it resolves into the previous frame's `ResolvedRecipe` (`Recipe::resolve_into`), so with built-in steps a `PerFrame` frame makes no allocation either (user `RecipeStep`s allocate what their `resolve` does). The zero-heap-growth assertion in #147 covers `E`, `D` and `G` in both modes.
 - **Sub-issues of #100** (replacing the list a–e in #100):
   - **a.** `ScanLines` view and `LivePipeline::{new, encode, decode_into, snapshot}`, with laws 1–3 as property tests and a counting-allocator test of a full `Static` frame.
   - **b.** `ScanLinesEffect`, the blanket chain, and porting the built-in scan-line effects to it with the scratch buffer. Tests: bytes are unchanged in the file workflow (golden outputs must not change), and the ported effects make no allocation.
