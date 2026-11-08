@@ -201,7 +201,7 @@ impl GlitchContext {
     /// Returns an error if the filter configuration is not supported for PNG images
     /// (for example, WebP-only filters such as `MacroblockGlitch`, `AlphaGlitch`, or `LossyArtifact`).
     pub fn add_from_config(&mut self, config: FilterConfig) -> Result<()> {
-        self.add_filter(filter_from_config(config)?);
+        self.add_filter(filter_from_config(&config)?);
         Ok(())
     }
 }

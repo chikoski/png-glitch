@@ -1,12 +1,19 @@
-//! A `Static` live frame (`encode` + `run` + `decode_into`) makes no heap allocation (#163).
-//! `PerFrame` allocation is measured, not asserted (resolving allocates; see #165).
+//! A live frame (`encode` + `run` + `decode_into`) makes no heap allocation: in `Static` mode
+//! (#163), and in `PerFrame` mode after one warm-up frame, as resolving reuses the previous
+//! frame's buffers (#165).
 //!
 //! Own test binary because it installs a counting global allocator. The counter is
-//! thread-local, so allocations on rayon worker threads (parallel per-row effects) are not
-//! counted; this test covers the calling thread.
+//! thread-local, so allocations on other rayon worker threads (parallel per-row effects) are
+//! not counted; this test covers the thread that runs the frames.
+//!
+//! The frames run on a worker of a rayon pool (`install`). From a thread outside any pool,
+//! rayon sends each parallel call through its global job queue, which allocates a new block
+//! every few dozen jobs; that is rayon's cost, not the frame's, and a host that cares runs its
+//! loop inside the pool the same way.
 
 use png_glitch::{Encoding, FilterStrategy, FilterType, LivePipeline, PixelSource};
-use png_glitch_recipe::{FilterConfig, ImageHeader, LiveRecipe, Recipe, SeedMode};
+use png_glitch_recipe::rand::SeedableRng;
+use png_glitch_recipe::{ChaCha8Rng, FilterConfig, ImageHeader, LiveRecipe, Recipe, SeedMode};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
@@ -55,7 +62,62 @@ fn allocations_during(f: impl FnOnce()) -> usize {
     ALLOCATIONS.with(Cell::get)
 }
 
-fn frames_allocations(mode: SeedMode) -> usize {
+/// No `PixelSort` (it allocates a pixel list per row when it runs); one generation boundary
+/// in the middle. Every other step has an upper bound on its list sizes.
+fn recipe() -> Recipe {
+    Recipe::new()
+        .then(FilterConfig::ChangeFilterType { magnitude: 0.2 })
+        .then(FilterConfig::Transpose { magnitude: 0.4 })
+        .then(FilterConfig::Replace { magnitude: 0.3 })
+        .then(FilterConfig::SetZero { magnitude: 0.3 })
+        .then(FilterConfig::RandomCopy { times: 5 })
+        .then(FilterConfig::SubFilter)
+        .then(FilterConfig::ColorDistortion {
+            magnitude: 0.4,
+            strength: None,
+        })
+        .then(FilterConfig::Bitwise {
+            magnitude: 0.3,
+            op: None,
+            value: Some(0x5a),
+        })
+        .then(FilterConfig::ChannelSwap {
+            magnitude: 0.3,
+            target: None,
+        })
+        .then(FilterConfig::HorizontalShift { magnitude: 0.2 })
+        .then(FilterConfig::BlockScramble {
+            magnitude: 0.3,
+            block_size: Some(8),
+        })
+        .then(FilterConfig::ColorSpaceGlitch {
+            magnitude: 0.2,
+            hue_shift: Some(90.0),
+            saturation_mult: None,
+            lightness_mult: None,
+        })
+        .then(FilterConfig::ChromaticAberration {
+            magnitude: 0.3,
+            r_offset: None,
+            g_offset: None,
+            b_offset: None,
+        })
+        .then(FilterConfig::Invert)
+}
+
+fn frames_allocations(mode: SeedMode, frames_run: usize) -> usize {
+    frames_allocations_of(recipe(), mode, frames_run)
+}
+
+fn frames_allocations_of(recipe: Recipe, mode: SeedMode, frames_run: usize) -> usize {
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(2)
+        .build()
+        .expect("thread pool")
+        .install(|| frames_allocations_on_this_thread(recipe, mode, frames_run))
+}
+
+fn frames_allocations_on_this_thread(recipe: Recipe, mode: SeedMode, frames_run: usize) -> usize {
     let (w, h) = (96u32, 64u32);
     let frames: Vec<Vec<u8>> = (0..3u8)
         .map(|k| {
@@ -64,16 +126,6 @@ fn frames_allocations(mode: SeedMode) -> usize {
                 .collect()
         })
         .collect();
-    // No `PixelSort` (it allocates a pixel list per row); one generation boundary in the middle.
-    let recipe = Recipe::new()
-        .then(FilterConfig::Transpose { magnitude: 0.4 })
-        .then(FilterConfig::Replace { magnitude: 0.3 })
-        .then(FilterConfig::SubFilter)
-        .then(FilterConfig::ColorDistortion {
-            magnitude: 0.4,
-            strength: None,
-        })
-        .then(FilterConfig::Invert);
     let mut live = LivePipeline::new(
         PixelSource::rgba8(w, h, &frames[0]),
         Encoding::rgba8(FilterStrategy::Fixed(FilterType::Paeth)),
@@ -88,7 +140,7 @@ fn frames_allocations(mode: SeedMode) -> usize {
     live.decode_into(&mut out).expect("decode");
 
     allocations_during(|| {
-        for i in 0..10 {
+        for i in 0..frames_run {
             live.encode(&frames[i % 3]).expect("encode");
             runner.run(&mut live).expect("run");
             live.decode_into(&mut out).expect("decode");
@@ -98,11 +150,44 @@ fn frames_allocations(mode: SeedMode) -> usize {
 
 #[test]
 fn a_static_frame_does_not_allocate() {
-    assert_eq!(frames_allocations(SeedMode::Static), 0);
+    assert_eq!(frames_allocations(SeedMode::Static, 100), 0);
 }
 
 #[test]
-fn per_frame_allocation_is_measured_not_asserted() {
-    let count = frames_allocations(SeedMode::PerFrame);
-    eprintln!("PerFrame: {count} allocations over 10 frames");
+fn a_per_frame_frame_does_not_allocate_after_warm_up() {
+    // Each frame has its own seed, so list lengths change from frame to frame.
+    assert_eq!(frames_allocations(SeedMode::PerFrame, 100), 0);
+}
+
+#[test]
+fn resolve_into_does_not_allocate_after_warm_up() {
+    let header = ImageHeader {
+        width: 50,
+        height: 70,
+        color_type: png_glitch::ColorType::TrueColorAlpha,
+        bit_depth: 8,
+    };
+    let recipe = recipe();
+    let mut out = recipe.resolve(&header, Some(0)).expect("resolve");
+    recipe
+        .resolve_into(&header, Some(1), &mut out)
+        .expect("resolve");
+    let count = allocations_during(|| {
+        for seed in 2..200 {
+            recipe
+                .resolve_into(&header, Some(seed), &mut out)
+                .expect("resolve");
+        }
+    });
+    assert_eq!(count, 0);
+}
+
+#[test]
+fn seeding_the_rng_does_not_allocate() {
+    let count = allocations_during(|| {
+        for seed in 0..100 {
+            std::hint::black_box(ChaCha8Rng::seed_from_u64(seed));
+        }
+    });
+    assert_eq!(count, 0);
 }
