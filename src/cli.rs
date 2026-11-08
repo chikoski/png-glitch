@@ -974,6 +974,9 @@ Examples:
   # Run a repeatable YAML pipeline with a fixed seed
   png-glitch input.png --config pipeline.yaml --seed 42 -o result.png --force
 
+  # Try 12 seeds and a contact sheet; re-run a favourite with --seed <printed seed>
+  png-glitch input.png --variations 12 --contact-sheet sheet.png -f replace=0.05
+
   # Batch process a directory of PNG and WebP images
   png-glitch ./images --batch-output ./glitched -f invert -f block-scramble=0.1";
 
@@ -1019,6 +1022,36 @@ pub struct Cli {
     /// Batch process all PNG and WebP images in INPUT directory and save to DIR
     #[arg(long, value_name = "DIR")]
     pub batch_output: Option<String>,
+
+    /// Generate N variations with different seeds, saved as `<out-stem>-s<seed>.<ext>`
+    #[arg(
+        long,
+        value_name = "N",
+        value_parser = clap::value_parser!(u32).range(1..=10_000),
+        conflicts_with_all = ["batch_output", "list_filters", "show_recipe"],
+        help_heading = "Exploration"
+    )]
+    pub variations: Option<u32>,
+
+    /// Also write a contact sheet of all variations to FILE (PNG input only)
+    #[arg(
+        long,
+        value_name = "FILE",
+        requires = "variations",
+        help_heading = "Exploration"
+    )]
+    pub contact_sheet: Option<String>,
+
+    /// Width in pixels of each contact-sheet cell
+    #[arg(
+        long,
+        value_name = "PX",
+        default_value_t = 256,
+        value_parser = clap::value_parser!(u32).range(1..=4096),
+        requires = "contact_sheet",
+        help_heading = "Exploration"
+    )]
+    pub contact_cell_width: u32,
 
     /// Path to YAML config file
     #[arg(long, value_name = "FILE")]

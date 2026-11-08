@@ -757,3 +757,125 @@ fn webp_rejects_the_new_png_only_steps() {
             .stderr(predicate::str::contains("not supported for WebP"));
     }
 }
+
+// ---------------------------------------------------------------- variations
+
+fn png_size(path: &Path) -> (u32, u32) {
+    let b = fs::read(path).unwrap();
+    (
+        u32::from_be_bytes(b[16..20].try_into().unwrap()),
+        u32::from_be_bytes(b[20..24].try_into().unwrap()),
+    )
+}
+
+#[test]
+fn variations_match_plain_runs_with_the_derived_seeds() {
+    let dir = TempDir::new().unwrap();
+    let input = copy_fixture(&dir, "small.png");
+    let out = dir.path().join("v.png");
+    cmd()
+        .arg(&input)
+        .args([
+            "--variations",
+            "3",
+            "--seed",
+            "42",
+            "-f",
+            "replace=0.1",
+            "-o",
+        ])
+        .arg(&out)
+        .assert()
+        .success();
+    for i in 0..3u64 {
+        let seed = png_glitch_recipe::frame_seed(42, i);
+        let varied = dir.path().join(format!("v-s{seed}.png"));
+        assert!(varied.exists(), "missing {}", varied.display());
+        let plain = dir.path().join(format!("plain{i}.png"));
+        cmd()
+            .arg(&input)
+            .args(["--seed", &seed.to_string(), "-f", "replace=0.1", "-o"])
+            .arg(&plain)
+            .assert()
+            .success();
+        assert_eq!(fs::read(&varied).unwrap(), fs::read(&plain).unwrap());
+    }
+}
+
+#[test]
+fn variations_are_reproducible_and_refuse_to_overwrite() {
+    let dir = TempDir::new().unwrap();
+    let input = copy_fixture(&dir, "small.png");
+    let run = |name: &str, extra: &[&str]| {
+        let out = dir.path().join(name);
+        let mut c = cmd();
+        c.arg(&input)
+            .args([
+                "--variations",
+                "2",
+                "--seed",
+                "7",
+                "-f",
+                "replace=0.1",
+                "-o",
+            ])
+            .arg(&out)
+            .args(extra);
+        c
+    };
+    run("a.png", &[]).assert().success();
+    run("a.png", &[])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--force"));
+    run("a.png", &["--force"]).assert().success();
+}
+
+#[test]
+fn contact_sheet_has_expected_dimensions() {
+    let dir = TempDir::new().unwrap();
+    let input = copy_fixture(&dir, "small.png");
+    let (w, h) = png_size(&input);
+    let sheet = dir.path().join("sheet.png");
+    cmd()
+        .arg(&input)
+        .args([
+            "--variations",
+            "5",
+            "--seed",
+            "1",
+            "-f",
+            "replace=0.05",
+            "--contact-cell-width",
+            "16",
+            "--contact-sheet",
+        ])
+        .arg(&sheet)
+        .assert()
+        .success();
+    let cell_h = ((h as u64 * 16 + w as u64 / 2) / w as u64).max(1) as u32;
+    assert_eq!(png_size(&sheet), (3 * 16, 2 * cell_h)); // 5 cells -> 3 columns x 2 rows
+}
+
+#[test]
+fn variations_conflict_with_batch_output_and_sheet_needs_variations() {
+    let dir = TempDir::new().unwrap();
+    let input = copy_fixture(&dir, "small.png");
+    cmd()
+        .arg(&input)
+        .args(["--variations", "2", "--batch-output"])
+        .arg(dir.path().join("o"))
+        .assert()
+        .code(2);
+    cmd()
+        .arg(&input)
+        .arg("--contact-sheet")
+        .arg(dir.path().join("s.png"))
+        .assert()
+        .code(2);
+    cmd()
+        .arg(&input)
+        .args(["--variations", "0"])
+        .assert()
+        .code(2);
+}

@@ -105,6 +105,8 @@ filters:
 | :--- | :--- |
 | `-o`, `--output <FILE>` | Output file path (default: `<input-stem>-glitched.<ext>`). |
 | `--batch-output <DIR>` | Output directory for batch processing when `<INPUT>` is a directory. |
+| `--variations <N>` | Write N outputs with different seeds as `<out-stem>-s<seed>.<ext>`; each seed is printed and can be re-run with `--seed`. |
+| `--contact-sheet <FILE>` | With `--variations`, also write a grid of all outputs (PNG input only); `--contact-cell-width <PX>` sets the cell width (default 256). |
 | `--force` | Overwrite existing output file(s) without prompting. |
 | `--seed <SEED>` | Random seed (`u64`) for reproducible results (printed to stderr when omitted). |
 | `-c`, `--config <FILE>` | Load filter pipeline from a YAML configuration file. |

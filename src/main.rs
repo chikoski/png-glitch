@@ -11,6 +11,7 @@ use walkdir::WalkDir;
 mod any_context;
 mod cli;
 mod recipe_io;
+mod variations;
 
 use crate::any_context::AnyGlitchContext;
 use crate::cli::{Cli, ConfigFile, format_filter_list};
@@ -390,7 +391,9 @@ fn main() -> anyhow::Result<()> {
     warn_deprecated_flags(&args);
     let steps = collect_ordered_steps(&args, Some(&matches));
 
-    if let Some(batch_output) = &args.batch_output {
+    if let Some(count) = args.variations {
+        variations::variations_process(&args, &steps, count)
+    } else if let Some(batch_output) = &args.batch_output {
         batch_process(&args, &steps, batch_output)
     } else {
         single_process(&args, &steps)
