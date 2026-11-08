@@ -6,10 +6,12 @@
 //! thread-local, so allocations on other rayon worker threads (parallel per-row effects) are
 //! not counted; this test covers the thread that runs the frames.
 //!
-//! The frames run on a worker of a rayon pool (`install`). From a thread outside any pool,
-//! rayon sends each parallel call through its global job queue, which allocates a new block
-//! every few dozen jobs; that is rayon's cost, not the frame's, and a host that cares runs its
-//! loop inside the pool the same way.
+//! The frames run on the only worker of a one-thread rayon pool (`install`). From a thread
+//! outside any pool, rayon sends each parallel call through its global job queue, which
+//! allocates a new block every few dozen jobs. With more than one worker, the measuring thread
+//! may wait for a stolen job, and the first time it sleeps, the OS mutex behind rayon's sleep
+//! state can be allocated lazily (seen on macOS). Both are rayon's costs, not the frame's;
+//! with one worker every job runs on the measuring thread and neither happens.
 
 use png_glitch::{Encoding, FilterStrategy, FilterType, LivePipeline, PixelSource};
 use png_glitch_recipe::rand::SeedableRng;
@@ -111,7 +113,7 @@ fn frames_allocations(mode: SeedMode, frames_run: usize) -> usize {
 
 fn frames_allocations_of(recipe: Recipe, mode: SeedMode, frames_run: usize) -> usize {
     rayon::ThreadPoolBuilder::new()
-        .num_threads(2)
+        .num_threads(1)
         .build()
         .expect("thread pool")
         .install(|| frames_allocations_on_this_thread(recipe, mode, frames_run))
