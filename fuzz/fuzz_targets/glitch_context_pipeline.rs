@@ -1,10 +1,11 @@
 //! End-to-end `png-glitch-recipe` pipeline: parse arbitrary PNG bytes, queue every
 //! PNG-capable filter, execute, and encode.
 #![no_main]
-use png_glitch_recipe::{
-    BitOp, FilterConfig, GlitchContext, Limits, ParseOptions, PreProcess, SortCriterion, SwapTarget,
-};
 use libfuzzer_sys::fuzz_target;
+use png_glitch_recipe::{
+    BitOp, FilterConfig, GlitchContext, Limits, ParseOptions, PreProcess, RegenerateStrategy,
+    SortCriterion, SwapTarget,
+};
 
 /// Running ~30 filters per input is expensive, so keep images small to get a
 /// useful number of executions per second.
@@ -106,6 +107,18 @@ fn every_filter() -> Vec<FilterConfig> {
         UpFilter,
         AverageFilter,
         PaethFilter,
+        SetFilterType {
+            filter: PreProcess::UpFilter,
+        },
+        Regenerate {
+            strategy: RegenerateStrategy::Adaptive,
+        },
+        Regenerate {
+            strategy: RegenerateStrategy::Pattern(vec![
+                PreProcess::SubFilter,
+                PreProcess::PaethFilter,
+            ]),
+        },
     ];
     // Compile-time reminder: adding a `FilterConfig` variant breaks this match
     // until the variant is also added to the list above.
@@ -133,7 +146,9 @@ fn every_filter() -> Vec<FilterConfig> {
             | SubFilter
             | UpFilter
             | AverageFilter
-            | PaethFilter => {}
+            | PaethFilter
+            | SetFilterType { .. }
+            | Regenerate { .. } => {}
             // WebP-only variants: covered by the `webp_pipeline` target.
             MacroblockGlitch { .. } | AlphaGlitch { .. } | LossyArtifact { .. } => {}
         }

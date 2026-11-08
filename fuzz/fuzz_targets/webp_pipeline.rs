@@ -2,6 +2,7 @@
 //! WebP-capable filter, execute, and encode.
 #![no_main]
 use libfuzzer_sys::fuzz_target;
+use png_glitch_recipe::{PreProcess, RegenerateStrategy};
 use webp_glitch_context::{
     AlphaGlitchStrategy, BitOp, FilterConfig, SortCriterion, SwapTarget, WebpGlitchContext,
 };
@@ -104,6 +105,12 @@ fn every_filter() -> Vec<FilterConfig> {
         UpFilter,
         AverageFilter,
         PaethFilter,
+        SetFilterType {
+            filter: PreProcess::UpFilter,
+        },
+        Regenerate {
+            strategy: RegenerateStrategy::Adaptive,
+        },
         MacroblockGlitch { magnitude: 1.0 },
         AlphaGlitch {
             magnitude: 1.0,
@@ -150,6 +157,8 @@ fn every_filter() -> Vec<FilterConfig> {
             | UpFilter
             | AverageFilter
             | PaethFilter
+            | SetFilterType { .. }
+            | Regenerate { .. }
             | MacroblockGlitch { .. }
             | AlphaGlitch { .. }
             | LossyArtifact { .. } => {}
