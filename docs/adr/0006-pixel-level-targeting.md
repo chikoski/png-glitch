@@ -1,6 +1,6 @@
 # 0006. Pixel-level targeting: how `rect=` and `mask=` restrict an effect
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-08
 - **Issue:** #187 (part of #77, Phase 4 #118; builds on #72 and #185; affects #186)
 
