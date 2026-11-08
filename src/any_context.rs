@@ -157,4 +157,22 @@ impl AnyGlitchContext {
             Self::Webp(ctx) => ctx.save(path),
         }
     }
+
+    /// Decodes the glitched PNG to RGBA8 pixels (`width`, `height`, data). Errors for WebP.
+    pub fn rgba_pixels(&self) -> Result<(u32, u32, Vec<u8>)> {
+        match self {
+            Self::Png(ctx) => {
+                let png = ctx.png();
+                let (w, h) = (png.width(), png.height());
+                let len = (w as usize)
+                    .checked_mul(h as usize)
+                    .and_then(|n| n.checked_mul(4))
+                    .context("image is too large to decode")?;
+                let mut out = vec![0u8; len];
+                png_glitch::Renderer::new(png).render_into(png, &mut out)?;
+                Ok((w, h, out))
+            }
+            Self::Webp(_) => anyhow::bail!("decoding to pixels is supported for PNG only"),
+        }
+    }
 }
