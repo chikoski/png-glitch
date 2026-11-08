@@ -1,7 +1,7 @@
 use clap::Parser;
 use png_glitch_recipe::{
-    AlphaGlitchStrategy, BitOp, FilterConfig, MAX_RANDOM_COPY_TIMES, PreProcess, SortCriterion,
-    SwapTarget,
+    AlphaGlitchStrategy, BitOp, FilterConfig, MAX_RANDOM_COPY_TIMES, PreProcess,
+    RegenerateStrategy, SortCriterion, SwapTarget,
 };
 use serde::Deserialize;
 
@@ -146,6 +146,48 @@ fn parse_kv_pairs<'a>(name: &str, rest: &'a str) -> Result<Vec<(&'a str, &'a str
     Ok(pairs)
 }
 
+/// Parses a PNG filter type name (`none`, `sub`, `up`, `average`, `paeth`; the spellings of
+/// `--pre-process`, case-insensitive) as used by `set-filter-type` and `regenerate`.
+fn parse_filter_type(value: &str) -> Result<PreProcess, String> {
+    let norm = value.trim().to_ascii_lowercase().replace('_', "-");
+    match norm.as_str() {
+        "none" | "remove-filter" | "removefilter" => Ok(PreProcess::RemoveFilter),
+        "sub" | "sub-filter" | "subfilter" => Ok(PreProcess::SubFilter),
+        "up" | "up-filter" | "upfilter" => Ok(PreProcess::UpFilter),
+        "average" | "average-filter" | "averagefilter" => Ok(PreProcess::AverageFilter),
+        "paeth" | "paeth-filter" | "paethfilter" => Ok(PreProcess::PaethFilter),
+        other => Err(format!(
+            "unknown PNG filter type `{other}` (expected none, sub, up, average or paeth)"
+        )),
+    }
+}
+
+/// Parses the value of `regenerate=`: `adaptive`, one filter type (`Fixed`), or a comma-separated
+/// list (`Pattern`; a trailing comma makes a one-element pattern).
+fn parse_regenerate_strategy(value: &str) -> Result<RegenerateStrategy, String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err("`regenerate` requires a strategy (e.g. `-f regenerate=paeth`)".into());
+    }
+    if value.eq_ignore_ascii_case("adaptive") {
+        return Ok(RegenerateStrategy::Adaptive);
+    }
+    if !value.contains(',') {
+        return Ok(RegenerateStrategy::Fixed(parse_filter_type(value)?));
+    }
+    let items: Vec<&str> = value.split(',').collect();
+    // Allow one trailing comma (`paeth,`); other empty items are mistakes.
+    let items = match items.split_last() {
+        Some((&"", rest)) => rest,
+        _ => &items[..],
+    };
+    let pattern = items
+        .iter()
+        .map(|t| parse_filter_type(t))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(RegenerateStrategy::Pattern(pattern))
+}
+
 /// Parses a repeatable `-f / --filter <SPEC>` argument into a [`FilterConfig`].
 ///
 /// Supported forms:
@@ -212,6 +254,61 @@ pub fn parse_filter_spec(spec: &str) -> Result<FilterConfig, String> {
                 return Err("`paeth-filter` does not take any parameters".into());
             }
             Ok(FilterConfig::PaethFilter)
+        }
+        "set-filter-type" | "setfiltertype" => {
+            let value = match mode {
+                Some(('=', v)) => v,
+                Some((':', rest)) => {
+                    let mut filter = None;
+                    for (k, v) in parse_kv_pairs(&norm, rest)? {
+                        match k {
+                            "filter" => filter = Some(v),
+                            other => {
+                                return Err(format!(
+                                    "unknown parameter `{other}` for `set-filter-type` (expected `filter`)"
+                                ));
+                            }
+                        }
+                    }
+                    filter.ok_or_else(|| "missing `filter` for `set-filter-type`".to_string())?
+                }
+                _ => {
+                    return Err(
+                        "`set-filter-type` requires a filter type (e.g. `-f set-filter-type=paeth`)"
+                            .into(),
+                    );
+                }
+            };
+            Ok(FilterConfig::SetFilterType {
+                filter: parse_filter_type(value)?,
+            })
+        }
+        "regenerate" => {
+            let value = match mode {
+                Some(('=', v)) => v,
+                Some((':', rest)) => {
+                    let mut strategy = None;
+                    for (k, v) in parse_kv_pairs(&norm, rest)? {
+                        match k {
+                            "strategy" => strategy = Some(v),
+                            other => {
+                                return Err(format!(
+                                    "unknown parameter `{other}` for `regenerate` (expected `strategy`)"
+                                ));
+                            }
+                        }
+                    }
+                    strategy.ok_or_else(|| "missing `strategy` for `regenerate`".to_string())?
+                }
+                _ => {
+                    return Err(
+                        "`regenerate` requires a strategy (e.g. `-f regenerate=paeth`)".into(),
+                    );
+                }
+            };
+            Ok(FilterConfig::Regenerate {
+                strategy: parse_regenerate_strategy(value)?,
+            })
         }
         "change-filter-type" | "changefiltertype" => {
             let magnitude = extract_single_magnitude(&norm, mode)?;
@@ -834,8 +931,20 @@ Available Glitch Filters (use with `-f / --filter <SPEC>` or in YAML `--config`)
       Sets byte at INDEX to VALUE on every scanline.
       Example: -f substitute=0:255
 
-    remove-filter | sub-filter | up-filter | average-filter | paeth-filter
-      Re-encodes all PNG scanlines with a fixed PNG prediction filter.
+    set-filter-type=<TYPE>
+      Overwrites the filter type tag of every PNG scanline and leaves the filtered bytes as they
+      are (tag only; no value is recomputed). [TYPE: none|sub|up|average|paeth]
+      Example: -f set-filter-type=paeth
+
+    regenerate=<STRATEGY>
+      Starts a new generation: recomputes every filtered value (PNG only). Glitches so far are
+      baked into the pixels. [STRATEGY: a TYPE (none|sub|up|average|paeth), `adaptive`, or a
+      comma-separated pattern such as `sub,up,paeth`]
+      Example: -f regenerate=paeth
+
+    remove-filter | sub-filter | up-filter | average-filter | paeth-filter  [deprecated]
+      Re-encode all PNG scanlines with a fixed PNG prediction filter (recompute the values).
+      Use `regenerate=<TYPE>` instead; the output is the same.
       Example: -f sub-filter
 
   WebP-only Filters:
@@ -1092,11 +1201,11 @@ pub struct Cli {
     )]
     pub pre_process: Option<PreProcess>,
 
-    /// Re-encode all PNG scanlines with PNG prediction filter `None` (pipeline step, PNG only)
+    /// [deprecated: use `-f regenerate=none`] Re-encode all PNG scanlines with PNG prediction filter `None` (pipeline step, PNG only)
     #[arg(long, help_heading = "PNG Prediction Filter Re-encoding")]
     pub remove_filter: bool,
 
-    /// Re-encode all PNG scanlines with PNG prediction filter `Sub` (pipeline step, PNG only)
+    /// [deprecated: use `-f regenerate=sub`] Re-encode all PNG scanlines with PNG prediction filter `Sub` (pipeline step, PNG only)
     #[arg(
         long,
         visible_alias = "sub-filter",
@@ -1104,7 +1213,7 @@ pub struct Cli {
     )]
     pub sub: bool,
 
-    /// Re-encode all PNG scanlines with PNG prediction filter `Up` (pipeline step, PNG only)
+    /// [deprecated: use `-f regenerate=up`] Re-encode all PNG scanlines with PNG prediction filter `Up` (pipeline step, PNG only)
     #[arg(
         long,
         visible_alias = "up-filter",
@@ -1112,7 +1221,7 @@ pub struct Cli {
     )]
     pub up: bool,
 
-    /// Re-encode all PNG scanlines with PNG prediction filter `Average` (pipeline step, PNG only)
+    /// [deprecated: use `-f regenerate=average`] Re-encode all PNG scanlines with PNG prediction filter `Average` (pipeline step, PNG only)
     #[arg(
         long,
         visible_alias = "average-filter",
@@ -1120,7 +1229,7 @@ pub struct Cli {
     )]
     pub average: bool,
 
-    /// Re-encode all PNG scanlines with PNG prediction filter `Paeth` (pipeline step, PNG only)
+    /// [deprecated: use `-f regenerate=paeth`] Re-encode all PNG scanlines with PNG prediction filter `Paeth` (pipeline step, PNG only)
     #[arg(
         long,
         visible_alias = "paeth-filter",

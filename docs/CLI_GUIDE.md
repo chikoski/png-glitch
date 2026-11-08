@@ -116,7 +116,15 @@ Overwrites a single byte in the middle scanline; the error propagates down the i
 
 These options force the PNG decoder to misinterpret pixels by manipulating internal filter types.
 
-### Remove Filter
+### Set Filter Type (tag only) and Regenerate (recompute)
+Two different operations:
+
+- `-f set-filter-type=paeth` overwrites the filter-type tag of every row and leaves the filtered bytes as they are, so the decoder misreads them.
+- `-f regenerate=paeth` recomputes every filtered value (a new generation); the image looks the same but its bytes change. Also `regenerate=adaptive` and `regenerate=sub,up,paeth` (row `i` uses `pattern[i % len]`).
+
+`--remove-filter`, `--sub`, `--up`, `--average` and `--paeth` are **deprecated** aliases of `regenerate=<type>` (same output; they print a warning to stderr).
+
+### Remove Filter (deprecated, use `-f regenerate=none`)
 Re-encodes every scanline with filter type `None`. The image looks unchanged, but the bytes underneath are now raw pixels, which changes what later effects do.
 `--remove-filter`
 ![Remove Filter](./gallery/remove_filter.png)

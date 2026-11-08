@@ -37,7 +37,7 @@ mod resolve;
 mod config;
 mod context;
 mod error;
-mod filters;
+pub(crate) mod filters;
 mod live;
 
 pub use config::*;
@@ -82,7 +82,9 @@ mod test {
 
         // Test SubFilter
         let mut ctx = GlitchContext::new(bytes, Some(0))?;
-        ctx.add_filter(SubFilter);
+        ctx.add_filter(Regenerate::new(RegenerateStrategy::Fixed(
+            PreProcess::SubFilter,
+        )));
         ctx.execute();
         let buffer = ctx.buffer()?;
         let mut png = PngGlitch::from_bytes(buffer)?;
@@ -92,7 +94,9 @@ mod test {
 
         // Test UpFilter
         let mut ctx = GlitchContext::new(bytes, Some(0))?;
-        ctx.add_filter(UpFilter);
+        ctx.add_filter(Regenerate::new(RegenerateStrategy::Fixed(
+            PreProcess::UpFilter,
+        )));
         ctx.execute();
         let buffer = ctx.buffer()?;
         let mut png = PngGlitch::from_bytes(buffer)?;
@@ -102,7 +106,9 @@ mod test {
 
         // Test AverageFilter
         let mut ctx = GlitchContext::new(bytes, Some(0))?;
-        ctx.add_filter(AverageFilter);
+        ctx.add_filter(Regenerate::new(RegenerateStrategy::Fixed(
+            PreProcess::AverageFilter,
+        )));
         ctx.execute();
         let buffer = ctx.buffer()?;
         let mut png = PngGlitch::from_bytes(buffer)?;
@@ -112,7 +118,9 @@ mod test {
 
         // Test PaethFilter
         let mut ctx = GlitchContext::new(bytes, Some(0))?;
-        ctx.add_filter(PaethFilter);
+        ctx.add_filter(Regenerate::new(RegenerateStrategy::Fixed(
+            PreProcess::PaethFilter,
+        )));
         ctx.execute();
         let buffer = ctx.buffer()?;
         let mut png = PngGlitch::from_bytes(buffer)?;
@@ -122,8 +130,12 @@ mod test {
 
         // Test RemoveFilter (None)
         let mut ctx = GlitchContext::new(bytes, Some(0))?;
-        ctx.add_filter(SubFilter);
-        ctx.add_filter(RemoveFilter);
+        ctx.add_filter(Regenerate::new(RegenerateStrategy::Fixed(
+            PreProcess::SubFilter,
+        )));
+        ctx.add_filter(Regenerate::new(RegenerateStrategy::Fixed(
+            PreProcess::RemoveFilter,
+        )));
         ctx.execute();
         let buffer = ctx.buffer()?;
         let mut png = PngGlitch::from_bytes(buffer)?;
@@ -385,6 +397,12 @@ mod test {
             FilterConfig::UpFilter,
             FilterConfig::AverageFilter,
             FilterConfig::PaethFilter,
+            FilterConfig::SetFilterType {
+                filter: PreProcess::PaethFilter,
+            },
+            FilterConfig::Regenerate {
+                strategy: RegenerateStrategy::Adaptive,
+            },
         ]
     }
 

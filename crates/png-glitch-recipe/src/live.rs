@@ -3,11 +3,11 @@
 //! [`LiveRecipe`] drives a [`LivePipeline`]: after `live.encode(frame)` (`E`) and before
 //! `live.decode_into(out)` (`D`), `run` executes the recipe's steps on the frame's scan lines
 //! (`G`). A step that resolves to [`Refilter`](png_glitch::effects::Refilter) (`RemoveFilter`,
-//! `SubFilter`, ...) runs as `regenerate(Fixed(t))`, a generation boundary, so a recipe gives
+//! `SubFilter`, ...) runs as `regenerate(Fixed(t))`, and a `Regenerate` step as `regenerate(strategy)`, a generation boundary, so a recipe gives
 //! the same bytes as in the file workflow.
 
 use crate::{ImageHeader, Recipe, RecipeError, ResolvedRecipe, Result};
-use png_glitch::{FilterStrategy, LivePipeline};
+use png_glitch::LivePipeline;
 use rand::RngCore;
 
 /// The `frame`-th output (0-based) of SplitMix64 started at `seed`: the seed of one frame in
@@ -178,10 +178,8 @@ impl LiveRecipe {
             self.current_frame = self.frame;
         }
         for step in self.current.steps() {
-            match step.refilter_type() {
-                Some(t) => live
-                    .regenerate(&FilterStrategy::Fixed(t))
-                    .map_err(RecipeError::Encode)?,
+            match step.run_boundary(live) {
+                Some(result) => result?,
                 None => step.execute_live(&mut live.scan_lines())?,
             }
         }

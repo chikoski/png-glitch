@@ -356,6 +356,25 @@ fn resolve_seed(seed: Option<u64>) -> u64 {
     }
 }
 
+/// Prints one line to stderr for each deprecated re-encode flag in use. Does not touch stdout
+/// or the output file.
+fn warn_deprecated_flags(args: &Cli) {
+    for (used, flag, filter) in [
+        (args.remove_filter, "--remove-filter", "none"),
+        (args.sub, "--sub", "sub"),
+        (args.up, "--up", "up"),
+        (args.average, "--average", "average"),
+        (args.paeth, "--paeth", "paeth"),
+    ] {
+        if used {
+            eprintln!(
+                "warning: `{flag}` is deprecated; use `-f regenerate={filter}` (same output) \
+                 or `-f set-filter-type={filter}` (tag only)"
+            );
+        }
+    }
+}
+
 fn main() -> anyhow::Result<()> {
     let matches = Cli::command().get_matches();
     let args = Cli::from_arg_matches(&matches)?;
@@ -368,6 +387,7 @@ fn main() -> anyhow::Result<()> {
         return show_recipe(&args);
     }
 
+    warn_deprecated_flags(&args);
     let steps = collect_ordered_steps(&args, Some(&matches));
 
     if let Some(batch_output) = &args.batch_output {

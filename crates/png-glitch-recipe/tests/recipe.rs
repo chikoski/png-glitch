@@ -1,7 +1,8 @@
 //! Tests for the `Recipe` → resolve → `ResolvedRecipe` → execute API.
 
 use png_glitch_recipe::{
-    FilterConfig, GlitchContext, ImageHeader, PngGlitch, Recipe, RecipeError, Step,
+    FilterConfig, GlitchContext, ImageHeader, PngGlitch, PreProcess, Recipe, RecipeError,
+    RegenerateStrategy, Step,
 };
 
 const FIXTURE: &[u8] = include_bytes!("fixtures/small.png");
@@ -226,6 +227,25 @@ fn every_config() -> Vec<FilterConfig> {
             strategy: Some(AlphaGlitchStrategy::Zero),
         },
         FilterConfig::LossyArtifact { quality: 15.5 },
+        FilterConfig::SetFilterType {
+            filter: PreProcess::PaethFilter,
+        },
+        FilterConfig::Regenerate {
+            strategy: RegenerateStrategy::Adaptive,
+        },
+        FilterConfig::Regenerate {
+            strategy: RegenerateStrategy::Fixed(PreProcess::SubFilter),
+        },
+        FilterConfig::Regenerate {
+            strategy: RegenerateStrategy::Pattern(vec![
+                PreProcess::SubFilter,
+                PreProcess::UpFilter,
+                PreProcess::PaethFilter,
+            ]),
+        },
+        FilterConfig::Regenerate {
+            strategy: RegenerateStrategy::Pattern(vec![PreProcess::UpFilter]),
+        },
     ]
 }
 

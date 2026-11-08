@@ -164,7 +164,9 @@ The WebP column shows which filters also work on WebP images through [`webp-glit
 | `SetZero` | `magnitude: f64` | ✅ | ❌ | Sets random scanline bytes to `0`. |
 | `RandomCopy` | `times: u32` (`1`) | ✅ | ❌ | Copies random scanlines onto other scanlines. |
 | `Substitute` | `index: usize` (`0`), `value: u8` (`0`) | ✅ | ❌ | Sets byte at `index` to `value` on every scanline. |
-| `RemoveFilter` / `SubFilter` / `UpFilter` / `AverageFilter` / `PaethFilter` | *(none)* | ✅ | ❌ | Re-encodes all PNG scanlines with a fixed prediction filter. |
+| `SetFilterType` | *(none)* | ✅ | ❌ | Overwrites the filter-type tag of every row; the filtered bytes are not recomputed. |
+| `Regenerate` | *(none)* | ✅ | ❌ | New generation: recomputes every filtered value with a `RegenerateStrategy` (`fixed`, `pattern`, `adaptive`). |
+| `RemoveFilter` / `SubFilter` / `UpFilter` / `AverageFilter` / `PaethFilter` | *(none)* | ✅ | ❌ | **Deprecated**, use `Regenerate`. Re-encodes all PNG scanlines with a fixed prediction filter (recomputes the values). |
 | `MacroblockGlitch` | `magnitude: f64` | ❌ | ✅ | Swaps 16×16 macroblocks along VP8 block boundaries. |
 | `AlphaGlitch` | `magnitude: f64` (`1.0`), `strategy: AlphaGlitchStrategy` (`Invert`) | ❌ | ✅ | Corrupts the alpha channel (`Invert`, `Randomize`, `Zero`, `One`). |
 | `LossyArtifact` | `quality: f32` (`10.0`) | ❌ | ✅ | Lowers WebP re-encoding quality (`0.0..=100.0`). |

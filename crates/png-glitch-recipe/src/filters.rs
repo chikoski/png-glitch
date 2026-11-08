@@ -94,10 +94,108 @@ impl ChangeFilterType {
 
 resolve_via_build!(ChangeFilterType, SetFilterTypes, filter_types);
 
-/// Filter that re-encodes all scanlines with [`FilterType::None`].
+/// Re-encodes all scanlines with one filter type (what `RemoveFilter`, `SubFilter`, ... resolve
+/// to). Internal: the public way is [`Regenerate`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Reencode(pub(crate) FilterType);
+
+impl Resolve for Reencode {
+    fn resolve(&self, _header: &ImageHeader, _rng: &mut dyn RngCore) -> ResolvedStep {
+        ResolvedStep::Refilter(fx::Refilter::new(self.0))
+    }
+}
+
+/// Filter that overwrites the filter type tag of **every** scanline with `filter_type` and
+/// leaves the filtered bytes as they are (tag only; no value is recomputed).
+///
+/// The decoded image changes, because the decoder now reads the bytes with another predictor.
+/// To recompute the values instead, use [`Regenerate`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SetFilterType {
+    /// The tag written to every scanline.
+    pub filter_type: FilterType,
+}
+
+impl SetFilterType {
+    /// Creates a new [`SetFilterType`] filter.
+    pub fn new(filter_type: FilterType) -> Self {
+        Self { filter_type }
+    }
+
+    fn build(
+        &self,
+        header: &ImageHeader,
+        mut filter_types: Vec<Option<FilterType>>,
+    ) -> ResolvedStep {
+        filter_types.resize(header.height as usize, Some(self.filter_type));
+        ResolvedStep::SetFilterTypes(fx::SetFilterTypes::new(filter_types))
+    }
+}
+
+impl Resolve for SetFilterType {
+    fn resolve(&self, header: &ImageHeader, _rng: &mut dyn RngCore) -> ResolvedStep {
+        self.build(header, Vec::new())
+    }
+
+    fn resolve_into(
+        &self,
+        header: &ImageHeader,
+        _rng: &mut dyn RngCore,
+        out: &mut ResolvedStep,
+        _scratch: &mut StepScratch,
+    ) {
+        let buf = take_buffer(out, |step| match step {
+            ResolvedStep::SetFilterTypes(e) => Some(&mut e.filter_types),
+            _ => None,
+        });
+        *out = self.build(header, buf);
+    }
+}
+
+/// Filter that starts a new generation: it recomputes every filtered value from the decoded
+/// pixels with `strategy` (`PngGlitch::regenerate`), so earlier glitches are baked into the
+/// pixels. To overwrite only the tag, use [`SetFilterType`].
+///
+/// `Regenerate::new(RegenerateStrategy::Fixed(..))` gives the same bytes as the deprecated
+/// `RemoveFilter`, `SubFilter`, ... steps. An empty `Pattern` is rejected when the filter is
+/// built from a [`FilterConfig`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct Regenerate {
+    /// The filter strategy.
+    pub strategy: RegenerateStrategy,
+}
+
+impl Regenerate {
+    /// Creates a new [`Regenerate`] filter.
+    pub fn new(strategy: RegenerateStrategy) -> Self {
+        Self { strategy }
+    }
+}
+
+impl Resolve for Regenerate {
+    fn resolve(&self, _header: &ImageHeader, _rng: &mut dyn RngCore) -> ResolvedStep {
+        match self.strategy.to_filter_strategy() {
+            Ok(strategy) => ResolvedStep::Regenerate(strategy),
+            // An empty pattern: rejected by `filter_from_config`; here it does nothing.
+            Err(_) => ResolvedStep::Noop,
+        }
+    }
+}
+
+/// Filter that re-encodes all scanlines with [`FilterType::None`]: it recomputes every filtered
+/// value, it does not only overwrite the tag.
+///
+/// Deprecated: use [`Regenerate`] with `RegenerateStrategy::Fixed(..)` to recompute the values,
+/// or [`SetFilterType`] to overwrite the tag only. The YAML type and `-f` spec of this step keep
+/// working and give the same bytes.
+#[deprecated(
+    since = "0.3.0",
+    note = "use `Regenerate` with `RegenerateStrategy::Fixed(..)`; removed before 1.0"
+)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RemoveFilter;
 
+#[allow(deprecated)]
 impl RemoveFilter {
     /// Creates a new [`RemoveFilter`].
     pub fn new() -> Self {
@@ -105,16 +203,27 @@ impl RemoveFilter {
     }
 }
 
+#[allow(deprecated)]
 impl Resolve for RemoveFilter {
-    fn resolve(&self, _header: &ImageHeader, _rng: &mut dyn RngCore) -> ResolvedStep {
-        ResolvedStep::Refilter(fx::Refilter::new(FilterType::None))
+    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
+        Reencode(FilterType::None).resolve(header, rng)
     }
 }
 
-/// Filter that re-encodes all scanlines with [`FilterType::Sub`].
+/// Filter that re-encodes all scanlines with [`FilterType::Sub`]: it recomputes every filtered
+/// value, it does not only overwrite the tag.
+///
+/// Deprecated: use [`Regenerate`] with `RegenerateStrategy::Fixed(..)` to recompute the values,
+/// or [`SetFilterType`] to overwrite the tag only. The YAML type and `-f` spec of this step keep
+/// working and give the same bytes.
+#[deprecated(
+    since = "0.3.0",
+    note = "use `Regenerate` with `RegenerateStrategy::Fixed(..)`; removed before 1.0"
+)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SubFilter;
 
+#[allow(deprecated)]
 impl SubFilter {
     /// Creates a new [`SubFilter`].
     pub fn new() -> Self {
@@ -122,16 +231,27 @@ impl SubFilter {
     }
 }
 
+#[allow(deprecated)]
 impl Resolve for SubFilter {
-    fn resolve(&self, _header: &ImageHeader, _rng: &mut dyn RngCore) -> ResolvedStep {
-        ResolvedStep::Refilter(fx::Refilter::new(FilterType::Sub))
+    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
+        Reencode(FilterType::Sub).resolve(header, rng)
     }
 }
 
-/// Filter that re-encodes all scanlines with [`FilterType::Up`].
+/// Filter that re-encodes all scanlines with [`FilterType::Up`]: it recomputes every filtered
+/// value, it does not only overwrite the tag.
+///
+/// Deprecated: use [`Regenerate`] with `RegenerateStrategy::Fixed(..)` to recompute the values,
+/// or [`SetFilterType`] to overwrite the tag only. The YAML type and `-f` spec of this step keep
+/// working and give the same bytes.
+#[deprecated(
+    since = "0.3.0",
+    note = "use `Regenerate` with `RegenerateStrategy::Fixed(..)`; removed before 1.0"
+)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct UpFilter;
 
+#[allow(deprecated)]
 impl UpFilter {
     /// Creates a new [`UpFilter`].
     pub fn new() -> Self {
@@ -139,16 +259,27 @@ impl UpFilter {
     }
 }
 
+#[allow(deprecated)]
 impl Resolve for UpFilter {
-    fn resolve(&self, _header: &ImageHeader, _rng: &mut dyn RngCore) -> ResolvedStep {
-        ResolvedStep::Refilter(fx::Refilter::new(FilterType::Up))
+    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
+        Reencode(FilterType::Up).resolve(header, rng)
     }
 }
 
-/// Filter that re-encodes all scanlines with [`FilterType::Average`].
+/// Filter that re-encodes all scanlines with [`FilterType::Average`]: it recomputes every filtered
+/// value, it does not only overwrite the tag.
+///
+/// Deprecated: use [`Regenerate`] with `RegenerateStrategy::Fixed(..)` to recompute the values,
+/// or [`SetFilterType`] to overwrite the tag only. The YAML type and `-f` spec of this step keep
+/// working and give the same bytes.
+#[deprecated(
+    since = "0.3.0",
+    note = "use `Regenerate` with `RegenerateStrategy::Fixed(..)`; removed before 1.0"
+)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct AverageFilter;
 
+#[allow(deprecated)]
 impl AverageFilter {
     /// Creates a new [`AverageFilter`].
     pub fn new() -> Self {
@@ -156,16 +287,27 @@ impl AverageFilter {
     }
 }
 
+#[allow(deprecated)]
 impl Resolve for AverageFilter {
-    fn resolve(&self, _header: &ImageHeader, _rng: &mut dyn RngCore) -> ResolvedStep {
-        ResolvedStep::Refilter(fx::Refilter::new(FilterType::Average))
+    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
+        Reencode(FilterType::Average).resolve(header, rng)
     }
 }
 
-/// Filter that re-encodes all scanlines with [`FilterType::Paeth`].
+/// Filter that re-encodes all scanlines with [`FilterType::Paeth`]: it recomputes every filtered
+/// value, it does not only overwrite the tag.
+///
+/// Deprecated: use [`Regenerate`] with `RegenerateStrategy::Fixed(..)` to recompute the values,
+/// or [`SetFilterType`] to overwrite the tag only. The YAML type and `-f` spec of this step keep
+/// working and give the same bytes.
+#[deprecated(
+    since = "0.3.0",
+    note = "use `Regenerate` with `RegenerateStrategy::Fixed(..)`; removed before 1.0"
+)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PaethFilter;
 
+#[allow(deprecated)]
 impl PaethFilter {
     /// Creates a new [`PaethFilter`].
     pub fn new() -> Self {
@@ -173,9 +315,10 @@ impl PaethFilter {
     }
 }
 
+#[allow(deprecated)]
 impl Resolve for PaethFilter {
-    fn resolve(&self, _header: &ImageHeader, _rng: &mut dyn RngCore) -> ResolvedStep {
-        ResolvedStep::Refilter(fx::Refilter::new(FilterType::Paeth))
+    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
+        Reencode(FilterType::Paeth).resolve(header, rng)
     }
 }
 
@@ -998,13 +1141,23 @@ impl Resolve for ShiftChannels {
     }
 }
 
+#[allow(deprecated)]
+mod legacy_glitch_filters {
+    use super::*;
+
+    impl_glitch_filter_via_resolve!(
+        RemoveFilter,
+        SubFilter,
+        UpFilter,
+        AverageFilter,
+        PaethFilter
+    );
+}
+
 impl_glitch_filter_via_resolve!(
     ChangeFilterType,
-    RemoveFilter,
-    SubFilter,
-    UpFilter,
-    AverageFilter,
-    PaethFilter,
+    SetFilterType,
+    Regenerate,
     Replace,
     Transpose,
     RandomCopy,

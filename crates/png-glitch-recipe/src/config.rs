@@ -139,11 +139,18 @@ pub(crate) fn filter_from_config(config: &FilterConfig) -> Result<Builtin> {
         FilterConfig::Brighten { strength } => Builtin::from(Brighten::new(strength)),
         FilterConfig::Darken { strength } => Builtin::from(Darken::new(strength)),
         FilterConfig::ShiftChannels { r, g, b } => Builtin::from(ShiftChannels::new(r, g, b)),
-        FilterConfig::RemoveFilter => Builtin::from(RemoveFilter),
-        FilterConfig::SubFilter => Builtin::from(SubFilter),
-        FilterConfig::UpFilter => Builtin::from(UpFilter),
-        FilterConfig::AverageFilter => Builtin::from(AverageFilter),
-        FilterConfig::PaethFilter => Builtin::from(PaethFilter),
+        FilterConfig::RemoveFilter => Builtin::from(Reencode(FilterType::None)),
+        FilterConfig::SubFilter => Builtin::from(Reencode(FilterType::Sub)),
+        FilterConfig::UpFilter => Builtin::from(Reencode(FilterType::Up)),
+        FilterConfig::AverageFilter => Builtin::from(Reencode(FilterType::Average)),
+        FilterConfig::PaethFilter => Builtin::from(Reencode(FilterType::Paeth)),
+        FilterConfig::SetFilterType { filter } => {
+            Builtin::from(SetFilterType::new(filter.filter_type()))
+        }
+        FilterConfig::Regenerate { ref strategy } => {
+            strategy.to_filter_strategy()?;
+            Builtin::from(Regenerate::new(strategy.clone()))
+        }
         FilterConfig::MacroblockGlitch { .. }
         | FilterConfig::AlphaGlitch { .. }
         | FilterConfig::LossyArtifact { .. } => {
@@ -189,6 +196,73 @@ pub enum PreProcess {
     /// Re-encodes all scanlines with [`FilterType::Paeth`].
     #[serde(alias = "PaethFilter", alias = "paethfilter", alias = "paeth")]
     PaethFilter,
+}
+
+impl PreProcess {
+    /// The PNG filter type this option stands for.
+    pub fn filter_type(self) -> FilterType {
+        match self {
+            Self::RemoveFilter => FilterType::None,
+            Self::SubFilter => FilterType::Sub,
+            Self::UpFilter => FilterType::Up,
+            Self::AverageFilter => FilterType::Average,
+            Self::PaethFilter => FilterType::Paeth,
+        }
+    }
+}
+
+/// Which filter type each scanline gets when [`Regenerate`] recomputes the filtered values.
+/// The serializable form of `png_glitch::FilterStrategy`.
+///
+/// Filter types are written as `PreProcess` is in YAML: `none`, `sub`, `up`, `average`,
+/// `paeth` (also `remove-filter`, `sub-filter`, ...). The `-f` spec is case-insensitive.
+///
+/// ```yaml
+/// strategy: adaptive
+/// strategy: { fixed: paeth }
+/// strategy: { pattern: [sub, up, paeth] }
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RegenerateStrategy {
+    /// Every row uses this filter type.
+    Fixed(PreProcess),
+    /// Row `i` uses `pattern[i % pattern.len()]`. Must not be empty.
+    Pattern(Vec<PreProcess>),
+    /// Each row gets the filter type with the smallest sum of absolute filtered values.
+    Adaptive,
+}
+
+impl RegenerateStrategy {
+    /// Converts to the `png-glitch` strategy.
+    ///
+    /// # Errors
+    /// [`RecipeError::InvalidSpec`] for an empty `Pattern`.
+    pub fn to_filter_strategy(&self) -> Result<png_glitch::FilterStrategy> {
+        Ok(match self {
+            Self::Fixed(t) => png_glitch::FilterStrategy::Fixed(t.filter_type()),
+            Self::Pattern(p) if p.is_empty() => {
+                bail_spec!("the `pattern` of a `regenerate` strategy must not be empty")
+            }
+            Self::Pattern(p) => {
+                png_glitch::FilterStrategy::Pattern(p.iter().map(|t| t.filter_type()).collect())
+            }
+            Self::Adaptive => png_glitch::FilterStrategy::Adaptive,
+        })
+    }
+}
+
+fn deserialize_strategy<'de, D>(
+    deserializer: D,
+) -> std::result::Result<RegenerateStrategy, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let strategy = RegenerateStrategy::deserialize(deserializer)?;
+    strategy
+        .to_filter_strategy()
+        .map_err(serde::de::Error::custom)?;
+    Ok(strategy)
 }
 
 /// Strategy for corrupting the alpha channel in `AlphaGlitch` (WebP only, in `webp-glitch-context`).
@@ -378,19 +452,39 @@ pub enum FilterConfig {
         /// Blue channel offset.
         b: i16,
     },
-    /// Re-encodes all scanlines with [`FilterType::None`].
+    /// Overwrites the filter type tag of every scanline and leaves the filtered bytes as they
+    /// are (tag only). To recompute the values, use `Regenerate`.
+    #[serde(alias = "set-filter-type", alias = "set_filter_type")]
+    SetFilterType {
+        /// The tag written to every scanline (`none`, `sub`, `up`, `average`, `paeth`).
+        filter: PreProcess,
+    },
+    /// Starts a new generation: recomputes every filtered value with `strategy`. To overwrite
+    /// only the tag, use `SetFilterType`.
+    #[serde(alias = "regenerate")]
+    Regenerate {
+        /// Which filter type each scanline gets.
+        #[serde(deserialize_with = "deserialize_strategy")]
+        strategy: RegenerateStrategy,
+    },
+    /// Re-encodes all scanlines with [`FilterType::None`] (recomputes the values). Deprecated
+    /// in favour of `Regenerate` with `fixed: none`; still loads and gives the same bytes.
     #[serde(alias = "remove-filter", alias = "remove_filter", alias = "none")]
     RemoveFilter,
-    /// Re-encodes all scanlines with [`FilterType::Sub`].
+    /// Re-encodes all scanlines with [`FilterType::Sub`] (recomputes the values). Deprecated
+    /// in favour of `Regenerate` with `fixed: sub`; still loads and gives the same bytes.
     #[serde(alias = "sub-filter", alias = "sub_filter", alias = "sub")]
     SubFilter,
-    /// Re-encodes all scanlines with [`FilterType::Up`].
+    /// Re-encodes all scanlines with [`FilterType::Up`] (recomputes the values). Deprecated
+    /// in favour of `Regenerate` with `fixed: up`; still loads and gives the same bytes.
     #[serde(alias = "up-filter", alias = "up_filter", alias = "up")]
     UpFilter,
-    /// Re-encodes all scanlines with [`FilterType::Average`].
+    /// Re-encodes all scanlines with [`FilterType::Average`] (recomputes the values). Deprecated
+    /// in favour of `Regenerate` with `fixed: average`; still loads and gives the same bytes.
     #[serde(alias = "average-filter", alias = "average_filter", alias = "average")]
     AverageFilter,
-    /// Re-encodes all scanlines with [`FilterType::Paeth`].
+    /// Re-encodes all scanlines with [`FilterType::Paeth`] (recomputes the values). Deprecated
+    /// in favour of `Regenerate` with `fixed: paeth`; still loads and gives the same bytes.
     #[serde(alias = "paeth-filter", alias = "paeth_filter", alias = "paeth")]
     PaethFilter,
     /// Swaps 16×16 macroblocks along VP8 block boundaries (WebP only).
@@ -440,6 +534,13 @@ macro_rules! display_as_spec_word {
 display_as_spec_word!(SortCriterion { Brightness => "brightness", Hue => "hue" });
 display_as_spec_word!(BitOp { And => "and", Or => "or", Xor => "xor" });
 display_as_spec_word!(SwapTarget { Rg => "rg", Gb => "gb", Br => "br" });
+display_as_spec_word!(PreProcess {
+    RemoveFilter => "none",
+    SubFilter => "sub",
+    UpFilter => "up",
+    AverageFilter => "average",
+    PaethFilter => "paeth",
+});
 display_as_spec_word!(AlphaGlitchStrategy {
     Invert => "invert",
     Randomize => "randomize",
@@ -571,6 +672,25 @@ impl std::fmt::Display for FilterConfig {
             Self::UpFilter => spec(f, "up-filter", &[]),
             Self::AverageFilter => spec(f, "average-filter", &[]),
             Self::PaethFilter => spec(f, "paeth-filter", &[]),
+            Self::SetFilterType { filter } => write!(f, "set-filter-type={filter}"),
+            Self::Regenerate { strategy } => match strategy {
+                RegenerateStrategy::Fixed(t) => write!(f, "regenerate={t}"),
+                RegenerateStrategy::Adaptive => f.write_str("regenerate=adaptive"),
+                RegenerateStrategy::Pattern(p) => {
+                    f.write_str("regenerate=")?;
+                    for (i, t) in p.iter().enumerate() {
+                        if i > 0 {
+                            f.write_str(",")?;
+                        }
+                        write!(f, "{t}")?;
+                    }
+                    // A trailing comma keeps a one-element pattern apart from `fixed`.
+                    if p.len() == 1 {
+                        f.write_str(",")?;
+                    }
+                    Ok(())
+                }
+            },
             Self::MacroblockGlitch { magnitude } => {
                 spec(f, "macroblock-glitch", &[("magnitude", v(magnitude))])
             }

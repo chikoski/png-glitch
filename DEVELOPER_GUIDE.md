@@ -87,7 +87,9 @@ Current operations:
 | `PngGlitch::apply_filter`, `apply_filter_from` | Filters rows (`E`) | **Yes** |
 | `PngGlitch::reencode_with`, `change_filter_type` (alias) | Removes the filter, then applies another one | **Yes** (full `D` then `E`) |
 | `PngGlitch::regenerate`, `LivePipeline::regenerate` | Removes the filters, then applies a `FilterStrategy` (`Fixed`, `Pattern`, `Adaptive`); `reencode_with` is the `Fixed` case | **Yes** (full `D` then `E`) |
-| png-glitch-recipe `RemoveFilter`, `SubFilter`, `UpFilter`, `AverageFilter`, `PaethFilter`; CLI `--remove-filter`, `--sub`, `--up`, `--average`, `--paeth`, `--pre-process` | Call `change_filter_type` internally | **Yes** |
+| png-glitch-recipe `SetFilterType` (YAML `set-filter-type`, CLI `-f set-filter-type=paeth`) | Overwrites the tag of every row (`SetFilterTypes` effect) | No |
+| png-glitch-recipe `Regenerate` (YAML `regenerate`, CLI `-f regenerate=paeth`) | Calls `PngGlitch::regenerate` with a `RegenerateStrategy` (`fixed`, `pattern`, `adaptive`) | **Yes** (full `D` then `E`) |
+| png-glitch-recipe `RemoveFilter`, `SubFilter`, `UpFilter`, `AverageFilter`, `PaethFilter` (**deprecated**, use `Regenerate`); CLI `--remove-filter`, `--sub`, `--up`, `--average`, `--paeth` (**deprecated**); `--pre-process` | Re-encode with one filter type | **Yes** |
 
 ### Review checklist
 

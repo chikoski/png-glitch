@@ -661,3 +661,99 @@ fn embed_recipe_is_rejected_for_webp() {
         .failure()
         .stderr(predicate::str::contains("--embed-recipe"));
 }
+
+// ------------------------------------------------ set-filter-type / regenerate (#139)
+
+/// Runs the CLI on `small.png` with `args` and returns (output bytes, stdout, stderr).
+fn run_png(args: &[&str]) -> (Vec<u8>, Vec<u8>, String) {
+    let dir = TempDir::new().unwrap();
+    let input = copy_fixture(&dir, "small.png");
+    let output = dir.path().join("out.png");
+    let assert = cmd()
+        .arg(&input)
+        .args(["--seed", SEED, "-o"])
+        .arg(&output)
+        .args(args)
+        .assert()
+        .success();
+    let out = assert.get_output();
+    (
+        fs::read(&output).unwrap(),
+        out.stdout.clone(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    )
+}
+
+#[test]
+fn regenerate_matches_the_deprecated_flags_and_specs() {
+    for t in ["none", "sub", "up", "average", "paeth"] {
+        let old_spec = if t == "none" {
+            "remove-filter".to_string()
+        } else {
+            format!("{t}-filter")
+        };
+        let (old, _, _) = run_png(&["-f", &old_spec]);
+        let (new, _, _) = run_png(&["-f", &format!("regenerate={t}")]);
+        assert_eq!(old, new, "{t}");
+    }
+}
+
+#[test]
+fn set_filter_type_and_regenerate_are_different_operations() {
+    let (tag, _, _) = run_png(&["-f", "set-filter-type=up"]);
+    let (values, _, _) = run_png(&["-f", "regenerate=up"]);
+    assert_ne!(tag, values);
+    let (key_value, _, _) = run_png(&["-f", "set-filter-type:filter=up"]);
+    assert_eq!(tag, key_value);
+}
+
+#[test]
+fn regenerate_accepts_adaptive_and_patterns() {
+    run_png(&["-f", "regenerate=adaptive"]);
+    let (a, _, _) = run_png(&["-f", "regenerate=sub,up,paeth"]);
+    let (b, _, _) = run_png(&["-f", "regenerate=SUB,Up,paeth"]);
+    assert_eq!(a, b);
+    let (one, _, _) = run_png(&["-f", "regenerate=sub,"]);
+    let (fixed, _, _) = run_png(&["-f", "regenerate=sub"]);
+    assert_eq!(one, fixed);
+}
+
+#[test]
+fn invalid_set_filter_type_and_regenerate_specs_exit_with_2() {
+    for spec in [
+        "set-filter-type",
+        "set-filter-type=bogus",
+        "regenerate",
+        "regenerate=",
+        "regenerate=sub,,up",
+    ] {
+        let dir = TempDir::new().unwrap();
+        let input = copy_fixture(&dir, "small.png");
+        cmd().arg(&input).args(["-f", spec]).assert().code(2);
+    }
+}
+
+#[test]
+fn deprecated_flags_warn_on_stderr_only() {
+    let (flag_out, stdout, stderr) = run_png(&["--paeth"]);
+    assert!(stderr.contains("`--paeth` is deprecated"), "{stderr}");
+    assert!(stderr.contains("regenerate=paeth"), "{stderr}");
+    let (spec_out, spec_stdout, spec_stderr) = run_png(&["-f", "paeth-filter"]);
+    assert_eq!(flag_out, spec_out);
+    assert_eq!(stdout, spec_stdout);
+    assert!(!spec_stderr.contains("deprecated"), "{spec_stderr}");
+}
+
+#[test]
+fn webp_rejects_the_new_png_only_steps() {
+    for spec in ["set-filter-type=paeth", "regenerate=paeth"] {
+        let dir = TempDir::new().unwrap();
+        let input = copy_fixture(&dir, "small.webp");
+        cmd()
+            .arg(&input)
+            .args(["-f", spec])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("not supported for WebP"));
+    }
+}
