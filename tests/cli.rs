@@ -879,3 +879,64 @@ fn variations_conflict_with_batch_output_and_sheet_needs_variations() {
         .assert()
         .code(2);
 }
+
+// ---------------------------------------------------------------- sweep
+
+#[test]
+fn sweep_writes_n_files_and_the_middle_one_matches_a_plain_run() {
+    let dir = TempDir::new().unwrap();
+    let input = copy_fixture(&dir, "small.png");
+    let out = dir.path().join("w.png");
+    cmd()
+        .arg(&input)
+        .args([
+            "--seed",
+            "9",
+            "-f",
+            "replace=0.1",
+            "--sweep",
+            "replace.magnitude=0.1..0.3:3",
+            "-o",
+        ])
+        .arg(&out)
+        .assert()
+        .success();
+    for v in ["0.1", "0.2", "0.3"] {
+        assert!(dir.path().join(format!("w-magnitude-{v}.png")).exists());
+    }
+    let plain = dir.path().join("plain.png");
+    cmd()
+        .arg(&input)
+        .args(["--seed", "9", "-f", "replace=0.2", "-o"])
+        .arg(&plain)
+        .assert()
+        .success();
+    assert_eq!(
+        fs::read(dir.path().join("w-magnitude-0.2.png")).unwrap(),
+        fs::read(&plain).unwrap()
+    );
+}
+
+#[test]
+fn sweep_rejects_unknown_steps_parameters_and_conflicts() {
+    let dir = TempDir::new().unwrap();
+    let input = copy_fixture(&dir, "small.png");
+    let run = |sweep: &str| {
+        let mut c = cmd();
+        c.arg(&input)
+            .args(["-f", "replace=0.1", "--sweep", sweep, "-o"])
+            .arg(dir.path().join("e.png"));
+        c
+    };
+    run("invert.magnitude=0..1:2").assert().failure();
+    run("5.magnitude=0..1:2").assert().failure();
+    run("replace.nope=0..1:2").assert().failure();
+    run("replace.magnitude=0..9:2").assert().failure();
+    run("replace.magnitude=bad").assert().code(2);
+    assert!(!dir.path().join("e-magnitude-0.png").exists());
+    cmd()
+        .arg(&input)
+        .args(["--sweep", "0.magnitude=0..1:2", "--variations", "2"])
+        .assert()
+        .code(2);
+}

@@ -977,6 +977,9 @@ Examples:
   # Try 12 seeds and a contact sheet; re-run a favourite with --seed <printed seed>
   png-glitch input.png --variations 12 --contact-sheet sheet.png -f replace=0.05
 
+  # Sweep one parameter: five outputs, same seed, only the magnitude changes
+  png-glitch input.png -f replace=0.1 --sweep replace.magnitude=0.01..0.2:5 --seed 1
+
   # Batch process a directory of PNG and WebP images
   png-glitch ./images --batch-output ./glitched -f invert -f block-scramble=0.1";
 
@@ -1032,6 +1035,18 @@ pub struct Cli {
         help_heading = "Exploration"
     )]
     pub variations: Option<u32>,
+
+    /// Sweep one numeric parameter of one step over N evenly spaced values with a fixed
+    /// seed, saved as `<out-stem>-<param>-<value>.<ext>`. STEP is a 0-based index or a step
+    /// type name (first match)
+    #[arg(
+        long,
+        value_name = "STEP.PARAM=FROM..TO:N",
+        value_parser = crate::sweep::parse_sweep,
+        conflicts_with_all = ["batch_output", "list_filters", "show_recipe", "variations"],
+        help_heading = "Exploration"
+    )]
+    pub sweep: Option<crate::sweep::SweepSpec>,
 
     /// Also write a contact sheet of all variations to FILE (PNG input only)
     #[arg(

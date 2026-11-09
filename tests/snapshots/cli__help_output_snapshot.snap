@@ -42,6 +42,9 @@ Exploration:
       --variations <N>
           Generate N variations with different seeds, saved as `<out-stem>-s<seed>.<ext>`
 
+      --sweep <STEP.PARAM=FROM..TO:N>
+          Sweep one numeric parameter of one step over N evenly spaced values with a fixed seed, saved as `<out-stem>-<param>-<value>.<ext>`. STEP is a 0-based index or a step type name (first match)
+
       --contact-sheet <FILE>
           Also write a contact sheet of all variations to FILE (PNG input only)
 
@@ -258,6 +261,9 @@ Examples:
 
   # Try 12 seeds and a contact sheet; re-run a favourite with --seed <printed seed>
   png-glitch input.png --variations 12 --contact-sheet sheet.png -f replace=0.05
+
+  # Sweep one parameter: five outputs, same seed, only the magnitude changes
+  png-glitch input.png -f replace=0.1 --sweep replace.magnitude=0.01..0.2:5 --seed 1
 
   # Batch process a directory of PNG and WebP images
   png-glitch ./images --batch-output ./glitched -f invert -f block-scramble=0.1

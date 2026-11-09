@@ -107,6 +107,7 @@ filters:
 | `--batch-output <DIR>` | Output directory for batch processing when `<INPUT>` is a directory. |
 | `--variations <N>` | Write N outputs with different seeds as `<out-stem>-s<seed>.<ext>`; each seed is printed and can be re-run with `--seed`. |
 | `--contact-sheet <FILE>` | With `--variations`, also write a grid of all outputs (PNG input only); `--contact-cell-width <PX>` sets the cell width (default 256). |
+| `--sweep <STEP.PARAM=FROM..TO:N>` | Write N outputs where one numeric parameter of one step takes N evenly spaced values (both ends included) and the seed stays fixed, as `<out-stem>-<param>-<value>.<ext>`. `STEP` is a 0-based index or a step type name. Example: `--sweep replace.magnitude=0.01..0.2:5`. |
 | `--force` | Overwrite existing output file(s) without prompting. |
 | `--seed <SEED>` | Random seed (`u64`) for reproducible results (printed to stderr when omitted). |
 | `-c`, `--config <FILE>` | Load filter pipeline from a YAML configuration file. |
