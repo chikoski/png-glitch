@@ -34,6 +34,11 @@ const options = {
   dist: opt("dist", "dist"),
 };
 
+if (!(options.warmup >= 1)) {
+  console.error("--warmup must be at least 1: the steady-state memory check needs a baseline after warm-up");
+  process.exit(2);
+}
+
 function table(r) {
   const m = r.meta;
   let out = `target=${m.target} simd128=${m.simd128} commit=${m.git_commit ?? "-"} size=${m.size} (${m.width}x${m.height}) frames=${m.frames} warmup=${m.warmup} pool=${m.pool} recipe=${r.extra.recipe}\n`;

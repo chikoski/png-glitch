@@ -50,7 +50,6 @@ async function run({ size, frames, warmup, pool, recipe, commit, componentUrl })
   const memStart = [];
   let rendered = null;
 
-  if (warmup === 0) memStart.push(component.__memoryBytes());
   const total = warmup + frames;
   for (let i = 0; i < total; i++) {
     const timed = i >= warmup;
