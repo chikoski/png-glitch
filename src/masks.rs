@@ -38,15 +38,12 @@ pub fn mask_from_png(bytes: &[u8]) -> anyhow::Result<Mask> {
         .context("the mask image is too large")?;
     let mut rgba = vec![0u8; len];
     png_glitch::Renderer::new(&png).render_into(&png, &mut rgba)?;
-    let values: Vec<u8> = rgba
-        .chunks_exact(4)
-        .map(|px| match px {
-            [r, g, b, a] => {
-                let luma =
-                    (77 * u32::from(*r) + 150 * u32::from(*g) + 29 * u32::from(*b) + 128) >> 8;
-                ((luma.min(255) * u32::from(*a) + 127) / 255) as u8
-            }
-            _ => 0,
+    let (pixels, _) = rgba.as_chunks::<4>();
+    let values: Vec<u8> = pixels
+        .iter()
+        .map(|[r, g, b, a]| {
+            let luma = (77 * u32::from(*r) + 150 * u32::from(*g) + 29 * u32::from(*b) + 128) >> 8;
+            ((luma.min(255) * u32::from(*a) + 127) / 255) as u8
         })
         .collect();
     Mask::from_values(w, h, values).context("the mask image has an unexpected size")
