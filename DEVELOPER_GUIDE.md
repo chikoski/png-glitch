@@ -121,7 +121,26 @@ cargo run --release -p png-glitch-bench -- compare base.json head.json --thresho
 
 `--stages TEXT` runs only the stages whose name contains `TEXT`. `--pool N` (default 8) is the number of distinct frames cycled through, which bounds setup time and memory at 1080p. Stages whose baseline p50 is under 1 ms are ignored by `compare` because they are noise-dominated on shared runners. Set `BENCH_GIT_COMMIT` to record the commit in the report.
 
-`.github/workflows/bench.yml` runs on every PR that touches `crates/`. It builds the base commit (with this PR's harness) and the head in the same job, runs them alternately (base, head, base, head) natively and under wasmtime, compares, and uploads all JSON files as the `bench-report` artifact. **Numbers from CI runners are relative only**: compare base against head from the same job, never against the budget or against another run. The threshold is 25% for now. The browser (Playwright / headless Chrome) benchmark is not part of this harness yet; it needs the wasm component and the live API.
+`.github/workflows/bench.yml` runs on every PR that touches `crates/`. It builds the base commit (with this PR's harness) and the head in the same job, runs them alternately (base, head, base, head) natively and under wasmtime, compares, and uploads all JSON files as the `bench-report` artifact. **Numbers from CI runners are relative only**: compare base against head from the same job, never against the budget or against another run. The threshold is 25% for now. The `browser` job of the same workflow runs the browser harness below and uploads its JSON as `bench-report-browser` (a second job cannot add to `bench-report`).
+
+### Browser benchmark (`bench/browser`)
+
+`bench/browser` (Node, not a Cargo crate) runs the `session` resource of the wasm component (#87) in a **Web Worker of headless Chrome** and times each stage with `performance.now()`: `browser/reload-pixels`, `browser/apply`, `browser/render-rgba`, `browser/frame` (the three together, with the share of frames over 33.3 ms), `browser/snapshot` (every 10th frame, off the real-time path), `browser/transfer-in` (`getImageData`) and `browser/draw-out` (`putImageData`) on an `OffscreenCanvas`, and two stages that bound the cost of crossing the component boundary: `browser/copy-in-floor` (one JS `memcpy` of a frame) and `browser/boundary-in` (a frame is lowered into guest memory and the guest rejects it for its length, so there is no work in between). Frames come from a JavaScript port of `fixture::frame_rgba` (`generator.mjs`; `npm test` checks the CRC-32 of four frames against the values the Rust test `frame_checksums_for_the_browser_port` asserts). The JSON has the schema of `png-glitch-bench --json`, so `png-glitch-bench compare` reads it; `alloc_bytes_per_iter` is 0 and `live_bytes_*` hold the wasm linear memory size, because a browser cannot count allocations.
+
+```sh
+rustup target add wasm32-wasip2
+cd bench/browser
+npm ci
+npm run build            # cargo build (wasm32-wasip2, +simd128) and jco transpile into dist/
+npm run bench -- --size 1080p --frames 300 --warmup 10 --recipe swap --json out/browser.json
+npm run bench -- --size 1080p --frames 300 --browser-channel chrome   # the installed Chrome
+```
+
+`--recipe` is `invert`, `swap` (default) or `regenerate`, the same as the native `live/frame/*` stages. The run **fails if the wasm linear memory grows after warm-up**; it never fails on absolute times.
+
+**This is how the 1080p30 budget of #99 is checked on a reference device:** run the second command above on that device with its own Chrome and read `browser/frame` (p50, p99, max, and the share over 33.3 ms). CI numbers are relative only.
+
+`npm run equivalence` compares `render-rgba` byte for byte with what Chrome's own PNG decoder reads from `snapshot()`, with colour management off (`colorSpaceConversion: "none"`): `createImageBitmap` + canvas for opaque images, and an `ImageBitmap` uploaded to WebGL without premultiplying for images with alpha (a canvas premultiplies, which is lossy for alpha < 255). It exits 1 on a difference. WebCodecs `ImageDecoder` is also tried: in Chrome its `copyTo({format: "RGBA"})` returns alpha that went through premultiplication whatever `premultiplyAlpha` says (colours off by up to `255 / alpha`), which is reported as `premultiplied` and is not a failure. Not covered: files with `gAMA`, `iCCP` or `sRGB` chunks (the component writes none), 16-bit and palette images (not supported by `from-pixels` yet).
 
 ## Core Concepts for Contributors
 

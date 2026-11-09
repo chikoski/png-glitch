@@ -151,6 +151,37 @@ mod tests {
         assert_eq!((glitch.width(), glitch.height()), (32, 16));
     }
 
+    fn crc32(data: &[u8]) -> u32 {
+        let mut crc = !0u32;
+        for &b in data {
+            crc ^= u32::from(b);
+            for _ in 0..8 {
+                crc = if crc & 1 != 0 {
+                    (crc >> 1) ^ 0xEDB8_8320
+                } else {
+                    crc >> 1
+                };
+            }
+        }
+        !crc
+    }
+
+    /// The browser harness (`bench/browser/generator.mjs`) ports `frame_rgba` to JavaScript; it
+    /// hard-codes these values in `bench/browser/test-generator.mjs`. Change both together.
+    #[test]
+    fn frame_checksums_for_the_browser_port() {
+        for (size, frame, want) in [
+            (Size::P360, 0, 0x5519_3fed_u32),
+            (Size::P720, 0, 0x09a4_1720),
+            (Size::P1080, 0, 0x79db_4110),
+            (Size::P360, 5, 0x58f7_7e6f),
+        ] {
+            let (w, h) = size.dimensions();
+            let got = crc32(&frame_rgba(w, h, frame));
+            assert_eq!(got, want, "{} frame {frame}", size.name());
+        }
+    }
+
     #[test]
     fn size_parses() {
         assert_eq!("720p".parse::<Size>().unwrap().dimensions(), (1280, 720));
