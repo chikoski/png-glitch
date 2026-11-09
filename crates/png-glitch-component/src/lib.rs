@@ -19,6 +19,11 @@ use png_glitch_recipe::{
     FilterInfo, GlitchContext, MaskSet, ParseOptions, PngError, RecipeError, RecipeFile,
 };
 
+mod session;
+pub use png_glitch::{ColorType, Encoding, FilterStrategy, FilterType};
+pub use png_glitch_recipe::SeedMode;
+pub use session::Session;
+
 #[cfg(target_arch = "wasm32")]
 #[allow(unsafe_code, missing_docs, clippy::all)]
 mod component;
@@ -37,6 +42,10 @@ pub enum GlitchError {
     InvalidRecipe(String),
     /// The image exceeds the decode limits.
     TooLarge,
+    /// `apply` without a recipe.
+    NoRecipe,
+    /// An encoding other than 8-bit gray, gray-alpha, rgb or rgba.
+    UnsupportedEncoding,
 }
 
 impl std::fmt::Display for GlitchError {
@@ -46,6 +55,10 @@ impl std::fmt::Display for GlitchError {
             Self::UnsupportedFormat => f.write_str("unsupported format: only PNG is supported"),
             Self::InvalidRecipe(m) => write!(f, "invalid recipe: {m}"),
             Self::TooLarge => f.write_str("the image exceeds the decode limits"),
+            Self::NoRecipe => f.write_str("no recipe is set (call set-recipe first)"),
+            Self::UnsupportedEncoding => {
+                f.write_str("unsupported encoding: only 8-bit gray, gray-alpha, rgb and rgba")
+            }
         }
     }
 }
@@ -57,7 +70,7 @@ pub fn list_filters() -> &'static [FilterInfo] {
     png_glitch_recipe::filters()
 }
 
-fn parse_recipe(recipe: &str) -> Result<RecipeFile, GlitchError> {
+pub(crate) fn parse_recipe(recipe: &str) -> Result<RecipeFile, GlitchError> {
     if recipe.len() > MAX_RECIPE_BYTES {
         return Err(GlitchError::InvalidRecipe(format!(
             "the recipe is {} bytes; the limit is {MAX_RECIPE_BYTES}",
@@ -73,17 +86,20 @@ fn parse_recipe(recipe: &str) -> Result<RecipeFile, GlitchError> {
     Ok(file)
 }
 
-fn recipe_error(e: RecipeError) -> GlitchError {
+pub(crate) fn recipe_error(e: RecipeError) -> GlitchError {
     match e {
         RecipeError::Parse(p) => image_error(p),
         other => GlitchError::InvalidRecipe(other.to_string()),
     }
 }
 
-fn image_error(e: PngError) -> GlitchError {
+pub(crate) fn image_error(e: PngError) -> GlitchError {
     match e {
         PngError::InvalidSignature => GlitchError::UnsupportedFormat,
         PngError::ImageTooLarge { .. } => GlitchError::TooLarge,
+        PngError::UnsupportedEncoding { .. } | PngError::EmptyFilterPattern => {
+            GlitchError::UnsupportedEncoding
+        }
         other => GlitchError::InvalidImage(other.to_string()),
     }
 }

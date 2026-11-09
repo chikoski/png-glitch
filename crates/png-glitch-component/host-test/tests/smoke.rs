@@ -132,3 +132,82 @@ fn list_filters_has_one_entry_per_filter() {
             .any(|f| f.name == "pixel-sort" && !f.params.is_empty())
     );
 }
+
+/// A 3-frame live loop through the `session` resource equals the native `Session`.
+#[test]
+fn live_session_matches_the_native_session() {
+    use png_glitch_component as native;
+    let (w, h) = (40u32, 24u32);
+    let frame = |k: u32| -> Vec<u8> {
+        (0..w * h * 4)
+            .map(|i| i.wrapping_mul(7 + k).wrapping_add(k * 53) as u8)
+            .collect()
+    };
+    let recipe = "filters:\n  - type: replace\n    magnitude: 0.2\n  - type: sub-filter\n";
+    let mut host = host();
+    let enc = png_glitch_component_host_test::Encoding {
+        color_type: png_glitch_component_host_test::ColorType::Rgba,
+        bit_depth: 8,
+        filter: png_glitch_component_host_test::FilterStrategy::Fixed(
+            png_glitch_component_host_test::FilterType::Paeth,
+        ),
+    };
+    let session = host
+        .session_from_pixels(w, h, &frame(0), &enc)
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        host.apply(&session).unwrap(),
+        Err(GlitchError::NoRecipe)
+    ));
+    host.set_recipe(
+        &session,
+        recipe,
+        7,
+        png_glitch_component_host_test::SeedMode::PerFrame,
+    )
+    .unwrap()
+    .unwrap();
+
+    let mut local = native::Session::from_pixels(
+        w,
+        h,
+        &frame(0),
+        native::Encoding {
+            color_type: native::ColorType::TrueColorAlpha,
+            bit_depth: 8,
+            filter: native::FilterStrategy::Fixed(native::FilterType::Paeth),
+        },
+    )
+    .unwrap();
+    local
+        .set_recipe(recipe, 7, native::SeedMode::PerFrame)
+        .unwrap();
+
+    for k in 0..3 {
+        host.reload_pixels(&session, &frame(k)).unwrap().unwrap();
+        host.apply(&session).unwrap().unwrap();
+        local.reload_pixels(&frame(k)).unwrap();
+        local.apply().unwrap();
+        let from_wasm = host.render_rgba(&session).unwrap().unwrap();
+        assert_eq!(from_wasm, local.render_rgba().unwrap(), "frame {k}");
+        assert_eq!(
+            host.snapshot(&session).unwrap().unwrap(),
+            local.snapshot().unwrap(),
+            "snapshot of frame {k}"
+        );
+    }
+    host.reset(&session).unwrap().unwrap();
+    assert_eq!(host.render_rgba(&session).unwrap().unwrap(), {
+        local.reset().unwrap();
+        local.render_rgba().unwrap()
+    });
+    assert!(matches!(
+        host.reload_pixels(&session, &[0; 8]).unwrap(),
+        Err(GlitchError::InvalidImage(_))
+    ));
+    assert!(matches!(
+        host.session_from_png(b"nope").unwrap(),
+        Err(GlitchError::UnsupportedFormat)
+    ));
+}

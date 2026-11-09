@@ -47,7 +47,7 @@ use crate::PngGlitch;
 pub struct LivePipeline {
     model: PngGlitch,
     renderer: Renderer,
-    encoding: Encoding,
+    encoding: Option<Encoding>,
 }
 
 impl LivePipeline {
@@ -61,8 +61,30 @@ impl LivePipeline {
         Ok(LivePipeline {
             model,
             renderer,
-            encoding,
+            encoding: Some(encoding),
         })
+    }
+
+    /// Wraps a model opened from a PNG file or bytes, so the live loop (`regenerate`,
+    /// `decode_into`, `snapshot`, and `LiveRecipe::run` in `png-glitch-recipe`) works on a real
+    /// file too. Allocates once, for the [`Renderer`]. [`encode`](Self::encode) is an error
+    /// ([`PngError::NotCreatedFromPixels`]) on such a pipeline; the model has no [`Encoding`].
+    pub fn from_png(model: PngGlitch) -> LivePipeline {
+        let renderer = Renderer::new(&model);
+        LivePipeline {
+            model,
+            renderer,
+            encoding: None,
+        }
+    }
+
+    /// Restores the scan lines from `clean` without allocating; see
+    /// [`PngGlitch::copy_data_from`]. The frame counter of any `LiveRecipe` is not affected.
+    ///
+    /// # Errors
+    /// [`PngError::HeaderMismatch`].
+    pub fn restore_from(&mut self, clean: &PngGlitch) -> Result<(), PngError> {
+        self.model.copy_data_from(clean)
     }
 
     /// `E`: refills the scan lines from the next RGBA8 frame and lends them for glitching.
@@ -115,8 +137,9 @@ impl LivePipeline {
         &self.model
     }
 
-    /// The encoding the pipeline was created with.
-    pub fn encoding(&self) -> &Encoding {
-        &self.encoding
+    /// The encoding the pipeline was created with; `None` for one made by
+    /// [`from_png`](Self::from_png).
+    pub fn encoding(&self) -> Option<&Encoding> {
+        self.encoding.as_ref()
     }
 }

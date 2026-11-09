@@ -12,3 +12,6 @@ description = "Runs the built png-glitch component with wasmtime and compares it
 wasmtime = { version = "38", default-features = false, features = ["component-model", "cranelift", "runtime", "std", "gc-drc"] }
 wasmtime-wasi = "38"
 anyhow = "1"
+
+[dev-dependencies]
+png-glitch-component = { path = ".." }

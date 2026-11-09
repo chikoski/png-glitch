@@ -16,6 +16,8 @@ fn to_wit_error(e: crate::GlitchError) -> wit::GlitchError {
         crate::GlitchError::UnsupportedFormat => wit::GlitchError::UnsupportedFormat,
         crate::GlitchError::InvalidRecipe(m) => wit::GlitchError::InvalidRecipe(m),
         crate::GlitchError::TooLarge => wit::GlitchError::TooLarge,
+        crate::GlitchError::NoRecipe => wit::GlitchError::NoRecipe,
+        crate::GlitchError::UnsupportedEncoding => wit::GlitchError::UnsupportedEncoding,
     }
 }
 
@@ -70,6 +72,107 @@ impl wit::Guest for Component {
 
     fn glitch(image: Vec<u8>, recipe: String, seed: u64) -> Result<Vec<u8>, wit::GlitchError> {
         crate::glitch(&image, &recipe, seed).map_err(to_wit_error)
+    }
+}
+
+mod live_binding {
+    use super::exports::chikoski::png_glitch::live as lv;
+    use super::{Component, to_wit_error, wit};
+    use crate::{ColorType, Encoding, FilterStrategy, FilterType, SeedMode, Session};
+    use std::cell::RefCell;
+
+    pub struct SessionImpl(RefCell<Session>);
+
+    fn filter_type(t: lv::FilterType) -> FilterType {
+        match t {
+            lv::FilterType::None => FilterType::None,
+            lv::FilterType::Sub => FilterType::Sub,
+            lv::FilterType::Up => FilterType::Up,
+            lv::FilterType::Average => FilterType::Average,
+            lv::FilterType::Paeth => FilterType::Paeth,
+        }
+    }
+
+    fn encoding(e: lv::Encoding) -> Encoding {
+        Encoding {
+            color_type: match e.color_type {
+                lv::ColorType::Gray => ColorType::GrayScale,
+                lv::ColorType::GrayAlpha => ColorType::GrayScaleAlpha,
+                lv::ColorType::Rgb => ColorType::TrueColor,
+                lv::ColorType::Rgba => ColorType::TrueColorAlpha,
+            },
+            bit_depth: e.bit_depth,
+            filter: match e.filter {
+                lv::FilterStrategy::Fixed(t) => FilterStrategy::Fixed(filter_type(t)),
+                lv::FilterStrategy::Pattern(p) => {
+                    FilterStrategy::Pattern(p.into_iter().map(filter_type).collect())
+                }
+                lv::FilterStrategy::Adaptive => FilterStrategy::Adaptive,
+            },
+        }
+    }
+
+    fn open(s: Result<Session, crate::GlitchError>) -> Result<lv::Session, wit::GlitchError> {
+        s.map(|s| lv::Session::new(SessionImpl(RefCell::new(s))))
+            .map_err(to_wit_error)
+    }
+
+    impl lv::Guest for Component {
+        type Session = SessionImpl;
+    }
+
+    impl lv::GuestSession for SessionImpl {
+        fn from_png(png: Vec<u8>) -> Result<lv::Session, wit::GlitchError> {
+            open(Session::from_png(&png))
+        }
+
+        fn from_pixels(
+            width: u32,
+            height: u32,
+            rgba: Vec<u8>,
+            enc: lv::Encoding,
+        ) -> Result<lv::Session, wit::GlitchError> {
+            open(Session::from_pixels(width, height, &rgba, encoding(enc)))
+        }
+
+        fn reload_pixels(&self, rgba: Vec<u8>) -> Result<(), wit::GlitchError> {
+            self.0
+                .borrow_mut()
+                .reload_pixels(&rgba)
+                .map_err(to_wit_error)
+        }
+
+        fn set_recipe(
+            &self,
+            recipe: String,
+            seed: u64,
+            mode: lv::SeedMode,
+        ) -> Result<(), wit::GlitchError> {
+            let mode = match mode {
+                lv::SeedMode::Fixed => SeedMode::Static,
+                lv::SeedMode::PerFrame => SeedMode::PerFrame,
+            };
+            self.0
+                .borrow_mut()
+                .set_recipe(&recipe, seed, mode)
+                .map_err(to_wit_error)
+        }
+
+        fn apply(&self) -> Result<(), wit::GlitchError> {
+            self.0.borrow_mut().apply().map_err(to_wit_error)
+        }
+
+        fn reset(&self) -> Result<(), wit::GlitchError> {
+            self.0.borrow_mut().reset().map_err(to_wit_error)
+        }
+
+        fn render_rgba(&self) -> Result<Vec<u8>, wit::GlitchError> {
+            self.0.borrow_mut().render_rgba().map_err(to_wit_error)
+        }
+
+        fn snapshot(&self) -> Result<Vec<u8>, wit::GlitchError> {
+            self.0.borrow().snapshot().map_err(to_wit_error)
+        }
     }
 }
 

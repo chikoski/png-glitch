@@ -13,6 +13,43 @@ glitch: func(image: list<u8>, recipe: string, seed: u64) -> result<list<u8>, gli
 - **Errors, never traps:** `invalid-image(message)`, `unsupported-format` (not a PNG, including WebP, which is not supported yet), `invalid-recipe(message)`, `too-large` (over 64 million pixels or 256 MiB decompressed; checked on the header, before allocating).
 - `list-filters` is the table behind `png-glitch --list-filters --json`: names, aliases, parameters with kind, range, default and choices, and formats.
 
+## Live use: the `session` resource
+
+For sliders, webcams and other interactive hosts, `live.session` keeps the PNG model (header and filtered scan lines) in memory and defers compression:
+
+```wit
+resource session {
+  from-png: static func(png: list<u8>) -> result<session, glitch-error>;
+  from-pixels: static func(width: u32, height: u32, rgba: list<u8>, enc: encoding) -> result<session, glitch-error>;
+  reload-pixels: func(rgba: list<u8>) -> result<_, glitch-error>;
+  set-recipe: func(recipe: string, seed: u64, mode: seed-mode) -> result<_, glitch-error>;
+  apply: func() -> result<_, glitch-error>;
+  reset: func() -> result<_, glitch-error>;
+  render-rgba: func() -> result<list<u8>, glitch-error>;
+  snapshot: func() -> result<list<u8>, glitch-error>;
+}
+```
+
+- `set-recipe` parses the recipe once (the same YAML or JSON as `glitch`); `apply` runs it and parses nothing, so it can run every frame. `apply` without a recipe is `no-recipe`.
+- `seed-mode`: `fixed` uses the seed for every frame, `per-frame` derives frame n's seed from it (`frame_seed` in `png-glitch-recipe`). Record the seed and mode with a snapshot.
+- `from-pixels` takes 8-bit `gray`, `gray-alpha`, `rgb` or `rgba`; any other bit depth is `unsupported-encoding`. `filter` is `fixed`, `pattern` or `adaptive` (about ten times slower than a fixed filter; not for a live loop).
+- `reload-pixels` refills the model with the next frame and discards earlier glitches; `reset` restores the model as it was after the last load. Neither allocates.
+- `render-rgba` is always 8-bit RGBA and equals what a PNG decoder reads from `snapshot` (tested byte for byte). `snapshot` is the only call that compresses.
+- Steady state: the Rust `Session` makes no heap allocation in `reload_pixels` -> `apply` -> `render_into` (tested with a counting allocator, for both seed modes). Returning a `list<u8>` allocates in the guest by design of the canonical ABI. The recipe must not use `pixel-sort` (it allocates a pixel list per row) or `rows:` in `per-frame` mode if this matters.
+
+```text
+let s = session.from-pixels(w, h, first_frame, { rgba, 8, fixed(paeth) })
+s.set-recipe("filters:\n  - type: transpose\n    magnitude: 0.2\n", 42, per-frame)
+loop {
+  s.reload-pixels(frame)     // E
+  s.apply()                  // G
+  show(s.render-rgba())      // D
+}
+save(s.snapshot())           // a real PNG
+```
+
+[`host-test/tests/smoke.rs`](host-test/tests/smoke.rs) runs such a loop with wasmtime and compares it with the native `Session`.
+
 ## Build
 
 ```sh
