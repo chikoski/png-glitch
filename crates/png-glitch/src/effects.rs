@@ -1,6 +1,8 @@
 use crate::{Pixel, PngGlitch, ScanLine, ScanLines};
 
+mod masked;
 mod targeted;
+pub use masked::{Mask, Masked};
 pub use targeted::{
     BitOp, Bitwise, BlockSwap, ByteEdit, ChannelShift, CopyLines, HslShift, LineOffsets, LineShift,
     OffsetColors, PixelSort, Refilter, RefilterRows, SetBytes, SetFilterTypes, ShiftLines,
