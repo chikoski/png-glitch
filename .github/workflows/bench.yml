@@ -17,7 +17,7 @@ env:
   # p50 regression that fails the job. Tune after a few runs.
   THRESHOLD: "0.25"
   NATIVE_ARGS: "--size 1080p --frames 30"
-  WASM_ARGS: "--size 720p --frames 20"
+  WASM_ARGS: "--size 1080p --frames 20"
   BROWSER_ARGS: "--size 1080p --frames 120 --warmup 10 --browser-channel chrome"
 
 jobs:
@@ -72,8 +72,11 @@ jobs:
         for round in 1 2; do
           for side in base head; do
             commit=$([ "$side" = base ] && echo "$BASE_COMMIT" || echo "$HEAD_COMMIT")
+            # The live stages of the head must not allocate in steady state (#147). Not checked on
+            # the base: it may predate the stages or the fixes.
+            check=$([ "$side" = head ] && echo --check-live || true)
             BENCH_GIT_COMMIT="$commit" "$side/target/release/png-glitch-bench" \
-              $NATIVE_ARGS --json "out/native-$side-$round.json"
+              $NATIVE_ARGS $check --json "out/native-$side-$round.json"
           done
         done
 
@@ -82,9 +85,10 @@ jobs:
         for round in 1 2; do
           for side in base head; do
             commit=$([ "$side" = base ] && echo "$BASE_COMMIT" || echo "$HEAD_COMMIT")
+            check=$([ "$side" = head ] && echo --check-live || true)
             wasmtime run --dir . --env RAYON_NUM_THREADS --env "BENCH_GIT_COMMIT=$commit" \
               "$side/target/wasm32-wasip1/release/png-glitch-bench.wasm" \
-              $WASM_ARGS --json "out/wasm-$side-$round.json"
+              $WASM_ARGS $check --json "out/wasm-$side-$round.json"
           done
         done
 

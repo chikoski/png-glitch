@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Benchmark harness follow-ups (#147)
+
+#### Added
+- `png-glitch-bench --check-live`: exits 1 when a live stage (`live/*`, `reload_pixels/*`, `render_into/*`, the in-place `effect/*` stages) allocates in steady state or its live heap grows; the file-workflow stages stay report-only. Reports gain `alloc_iters`. The CI `Benchmarks` job passes it for the head's native and wasmtime runs; a test in `cargo test` runs it too.
+- `png-glitch-bench compare --stage-threshold STAGE=VALUE` (repeatable): a threshold for one stage.
+
+#### Changed
+- The wasmtime step of the `Benchmarks` job runs at 1080p (`--size 1080p --frames 20`) instead of 720p, as #97 asks.
+
+#### Fixed
+- `png-glitch-bench` allocated its sample buffer after sampling the live heap, so every stage showed a constant "heap growth" of `8 * frames` bytes.
+
 ### Browser benchmark and decoder equivalence for the wasm component (#146)
 
 #### Added

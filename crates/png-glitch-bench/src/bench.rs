@@ -56,16 +56,21 @@ fn run_stage<S, R>(
     for i in 0..cfg.warmup {
         drop(black_box(run(setup(i % cfg.pool))));
     }
-    let live_start = live_bytes();
+    // The sample buffer is allocated before the heap is sampled, so that it does not count as
+    // heap growth of the stage.
     let mut samples = Vec::with_capacity(cfg.frames);
+    let live_start = live_bytes();
     let mut allocated = 0u64;
+    let mut alloc_iters = 0usize;
     for i in 0..cfg.frames {
         let input = setup(i % cfg.pool);
         let a0 = allocated_bytes();
         let t0 = Instant::now();
         let out = black_box(run(input));
         let elapsed = t0.elapsed();
-        allocated += allocated_bytes() - a0;
+        let delta = allocated_bytes() - a0;
+        allocated += delta;
+        alloc_iters += usize::from(delta > 0);
         samples.push(elapsed.as_secs_f64() * 1000.0);
         drop(out);
     }
@@ -74,6 +79,7 @@ fn run_stage<S, R>(
         name: name.to_string(),
         summary: summarize(&samples),
         alloc_bytes_per_iter: allocated / cfg.frames.max(1) as u64,
+        alloc_iters,
         live_bytes_start: live_start,
         live_bytes_end: live_end,
         over_33ms_share: over_budget.then(|| share_over_budget(&samples)),
