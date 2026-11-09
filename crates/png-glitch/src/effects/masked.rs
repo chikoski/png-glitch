@@ -316,12 +316,12 @@ fn blend_row(
                 continue;
             };
             if wide {
-                for (p, o) in px.chunks_exact_mut(2).zip(opx.chunks_exact(2)) {
-                    if let ([p0, p1], [o0, o1]) = (p, o) {
-                        let r = u16::from_be_bytes([*p0, *p1]);
-                        let ov = u16::from_be_bytes([*o0, *o1]);
-                        [*p0, *p1] = blend16(ov, r, m).to_be_bytes();
-                    }
+                let (pairs, _) = px.as_chunks_mut::<2>();
+                let (orig_pairs, _) = opx.as_chunks::<2>();
+                for (p, o) in pairs.iter_mut().zip(orig_pairs) {
+                    let r = u16::from_be_bytes(*p);
+                    let ov = u16::from_be_bytes(*o);
+                    *p = blend16(ov, r, m).to_be_bytes();
                 }
             } else {
                 for (p, o) in px.iter_mut().zip(opx) {

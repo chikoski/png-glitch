@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `effects::Mask`: a mask value per pixel as data (`from_values`, `rect`, `inverted`, `value`; `0` outside its bounds). No file is read.
 - `effects::Masked<E: ScanLinesEffect>`: applies any scan-line effect through a mask. A value is a strength: `0` keeps the original stored bytes, `255` the result, values in between blend (8- and 16-bit samples; indexed colour and packed 1/2/4-bit samples are thresholded at 128). The filter-type tag of a row, and the padding bits of a packed row, come from the result if any mask value in the row is `>= 128`.
 - It works on the stored bytes (no filter removal), allocates its snapshot buffer once (`Masked::new` / `Masked::for_image`) and makes no allocation in steady state, so it runs in the live pipeline. `Refilter` cannot be wrapped.
-- Bench stage `effect/masked-invert` (half-image rectangle): 1080p RGBA, one thread, native release build, 8.3 ms p50 against 4.1 ms for `effect/invert`, so the snapshot copy and the blend cost about 4 ms of #99's 5 ms effects budget.
+- Measured with a temporary bench stage (half-image rectangle, 1080p RGBA, one thread, native release build): `Masked<Invert>` 8.3 ms p50 against 4.1 ms for `Invert`, so the snapshot copy and the blend cost about 4 ms of #99's 5 ms effects budget. The stage itself is not in the harness yet: `bench.yml` builds the base commit with the PR's harness, so a stage that uses a new API can only be added after the API has merged.
 
 ### png-glitch-recipe, CLI: `rows=a..b` targeting on every step (#186, part of #77)
 
