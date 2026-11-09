@@ -132,7 +132,7 @@ fn ranges_are_clamped_and_never_panic() {
     for range in [
         0..0,
         5..5,
-        9..3,
+        std::ops::Range { start: 9, end: 3 }, // reversed
         H..H + 4,
         H + 10..H + 20,
         20..1000,
