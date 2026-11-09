@@ -34,8 +34,8 @@ pub use crate::operation::Transpose;
 use crate::operation::{Encode, Scan};
 use crate::png::Png;
 pub use crate::png::{
-    ColorType, Encoding, FilterStrategy, FilterType, Limits, LivePipeline, ParseOptions, Pixel,
-    PixelSource, PngError, PngWarning, Renderer, ScanLine, ScanLines,
+    BlockMut, ColorType, Encoding, FilterStrategy, FilterType, Limits, LivePipeline, ParseOptions,
+    Pixel, PixelError, PixelSource, PngError, PngWarning, Renderer, ScanLine, ScanLines,
 };
 use std::fs::File;
 use std::io::{Read, Write};
@@ -415,6 +415,42 @@ impl PngGlitch {
     pub fn apply<P: effects::Effect>(&mut self, effect: P) -> &mut Self {
         effect.apply_to(self);
         self
+    }
+
+    /// The pixel at column `x` of row `y`, or `None` if it is outside the image.
+    ///
+    /// The value is the *stored* sample at the image's bit depth. On a filtered image it is the
+    /// filtered byte, not the colour a decoder shows (ADR 0002); call
+    /// [`remove_filter`](Self::remove_filter) first to read real pixels.
+    ///
+    /// # Examples
+    /// ```
+    /// use png_glitch::{Encoding, FilterStrategy, FilterType, Pixel, PixelSource, PngGlitch};
+    ///
+    /// let mut frame = vec![0u8; 4 * 3 * 4];
+    /// frame[(2 * 4 + 1) * 4..][..4].copy_from_slice(&[9, 8, 7, 255]);
+    /// let mut png = PngGlitch::from_pixels(
+    ///     PixelSource::rgba8(4, 3, &frame),
+    ///     Encoding::rgba8(FilterStrategy::Fixed(FilterType::None)),
+    /// )?;
+    /// assert_eq!(png.pixel(1, 2), Some(Pixel::RGBA(9, 8, 7, 255)));
+    /// png.set_pixel(0, 0, Pixel::RGBA(1, 1, 1, 1))?;
+    /// assert_eq!(png.pixel(0, 0), Some(Pixel::RGBA(1, 1, 1, 1)));
+    /// assert_eq!(png.pixel(4, 0), None);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn pixel(&self, x: u32, y: u32) -> Option<Pixel> {
+        self.png.pixel(x, y)
+    }
+
+    /// Writes the pixel at column `x` of row `y` (the stored sample; see [`pixel`](Self::pixel)).
+    /// This is [`ScanLines::set_pixel`] on [`scan_lines_mut`](Self::scan_lines_mut).
+    ///
+    /// # Errors
+    /// [`PixelError::OutOfBounds`], [`PixelError::ColorTypeMismatch`] or
+    /// [`PixelError::SampleOutOfRange`].
+    pub fn set_pixel(&mut self, x: u32, y: u32, pixel: Pixel) -> Result<(), PixelError> {
+        self.scan_lines_mut().set_pixel(x, y, pixel)
     }
 
     /// Returns the raw decompressed scan-line data.

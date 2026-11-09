@@ -4,7 +4,8 @@
 //! values, changes the header, resizes, compresses or allocates, so code written against it
 //! (the glitch step `G` of the live pipeline) cannot break those rules.
 
-use super::scan_line::ScanLine;
+use super::png_error::PixelError;
+use super::scan_line::{Pixel, ScanLine, pixel_at};
 use super::{ColorType, FilterType, Png};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -186,6 +187,110 @@ impl<'a> ScanLines<'a> {
         }
     }
 
+    /// The pixel at column `x` of row `y`, or `None` if it is outside the image.
+    ///
+    /// The value is the *stored* sample at the image's bit depth: on a filtered image it is the
+    /// filtered byte, not the colour a decoder would show. Call
+    /// [`PngGlitch::remove_filter`](crate::PngGlitch::remove_filter) first to read real pixels
+    /// (ADR 0002: reading and writing filtered samples is a deliberate glitch technique).
+    ///
+    /// # Examples
+    /// ```
+    /// use png_glitch::{Encoding, FilterStrategy, FilterType, Pixel, PixelSource, PngGlitch};
+    ///
+    /// let mut frame = vec![0u8; 4 * 3 * 4];
+    /// frame[(2 * 4 + 1) * 4..][..4].copy_from_slice(&[9, 8, 7, 255]); // pixel (1, 2)
+    /// let mut png = PngGlitch::from_pixels(
+    ///     PixelSource::rgba8(4, 3, &frame),
+    ///     Encoding::rgba8(FilterStrategy::Fixed(FilterType::None)),
+    /// )?;
+    /// let lines = png.scan_lines_mut();
+    /// assert_eq!(lines.pixel(1, 2), Some(Pixel::RGBA(9, 8, 7, 255)));
+    /// assert_eq!(lines.pixel(4, 0), None);
+    /// assert_eq!(lines.pixel(u32::MAX, u32::MAX), None);
+    /// # Ok::<(), png_glitch::PngError>(())
+    /// ```
+    pub fn pixel(&self, x: u32, y: u32) -> Option<Pixel> {
+        let row = self.data.get(self.range(y as usize, 1)?)?;
+        pixel_at(row, self.color_type, self.bit_depth, self.width, x as usize)
+    }
+
+    /// Writes the pixel at column `x` of row `y`. See
+    /// [`ScanLine::try_set_pixel`](crate::ScanLine::try_set_pixel) for what is checked, and
+    /// [`pixel`](Self::pixel) for what the value means on a filtered image.
+    ///
+    /// # Errors
+    /// [`PixelError::OutOfBounds`] with the position, [`PixelError::ColorTypeMismatch`],
+    /// [`PixelError::SampleOutOfRange`].
+    pub fn set_pixel(&mut self, x: u32, y: u32, pixel: Pixel) -> Result<(), PixelError> {
+        let mut row = self
+            .get_mut(y as usize)
+            .ok_or(PixelError::OutOfBounds { x, y })?;
+        row.try_set_pixel(x as usize, pixel).map_err(|e| match e {
+            PixelError::OutOfBounds { x, .. } => PixelError::OutOfBounds { x, y },
+            other => other,
+        })
+    }
+
+    /// The pixels of column `x`, top to bottom. Empty if `x` is outside the image. It makes no
+    /// heap allocation.
+    ///
+    /// # Examples
+    /// ```
+    /// use png_glitch::{Encoding, FilterStrategy, FilterType, Pixel, PixelSource, PngGlitch};
+    ///
+    /// let frame: Vec<u8> = (0..3 * 2 * 4).map(|i| i as u8).collect();
+    /// let mut png = PngGlitch::from_pixels(
+    ///     PixelSource::rgba8(3, 2, &frame),
+    ///     Encoding::rgba8(FilterStrategy::Fixed(FilterType::None)),
+    /// )?;
+    /// let lines = png.scan_lines_mut();
+    /// let column: Vec<Pixel> = lines.column(2).collect();
+    /// assert_eq!(column, vec![Pixel::RGBA(8, 9, 10, 11), Pixel::RGBA(20, 21, 22, 23)]);
+    /// assert_eq!(lines.column(3).count(), 0);
+    /// # Ok::<(), png_glitch::PngError>(())
+    /// ```
+    pub fn column(&self, x: u32) -> impl Iterator<Item = Pixel> + '_ {
+        let (color_type, bit_depth, width) = (self.color_type, self.bit_depth, self.width);
+        self.data
+            .chunks_exact(self.stride.max(1))
+            .filter_map(move |row| pixel_at(row, color_type, bit_depth, width, x as usize))
+    }
+
+    /// A mutable view of the block of `w` × `h` pixels with its top-left corner at `(x, y)`,
+    /// clipped at the right and bottom edges. `None` if the clipped block is empty (the corner
+    /// is outside the image, or `w` or `h` is 0). Inside the block, coordinates start at the
+    /// corner. It makes no heap allocation.
+    ///
+    /// # Examples
+    /// ```
+    /// use png_glitch::{Encoding, FilterStrategy, FilterType, Pixel, PixelSource, PngGlitch};
+    ///
+    /// let frame = vec![0u8; 5 * 4 * 4];
+    /// let mut png = PngGlitch::from_pixels(
+    ///     PixelSource::rgba8(5, 4, &frame),
+    ///     Encoding::rgba8(FilterStrategy::Fixed(FilterType::None)),
+    /// )?;
+    /// let mut lines = png.scan_lines_mut();
+    /// let mut block = lines.block_mut(3, 2, 4, 4).unwrap(); // clipped to 2 x 2
+    /// assert_eq!((block.width(), block.height()), (2, 2));
+    /// block.set_pixel(1, 1, Pixel::RGBA(1, 2, 3, 4)).unwrap();
+    /// assert_eq!(lines.pixel(4, 3), Some(Pixel::RGBA(1, 2, 3, 4)));
+    /// assert!(lines.block_mut(5, 0, 1, 1).is_none());
+    /// # Ok::<(), png_glitch::PngError>(())
+    /// ```
+    pub fn block_mut(&mut self, x: u32, y: u32, w: u32, h: u32) -> Option<BlockMut<'_>> {
+        let w = w.min(self.width.saturating_sub(x));
+        let h = u32::try_from(self.len().saturating_sub(y as usize))
+            .unwrap_or(u32::MAX)
+            .min(h);
+        if x >= self.width || w == 0 || h == 0 {
+            return None;
+        }
+        let rows = self.rows(y..y.saturating_add(h));
+        (!rows.is_empty()).then_some(BlockMut { rows, x, w })
+    }
+
     /// Calls `f` for every row, top to bottom.
     pub fn for_each_mut(&mut self, mut f: impl FnMut(&mut ScanLine)) {
         if self.stride == 0 {
@@ -292,5 +397,52 @@ impl<'a> ScanLines<'a> {
             ScanLine::new(chunk, color_type, bit_depth, width),
             &mut *self.scratch,
         ))
+    }
+}
+
+/// A mutable view of a rectangular block of pixels, made by [`ScanLines::block_mut`]. The block
+/// is already clipped to the image, and coordinates are relative to its top-left corner.
+#[derive(Debug)]
+pub struct BlockMut<'v> {
+    rows: ScanLines<'v>,
+    x: u32,
+    w: u32,
+}
+
+impl BlockMut<'_> {
+    /// Width of the (clipped) block in pixels.
+    pub fn width(&self) -> u32 {
+        self.w
+    }
+
+    /// Height of the (clipped) block in pixels.
+    pub fn height(&self) -> u32 {
+        u32::try_from(self.rows.len()).unwrap_or(u32::MAX)
+    }
+
+    /// The pixel at `(x, y)` inside the block, or `None` outside it.
+    pub fn pixel(&self, x: u32, y: u32) -> Option<Pixel> {
+        if x >= self.w {
+            return None;
+        }
+        self.rows.pixel(self.x.checked_add(x)?, y)
+    }
+
+    /// Writes the pixel at `(x, y)` inside the block. See
+    /// [`ScanLine::try_set_pixel`](crate::ScanLine::try_set_pixel).
+    ///
+    /// # Errors
+    /// [`PixelError::OutOfBounds`] outside the block (the position is block-relative),
+    /// [`PixelError::ColorTypeMismatch`], [`PixelError::SampleOutOfRange`].
+    pub fn set_pixel(&mut self, x: u32, y: u32, pixel: Pixel) -> Result<(), PixelError> {
+        let out_of_bounds = PixelError::OutOfBounds { x, y };
+        if x >= self.w {
+            return Err(out_of_bounds);
+        }
+        let image_x = self.x.checked_add(x).ok_or(out_of_bounds)?;
+        self.rows.set_pixel(image_x, y, pixel).map_err(|e| match e {
+            PixelError::OutOfBounds { .. } => out_of_bounds,
+            other => other,
+        })
     }
 }

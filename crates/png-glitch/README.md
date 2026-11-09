@@ -74,6 +74,37 @@ PngGlitch::open("./a_png_file.png")?
   .save("./glitched.png")?;
 ```
 
+# Pixel access
+
+Besides the per-row `ScanLine`, a `ScanLines` view (from `png.scan_lines_mut()`, or the live pipeline) reads and writes pixels by `(x, y)`, by column and by block. None of it allocates, so it also works in a per-frame loop.
+
+```rust
+use png_glitch::{Pixel, PngGlitch};
+
+let mut png = PngGlitch::open("./a_png_file.png")?;
+png.remove_filter(); // see the note below
+let mut lines = png.scan_lines_mut();
+
+// One pixel; `set_pixel` says why it failed (out of bounds, wrong variant, sample too large).
+if let Some(p) = lines.pixel(10, 20) {
+    lines.set_pixel(10, 20, p.map_channels(|v| v ^ 0x55))?;
+}
+
+// A column, top to bottom (a vertical effect), and a block clipped at the image edge.
+let brightest = lines.column(5).filter_map(|p| p.luma16(8)).max();
+if let Some(mut block) = lines.block_mut(100, 100, 32, 32) {
+    for y in 0..block.height() {
+        for x in 0..block.width() {
+            block.set_pixel(x, y, Pixel::RGBA(255, 0, 0, 255))?;
+        }
+    }
+}
+```
+
+`Pixel` converts to and from 16-bit RGBA (`to_rgba16`, `from_rgba16`), so an effect does not need a `match` over colour types, and `luma16` gives the Rec. 601 luma.
+
+**These are the stored samples.** Like every effect, pixel access works on the scan-line layer as stored. On an image that still has filters, a sample is a filtered byte, not the colour a decoder shows; call `remove_filter()` first to read and write real pixels (see "Filtered vs. unfiltered" in the CLI guide). Writing filtered samples on purpose is a glitch technique.
+
 # Available Effects
 
 Built-in effects available in `png_glitch::effects`:
