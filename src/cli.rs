@@ -977,6 +977,9 @@ Examples:
   # Try 12 seeds and a contact sheet; re-run a favourite with --seed <printed seed>
   png-glitch input.png --variations 12 --contact-sheet sheet.png -f replace=0.05
 
+  # Random recipe; the recipe and seed are printed so a lucky result can be re-run
+  png-glitch input.png --surprise --save-recipe lucky.yaml
+
   # Sweep one parameter: five outputs, same seed, only the magnitude changes
   png-glitch input.png -f replace=0.1 --sweep replace.magnitude=0.01..0.2:5 --seed 1
 
@@ -1038,6 +1041,15 @@ pub struct Cli {
         help_heading = "Exploration"
     )]
     pub variations: Option<u32>,
+
+    /// Apply a random recipe of 2-5 steps drawn from the seed; the recipe is always printed
+    /// (re-run it with `--config saved.yaml --seed S`)
+    #[arg(
+        long,
+        conflicts_with_all = ["batch_output", "list_filters", "show_recipe", "variations", "sweep", "watch", "config"],
+        help_heading = "Exploration"
+    )]
+    pub surprise: bool,
 
     /// Sweep one numeric parameter of one step over N evenly spaced values with a fixed
     /// seed, saved as `<out-stem>-<param>-<value>.<ext>`. STEP is a 0-based index or a step
