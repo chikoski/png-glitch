@@ -12,6 +12,8 @@ use png_glitch::effects::{
     ShiftChannels, SortCriterion, SwapBlocks, SwapChannels, SwapTarget,
 };
 use png_glitch::effects::{Brighten, Darken};
+#[cfg(has_masked)]
+use png_glitch::effects::{Mask, Masked};
 #[cfg(has_from_pixels)]
 use png_glitch::{ColorType, Encoding, FilterStrategy, PixelSource};
 use png_glitch::{FilterType, PngGlitch};
@@ -102,7 +104,8 @@ fn effects(width: u32, height: u32) -> Vec<(&'static str, EffectFn)> {
             dst: ((i * 7 + 3) % blocks_x, (i * 5 + 1) % blocks_y),
         })
         .collect();
-    vec![
+    #[allow(unused_mut)]
+    let mut stages: Vec<(&'static str, EffectFn)> = vec![
         ("invert", boxed(Invert::new())),
         ("shift-channels", boxed(ShiftChannels::new(8, -8, 16))),
         ("brighten", boxed(Brighten::new(20))),
@@ -126,7 +129,20 @@ fn effects(width: u32, height: u32) -> Vec<(&'static str, EffectFn)> {
         ),
         ("channel-shift", boxed(ChannelShift::new(4, 0, -4, rows))),
         ("swap-blocks", boxed(SwapBlocks::new(16, swaps))),
-    ]
+    ];
+    // ADR 0006: the snapshot copy plus the blend of `Masked`, with a half-image rectangle. The
+    // harness is also built against base commits that predate `Masked`, hence the cfg.
+    #[cfg(has_masked)]
+    stages.push((
+        "masked-invert",
+        boxed(Masked::new(
+            Invert::new(),
+            Mask::rect(width, height, 0, 0, width / 2, height),
+            width as usize * 4 + 1,
+            height,
+        )),
+    ));
+    stages
 }
 
 pub fn run_all(cfg: &Config) -> Report {
@@ -505,6 +521,8 @@ mod tests {
             "tag-only/set_filter_type",
             "effect/invert",
             "effect/swap-blocks",
+            #[cfg(has_masked)]
+            "effect/masked-invert",
         ] {
             assert!(names.contains(&expected), "missing {expected}: {names:?}");
         }

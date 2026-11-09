@@ -26,7 +26,10 @@ fn main() {
     // `lib.rs`, so look through the whole source tree of their crate.
     println!("cargo::rustc-check-cfg=cfg(has_live_pipeline)");
     println!("cargo::rustc-check-cfg=cfg(has_live_recipe)");
+    println!("cargo::rustc-check-cfg=cfg(has_masked)");
     for (cfg, krate, needle) in [
+        // `Masked` (#187) lives in the `effects::masked` module.
+        ("has_masked", "png-glitch", "pub struct Masked<"),
         ("has_live_pipeline", "png-glitch", "pub struct LivePipeline"),
         (
             "has_live_recipe",
