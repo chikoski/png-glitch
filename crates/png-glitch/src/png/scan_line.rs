@@ -152,10 +152,11 @@ impl<'a> ScanLine<'a> {
     /// filtered it is a filtered byte, not the decoded colour; call
     /// [`PngGlitch::remove_filter`](crate::PngGlitch::remove_filter) first to read real pixels.
     ///
-    /// This body is deliberately not shared with [`pixel_at`]: it is the per-pixel hot path of
+    /// This body is deliberately not shared with the decoder of the read-only views: it is the
+    /// per-pixel hot path of
     /// `PixelSort` and similar effects, and the benchmark gate measured a slowdown when it
-    /// went through another function. `pixel_at` decodes the same samples for the read-only
-    /// views; a test checks that the two agree for every colour type and bit depth.
+    /// went through another function. A test checks that the two decoders agree for every colour
+    /// type and bit depth.
     pub fn get_pixel(&self, x: usize) -> Option<Pixel> {
         if x >= self.width as usize || self.bit_depth == 0 {
             return None;
