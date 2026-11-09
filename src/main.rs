@@ -1,7 +1,7 @@
 use anyhow::{Context, bail};
 use clap::{ArgMatches, CommandFactory, FromArgMatches};
 use indicatif::{ProgressBar, ProgressStyle};
-use png_glitch_recipe::{FilterConfig, ParseOptions, PreProcess};
+use png_glitch_recipe::{FilterConfig, FilterEntry, ParseOptions, PreProcess};
 use rayon::prelude::*;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -23,6 +23,8 @@ use crate::cli::{Cli, ConfigFile, format_filter_list};
 enum OrderedStep {
     Config(String),
     Filter(FilterConfig),
+    /// A `-f` step with a `rows=` range.
+    Targeted(FilterEntry),
 }
 
 fn collect_ordered_steps(args: &Cli, matches: Option<&ArgMatches>) -> Vec<OrderedStep> {
@@ -42,7 +44,11 @@ fn collect_ordered_steps(args: &Cli, matches: Option<&ArgMatches>) -> Vec<Ordere
             .unwrap_or_default();
         for (k, filter_cfg) in args.filters.iter().enumerate() {
             let pos = indices.get(k).copied().unwrap_or(15 + k);
-            steps.push((pos, OrderedStep::Filter(filter_cfg.clone())));
+            let step = match &filter_cfg.rows {
+                None => OrderedStep::Filter(filter_cfg.config.clone()),
+                Some(_) => OrderedStep::Targeted(filter_cfg.clone()),
+            };
+            steps.push((pos, step));
         }
     }
     if let Some(magnitude) = args.change_filter_type {
@@ -574,16 +580,16 @@ fn batch_process(args: &Cli, steps: &[OrderedStep], output_dir: &str) -> anyhow:
 
 /// The effective recipe: the pre-process option, then `--config` files and filter flags in the
 /// order they were given.
-fn effective_filters(args: &Cli, steps: &[OrderedStep]) -> anyhow::Result<Vec<FilterConfig>> {
+fn effective_filters(args: &Cli, steps: &[OrderedStep]) -> anyhow::Result<Vec<FilterEntry>> {
     let mut filters = Vec::new();
     if let Some(pre_process) = args.pre_process {
-        filters.push(match pre_process {
+        filters.push(FilterEntry::from(match pre_process {
             PreProcess::RemoveFilter => FilterConfig::RemoveFilter,
             PreProcess::SubFilter => FilterConfig::SubFilter,
             PreProcess::UpFilter => FilterConfig::UpFilter,
             PreProcess::AverageFilter => FilterConfig::AverageFilter,
             PreProcess::PaethFilter => FilterConfig::PaethFilter,
-        });
+        }));
     }
 
     for step in steps {
@@ -595,7 +601,8 @@ fn effective_filters(args: &Cli, steps: &[OrderedStep]) -> anyhow::Result<Vec<Fi
                     .with_context(|| format!("failed to parse config file '{config_path}'"))?;
                 filters.extend(config.filters);
             }
-            OrderedStep::Filter(filter_cfg) => filters.push(filter_cfg.clone()),
+            OrderedStep::Filter(filter_cfg) => filters.push(filter_cfg.clone().into()),
+            OrderedStep::Targeted(entry) => filters.push(entry.clone()),
         }
     }
     Ok(filters)

@@ -1,7 +1,7 @@
 use clap::Parser;
 use png_glitch_recipe::{
-    AlphaGlitchStrategy, BitOp, FilterConfig, MAX_RANDOM_COPY_TIMES, PreProcess,
-    RegenerateStrategy, SortCriterion, SwapTarget,
+    AlphaGlitchStrategy, BitOp, FilterConfig, FilterEntry, MAX_RANDOM_COPY_TIMES, PreProcess,
+    RegenerateStrategy, RowRange, SortCriterion, SwapTarget,
 };
 use serde::Deserialize;
 
@@ -186,6 +186,38 @@ fn parse_regenerate_strategy(value: &str) -> Result<RegenerateStrategy, String> 
         .map(|t| parse_filter_type(t))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(RegenerateStrategy::Pattern(pattern))
+}
+
+/// Parses a `-f / --filter <SPEC>` argument: a [`parse_filter_spec`] spec with an optional
+/// `rows=a..b` (`a..`, `..b`) key that restricts the step to a range of rows, e.g.
+/// `-f 'replace:magnitude=0.2,rows=300..452'`. `rows` goes in the `key=value` list, so the
+/// spec needs the `<filter>:<k>=<v>` form (a spec without parameters, such as `invert`, can be
+/// written `invert:rows=300..452`).
+pub fn parse_filter_entry(spec: &str) -> Result<FilterEntry, String> {
+    let s = spec.trim();
+    // `rows=` is only recognised after the `:` that starts the key=value list.
+    let Some((name, list)) = s.split_once(':').filter(|(n, _)| !n.contains('=')) else {
+        return parse_filter_spec(s).map(Into::into);
+    };
+    let mut rows = None;
+    let mut rest = Vec::new();
+    for item in list.split(',') {
+        match item.trim().strip_prefix("rows=") {
+            Some(value) if rows.is_none() => rows = Some(value.parse::<RowRange>()?),
+            Some(_) => return Err("`rows` is given twice".into()),
+            None => rest.push(item),
+        }
+    }
+    let Some(rows) = rows else {
+        return parse_filter_spec(s).map(Into::into);
+    };
+    let rest = rest.join(",");
+    let config = if rest.trim().is_empty() {
+        parse_filter_spec(name)?
+    } else {
+        parse_filter_spec(&format!("{name}:{rest}"))?
+    };
+    Ok(FilterEntry::with_rows(config, rows))
 }
 
 /// Parses a repeatable `-f / --filter <SPEC>` argument into a [`FilterConfig`].
@@ -1112,15 +1144,16 @@ pub struct Cli {
     #[arg(long, help_heading = "Recipe")]
     pub show_recipe: bool,
 
-    /// Add a filter step to the pipeline (repeatable, applied in order; see `--list-filters`)
+    /// Add a filter step to the pipeline (repeatable, applied in order; see `--list-filters`).
+    /// Add `rows=a..b` to the parameters to restrict the step to those rows, e.g. `replace:magnitude=0.2,rows=300..452`
     #[arg(
         short = 'f',
         long = "filter",
         value_name = "SPEC",
-        value_parser = parse_filter_spec,
+        value_parser = parse_filter_entry,
         help_heading = "Glitch Filters"
     )]
-    pub filters: Vec<FilterConfig>,
+    pub filters: Vec<FilterEntry>,
 
     /// Randomly overwrite PNG scanline filter type bytes [0.0..=1.0] (PNG only)
     #[arg(long, value_name = "MAG", value_parser = parse_magnitude, help_heading = "Glitch Filters")]
@@ -1330,5 +1363,5 @@ pub struct Cli {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConfigFile {
-    pub filters: Vec<FilterConfig>,
+    pub filters: Vec<FilterEntry>,
 }

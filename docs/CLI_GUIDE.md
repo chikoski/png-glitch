@@ -187,6 +187,12 @@ png-glitch crates/png-glitch/etc/sample00.png --config docs/gallery/recipes/<nam
 
 (`webp-blocks` uses `crates/webp-glitch/etc/sample00.webp` instead.)
 
+### Targeting rows
+
+`-f 'replace:magnitude=0.3,rows=300..452'` (or `rows: 300..452` in a YAML step) restricts a step to a range of rows (`a..b`, `a..` or `..b`). Row numbers and random choices inside the step are relative to the range.
+
+The guarantee is about the **stored bytes**: the filter-type tag and filtered bytes of rows outside the range are unchanged. The *decoded* pixels below the range can still change, because a decoder rebuilds each row from the one above it. A change in rows 300..452 also reaches the rows below when those use Up, Average or Paeth, but not when they use None or Sub. That is the medium working as intended, not a bug; put `-f regenerate=none` first if you want the effect to stay inside the range on screen.
+
 ### Filtered vs. unfiltered
 
 The same effect, without and with `remove-filter` first.
