@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### png-glitch: row sub-views and `WithinRows` (#185, part of #77)
+
+#### Added
+- `ScanLines::rows(range)`: a view of a range of rows (clamped, allocation-free, shares the scratch buffer). Row indices inside it are relative to the range.
+- `effects::WithinRows<E>` and `ScanLinesEffect::within_rows(range)`: apply any scan-line effect to a range of rows only.
+- `Refilter::within_rows(range)` (`effects::RefilterRows`), `PngGlitch::reencode_rows_with`: re-encode only a range of rows.
+- The stored bytes (tag and filtered bytes) of rows outside the range are unchanged. The decoded pixels below the range can still change, because filters propagate downwards (ADR 0002).
+
 ### png-glitch-recipe, CLI: separate "set the filter type tag" from "recompute filtered values" (#139)
 
 #### Added

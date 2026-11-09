@@ -129,6 +129,52 @@ impl<'a> ScanLines<'a> {
         })
     }
 
+    /// A view of the rows in `range`, sharing this view's scratch buffer. Inside the sub-view,
+    /// row 0 is row `range.start` of this view, so an effect with absolute row indices works
+    /// unchanged on it.
+    ///
+    /// `range` is clamped to the image: an empty range, or one that starts at or past the last
+    /// row, gives an empty view. Nothing is allocated and nothing panics.
+    ///
+    /// Only the stored bytes (filter-type tag and filtered bytes) of rows outside `range` are
+    /// guaranteed to stay unchanged. A decoder reconstructs each row from the one above, so
+    /// the *decoded* pixels below `range` change too unless those rows use `None` or `Sub`
+    /// (ADR 0002).
+    ///
+    /// # Examples
+    /// ```
+    /// use png_glitch::{Encoding, FilterStrategy, FilterType, PixelSource, PngGlitch};
+    ///
+    /// let frame = vec![0u8; 4 * 6 * 4];
+    /// let mut png = PngGlitch::from_pixels(
+    ///     PixelSource::rgba8(4, 6, &frame),
+    ///     Encoding::rgba8(FilterStrategy::Fixed(FilterType::None)),
+    /// )?;
+    /// let mut lines = png.scan_lines_mut();
+    /// let mut part = lines.rows(2..4);
+    /// assert_eq!(part.len(), 2);
+    /// part.set_filter_type(0, FilterType::Up); // row 2 of the image
+    /// assert!(part.get_mut(2).is_none());
+    /// assert_eq!(lines.filter_type(2), Some(FilterType::Up));
+    /// assert_eq!(lines.rows(9..12).len(), 0);
+    /// # Ok::<(), png_glitch::PngError>(())
+    /// ```
+    pub fn rows(&mut self, range: std::ops::Range<u32>) -> ScanLines<'_> {
+        let len = self.len();
+        let start = (range.start as usize).min(len);
+        let end = (range.end as usize).min(len).max(start);
+        // `start..end` is within `len` rows, so the byte bounds are within `data`.
+        let bytes = start * self.stride..end * self.stride;
+        ScanLines {
+            data: self.data.get_mut(bytes).unwrap_or_default(),
+            stride: self.stride,
+            color_type: self.color_type,
+            bit_depth: self.bit_depth,
+            width: self.width,
+            scratch: &mut *self.scratch,
+        }
+    }
+
     /// Calls `f` for every row, top to bottom.
     pub fn for_each_mut(&mut self, mut f: impl FnMut(&mut ScanLine)) {
         if self.stride == 0 {

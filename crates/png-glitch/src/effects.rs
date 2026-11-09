@@ -3,8 +3,8 @@ use crate::{Pixel, PngGlitch, ScanLine, ScanLines};
 mod targeted;
 pub use targeted::{
     BitOp, Bitwise, BlockSwap, ByteEdit, ChannelShift, CopyLines, HslShift, LineOffsets, LineShift,
-    OffsetColors, PixelSort, Refilter, SetBytes, SetFilterTypes, ShiftLines, SortCriterion,
-    Substitute, SwapBlocks, SwapChannels, SwapLines, SwapTarget,
+    OffsetColors, PixelSort, Refilter, RefilterRows, SetBytes, SetFilterTypes, ShiftLines,
+    SortCriterion, Substitute, SwapBlocks, SwapChannels, SwapLines, SwapTarget, WithinRows,
 };
 
 /// A deterministic operation on a PNG, with parameters.
@@ -77,6 +77,17 @@ pub trait Effect {
 pub trait ScanLinesEffect {
     /// Applies the effect to the scan lines of an image.
     fn apply_to_scan_lines(&self, lines: &mut ScanLines<'_>);
+
+    /// Restricts the effect to the rows in `range` (see [`WithinRows`]).
+    fn within_rows(self, range: std::ops::Range<u32>) -> WithinRows<Self>
+    where
+        Self: Sized,
+    {
+        WithinRows {
+            range,
+            effect: self,
+        }
+    }
 }
 
 /// A helper for implementing effects that transform each scan line independently.

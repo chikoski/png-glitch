@@ -137,6 +137,25 @@ fn built_in_scan_lines_effects_do_not_allocate() {
         assert_eq!(count, 0, "{name} allocated");
     }
 
+    // `rows()` and `WithinRows` do not allocate either.
+    let count = allocations_during(|| {
+        let mut part = lines.rows(3..9);
+        assert_eq!(part.len(), 6);
+        for (_, effect) in &effects {
+            struct D<'a>(&'a dyn ScanLinesEffect);
+            impl ScanLinesEffect for D<'_> {
+                fn apply_to_scan_lines(&self, l: &mut png_glitch::ScanLines<'_>) {
+                    self.0.apply_to_scan_lines(l);
+                }
+            }
+            D(&**effect).apply_to_scan_lines(&mut part);
+        }
+    });
+    assert_eq!(count, 0, "rows() / effects on a sub-view allocated");
+    let within = Substitute::new(7, 200).within_rows(4..20);
+    let count = allocations_during(|| within.apply_to_scan_lines(&mut lines));
+    assert_eq!(count, 0, "WithinRows allocated");
+
     // `LineEffect`s, sequentially (the parallel path is not counted by this allocator).
     let line_effects: Vec<(&str, Box<dyn LineEffect>)> = vec![
         ("Invert", Box::new(Invert::new())),
