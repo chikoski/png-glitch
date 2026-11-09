@@ -50,6 +50,7 @@ async function run({ size, frames, warmup, pool, recipe, commit, componentUrl })
   const memStart = [];
   let rendered = null;
 
+  if (warmup === 0) memStart.push(component.__memoryBytes());
   const total = warmup + frames;
   for (let i = 0; i < total; i++) {
     const timed = i >= warmup;
@@ -67,7 +68,12 @@ async function run({ size, frames, warmup, pool, recipe, commit, componentUrl })
       t["apply"].push(t2 - t1);
       t["render-rgba"].push(t3 - t2);
     }
-    if (i === warmup - 1 || (warmup === 0 && i === 0)) memStart.push(component.__memoryBytes());
+    if (i === warmup - 1) {
+      // The first snapshot sizes the compressor's buffers; do it before the baseline so that the
+      // steady-state check is about the frame loop (the snapshot is off the real-time path).
+      s.snapshot();
+      memStart.push(component.__memoryBytes());
+    }
 
     if (timed) {
       // The cost of getting a frame in and out of the page (what VideoFrame.copyTo and a
