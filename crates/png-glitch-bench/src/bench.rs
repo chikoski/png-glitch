@@ -8,8 +8,8 @@ use crate::stats::{share_over_budget, summarize};
 #[cfg(has_renderer)]
 use png_glitch::Renderer;
 use png_glitch::effects::{
-    BitOp, Bitwise, BlockSwap, ChannelShift, Effect, HslShift, Invert, PixelSort, Refilter,
-    ShiftChannels, SortCriterion, SwapBlocks, SwapChannels, SwapTarget,
+    BitOp, Bitwise, BlockSwap, ChannelShift, Effect, HslShift, Invert, Mask, Masked, PixelSort,
+    Refilter, ShiftChannels, SortCriterion, SwapBlocks, SwapChannels, SwapTarget,
 };
 use png_glitch::effects::{Brighten, Darken};
 #[cfg(has_from_pixels)]
@@ -104,6 +104,16 @@ fn effects(width: u32, height: u32) -> Vec<(&'static str, EffectFn)> {
         .collect();
     vec![
         ("invert", boxed(Invert::new())),
+        (
+            // ADR 0006: the snapshot copy plus the blend, with a half-image rectangle.
+            "masked-invert",
+            boxed(Masked::new(
+                Invert::new(),
+                Mask::rect(width, height, 0, 0, width / 2, height),
+                width as usize * 4 + 1,
+                height,
+            )),
+        ),
         ("shift-channels", boxed(ShiftChannels::new(8, -8, 16))),
         ("brighten", boxed(Brighten::new(20))),
         ("darken", boxed(Darken::new(20))),

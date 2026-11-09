@@ -61,6 +61,17 @@ impl<'a> ScanLines<'a> {
         }
     }
 
+    /// The stored bytes of all rows, tags included (crate-internal; effects wrapping others use
+    /// it to snapshot and blend).
+    pub(crate) fn bytes(&self) -> &[u8] {
+        self.data
+    }
+
+    /// The stored bytes of all rows, mutable (crate-internal).
+    pub(crate) fn bytes_mut(&mut self) -> &mut [u8] {
+        self.data
+    }
+
     /// Number of rows.
     pub fn len(&self) -> usize {
         self.data.len().checked_div(self.stride).unwrap_or(0)
