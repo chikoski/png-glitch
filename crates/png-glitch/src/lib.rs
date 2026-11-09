@@ -378,6 +378,20 @@ impl PngGlitch {
         self
     }
 
+    /// Re-encodes the scan lines in `[from, from + lines)` with the given filter type, clamping
+    /// to the image height. The stored bytes of rows outside the range are unchanged (the
+    /// decoded pixels below the range may still change, as the filters propagate downwards).
+    pub fn reencode_rows_with(
+        &mut self,
+        filter_type: FilterType,
+        from: u32,
+        lines: u32,
+    ) -> &mut Self {
+        self.png
+            .change_filter_type_in_rows(filter_type, from, lines);
+        self
+    }
+
     /// Re-encodes all scan lines with the given filter type (alias for [`Self::reencode_with`]).
     ///
     /// Despite the name this recomputes every filtered value; it does not just change the tag.

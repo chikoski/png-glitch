@@ -35,9 +35,86 @@ impl Refilter {
     }
 }
 
+impl Refilter {
+    /// A form of this effect that recomputes only the rows in `range` (clamped to the image).
+    ///
+    /// The stored bytes of the other rows are unchanged; see [`RefilterRows`].
+    pub fn within_rows(self, range: std::ops::Range<u32>) -> RefilterRows {
+        RefilterRows {
+            filter_type: self.filter_type,
+            range,
+        }
+    }
+}
+
 impl Effect for Refilter {
     fn apply_to(&self, png: &mut PngGlitch) {
         png.reencode_with(self.filter_type);
+    }
+}
+
+/// [`Refilter`] restricted to a range of rows, made by [`Refilter::within_rows`].
+///
+/// The rows in `range` are decoded (with everything above them) and re-encoded with
+/// `filter_type`, using the decoded row above the range as the previous line. The tag and
+/// filtered bytes of every row outside the range stay as they were. The *decoded* pixels below
+/// the range can still change, because filters propagate downwards (ADR 0002).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RefilterRows {
+    /// The filter type the rows are re-encoded with.
+    pub filter_type: FilterType,
+    /// The rows to re-encode (clamped to the image; empty means no-op).
+    pub range: std::ops::Range<u32>,
+}
+
+impl Effect for RefilterRows {
+    fn apply_to(&self, png: &mut PngGlitch) {
+        let lines = self.range.end.saturating_sub(self.range.start);
+        png.reencode_rows_with(self.filter_type, self.range.start, lines);
+    }
+}
+
+/// Applies an effect to the rows in `range` only. Make one with
+/// [`ScanLinesEffect::within_rows`].
+///
+/// Inside the effect, row indices are relative to the range: row 0 is row `range.start` of the
+/// image, so effects with absolute row lists (such as [`SwapLines`]) work unchanged. The range
+/// is clamped to the image; an empty range, or one past the last row, is a no-op.
+///
+/// The tag and filtered bytes of rows outside the range are never touched. The *decoded* pixels
+/// below the range can still change, because a decoder rebuilds each row from the one above
+/// (ADR 0002).
+///
+/// # Examples
+/// ```
+/// use png_glitch::effects::{Invert, ScanLinesEffect};
+/// use png_glitch::{Encoding, FilterStrategy, FilterType, PixelSource, PngGlitch};
+///
+/// let frame = vec![10u8; 4 * 6 * 4];
+/// let mut png = PngGlitch::from_pixels(
+///     PixelSource::rgba8(4, 6, &frame),
+///     Encoding::rgba8(FilterStrategy::Fixed(FilterType::None)),
+/// )?;
+/// let before = png.data().to_vec();
+/// png.apply(Invert::new().within_rows(2..4));
+/// let stride = before.len() / 6;
+/// assert_eq!(png.data()[..2 * stride], before[..2 * stride]);
+/// assert_ne!(png.data()[2 * stride..4 * stride], before[2 * stride..4 * stride]);
+/// assert_eq!(png.data()[4 * stride..], before[4 * stride..]);
+/// # Ok::<(), png_glitch::PngError>(())
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WithinRows<E> {
+    /// The rows the effect is applied to.
+    pub range: std::ops::Range<u32>,
+    /// The effect.
+    pub effect: E,
+}
+
+impl<E: ScanLinesEffect> ScanLinesEffect for WithinRows<E> {
+    fn apply_to_scan_lines(&self, lines: &mut ScanLines<'_>) {
+        self.effect
+            .apply_to_scan_lines(&mut lines.rows(self.range.clone()));
     }
 }
 

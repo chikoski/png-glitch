@@ -212,6 +212,28 @@ impl Png {
         }
     }
 
+    /// Re-encodes the scan lines in `[from, from + lines)` with `filter_type`, clamping to the
+    /// image height. Only the stored bytes of those rows change: rows outside the range keep
+    /// their tag and filtered bytes.
+    ///
+    /// The rows are decoded from the stored bytes of the whole image above them, so glitches
+    /// above the range are baked in as they would be by a whole-image re-encode, and the row
+    /// above the range is the previous line of the first re-encoded row.
+    pub fn change_filter_type_in_rows(&mut self, filter_type: FilterType, from: u32, lines: u32) {
+        let height = self.height() as usize;
+        let start = (from as usize).min(height);
+        let end = start.saturating_add(lines as usize).min(height);
+        if start == end {
+            return;
+        }
+        let width = self.scan_line_width();
+        // Rows above the range are decoded in place to serve as context, then put back.
+        let above = self.data[..start * width].to_vec();
+        self.remove_filter_from(0, end as u32);
+        self.apply_filter_from(filter_type, start as u32, (end - start) as u32);
+        self.data[..start * width].copy_from_slice(&above);
+    }
+
     /// The method changes the filter type of all scan lines.
     pub fn change_filter_type(&mut self, filter_type: FilterType) {
         self.remove_filter();
