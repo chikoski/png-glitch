@@ -31,7 +31,10 @@ pub(crate) fn bytes_per_pixel(color_type: ColorType, bit_depth: u8) -> usize {
 }
 
 /// Decodes the pixel `x` of a scan line (`data` is the filter-type tag plus the filtered bytes).
-/// The one sample decoder: [`ScanLine::get_pixel`] and the read-only views use it.
+/// The sample decoder of the read-only views ([`ScanLines::pixel`](crate::ScanLines::pixel),
+/// [`PngGlitch::pixel`](crate::PngGlitch::pixel)), which cannot build a `ScanLine` (that needs
+/// `&mut` data). It must stay the same decoder as [`ScanLine::get_pixel`], whose body is kept
+/// separate on purpose; `tests/raster.rs` checks that they agree.
 pub(crate) fn pixel_at(
     data: &[u8],
     color_type: ColorType,
@@ -148,8 +151,77 @@ impl<'a> ScanLine<'a> {
     /// The value is the *stored* sample, at the image's bit depth. If the scan line is still
     /// filtered it is a filtered byte, not the decoded colour; call
     /// [`PngGlitch::remove_filter`](crate::PngGlitch::remove_filter) first to read real pixels.
+    ///
+    /// This body is deliberately not shared with [`pixel_at`]: it is the per-pixel hot path of
+    /// `PixelSort` and similar effects, and the benchmark gate measured a slowdown when it
+    /// went through another function. `pixel_at` decodes the same samples for the read-only
+    /// views; a test checks that the two agree for every colour type and bit depth.
     pub fn get_pixel(&self, x: usize) -> Option<Pixel> {
-        pixel_at(self.data, self.color_type, self.bit_depth, self.width, x)
+        if x >= self.width as usize || self.bit_depth == 0 {
+            return None;
+        }
+        if self.bit_depth < 8 {
+            let pixels_per_byte = 8 / self.bit_depth as usize;
+            let byte_offset = self.pixel_data_offset() + x / pixels_per_byte;
+            if byte_offset >= self.data.len() {
+                return None;
+            }
+            let byte = self.data[byte_offset];
+            let shift = (pixels_per_byte - 1 - (x % pixels_per_byte)) * self.bit_depth as usize;
+            let mask = (1 << self.bit_depth) - 1;
+            let value = (byte >> shift) & mask;
+
+            return match self.color_type {
+                ColorType::GrayScale => Some(Pixel::Gray(value as u16)),
+                ColorType::IndexColor => Some(Pixel::Indexed(value)),
+                _ => None,
+            };
+        }
+
+        let bpp = self.bytes_per_pixel();
+        let offset = self.pixel_data_offset() + x * bpp;
+        if offset + bpp > self.data.len() {
+            return None;
+        }
+
+        let slice = &self.data[offset..offset + bpp];
+        match (self.color_type, self.bit_depth) {
+            (ColorType::GrayScale, 8) => Some(Pixel::Gray(slice[0] as u16)),
+            (ColorType::GrayScale, 16) => {
+                Some(Pixel::Gray(u16::from_be_bytes([slice[0], slice[1]])))
+            }
+            (ColorType::TrueColor, 8) => Some(Pixel::RGB(
+                slice[0] as u16,
+                slice[1] as u16,
+                slice[2] as u16,
+            )),
+            (ColorType::TrueColor, 16) => Some(Pixel::RGB(
+                u16::from_be_bytes([slice[0], slice[1]]),
+                u16::from_be_bytes([slice[2], slice[3]]),
+                u16::from_be_bytes([slice[4], slice[5]]),
+            )),
+            (ColorType::IndexColor, 8) => Some(Pixel::Indexed(slice[0])),
+            (ColorType::GrayScaleAlpha, 8) => {
+                Some(Pixel::GrayAlpha(slice[0] as u16, slice[1] as u16))
+            }
+            (ColorType::GrayScaleAlpha, 16) => Some(Pixel::GrayAlpha(
+                u16::from_be_bytes([slice[0], slice[1]]),
+                u16::from_be_bytes([slice[2], slice[3]]),
+            )),
+            (ColorType::TrueColorAlpha, 8) => Some(Pixel::RGBA(
+                slice[0] as u16,
+                slice[1] as u16,
+                slice[2] as u16,
+                slice[3] as u16,
+            )),
+            (ColorType::TrueColorAlpha, 16) => Some(Pixel::RGBA(
+                u16::from_be_bytes([slice[0], slice[1]]),
+                u16::from_be_bytes([slice[2], slice[3]]),
+                u16::from_be_bytes([slice[4], slice[5]]),
+                u16::from_be_bytes([slice[6], slice[7]]),
+            )),
+            _ => None,
+        }
     }
 
     /// Sets the pixel `x`, or says why it cannot.

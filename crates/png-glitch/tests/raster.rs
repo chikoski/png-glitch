@@ -339,3 +339,25 @@ fn map_channels_leaves_alpha_and_indices_alone() {
     );
     assert_eq!(Pixel::Indexed(5).map_channels(|_| 0), Pixel::Indexed(5));
 }
+
+#[test]
+fn the_read_only_decoder_agrees_with_scan_line_get_pixel() {
+    // `ScanLine::get_pixel` keeps its own body (it is `PixelSort`'s hot path) and the read-only
+    // views use `pixel_at`; they must decode every sample the same way, on arbitrary bytes too.
+    for &(ct, bd) in MATRIX {
+        for w in [1u32, 2, 3, 7, 8, 9, 16, 17, 33] {
+            let h = 3u32;
+            let mut png = image(ct, bd, w, h);
+            let mut lines = png.scan_lines_mut();
+            for y in 0..h {
+                for x in 0..w + 3 {
+                    let via_row = lines.get_mut(y as usize).unwrap().get_pixel(x as usize);
+                    assert_eq!(lines.pixel(x, y), via_row, "ct{ct} bd{bd} w{w} ({x},{y})");
+                }
+            }
+            for x in 0..w {
+                assert_eq!(png.pixel(x, 1), png.scan_lines_mut().pixel(x, 1));
+            }
+        }
+    }
+}
