@@ -4,7 +4,7 @@
 use crate::any_context::{AnyGlitchContext, ImageFormat, detect_format};
 use crate::cli::Cli;
 use crate::{
-    OrderedStep, check_overwrite, effective_filters, recipe_io, resolve_output_path, resolve_seed,
+    OrderedStep, check_overwrite, prepare_filters, recipe_io, resolve_output_path, resolve_seed,
     save_output, validate_flags_for_format,
 };
 use anyhow::{Context, anyhow, bail};
@@ -177,7 +177,7 @@ pub fn sweep_process(args: &Cli, steps: &[OrderedStep], spec: &SweepSpec) -> any
             .is_some_and(|e| e.eq_ignore_ascii_case("webp"));
     validate_flags_for_format(args, webp)?;
 
-    let base_filters = effective_filters(args, steps)?;
+    let (base_filters, masks) = prepare_filters(args, steps)?;
     let idx = find_step(&base_filters, &spec.step)?;
     let values = sweep_values(spec.from, spec.to, spec.count);
     // Validate every value before writing anything.
@@ -187,7 +187,7 @@ pub fn sweep_process(args: &Cli, steps: &[OrderedStep], spec: &SweepSpec) -> any
             let mut filters = base_filters.clone();
             filters[idx] = FilterEntry {
                 config: set_param(&base_filters[idx].config, &spec.param, v)?,
-                rows: base_filters[idx].rows,
+                ..base_filters[idx].clone()
             };
             Ok(filters)
         })
@@ -224,7 +224,7 @@ pub fn sweep_process(args: &Cli, steps: &[OrderedStep], spec: &SweepSpec) -> any
             let options = ParseOptions::default().with_strict(args.strict);
             let mut context = AnyGlitchContext::open_with_options(input, Some(seed), options)?;
             for f in &variants[i] {
-                context.add_from_config(f.clone())?;
+                context.add_from_entry(f.clone(), &masks)?;
             }
             context.execute();
             let recipe = recipe_io::render_recipe(seed, &variants[i])?;

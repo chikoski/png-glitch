@@ -1,0 +1,7 @@
+# The same rectangle after remove-filter: the sort moves real pixel colors, so the result
+# stays inside the rectangle on screen.
+filters:
+  - type: remove-filter
+  - type: pixel-sort
+    magnitude: 0.5
+    rect: 150,100,300,250

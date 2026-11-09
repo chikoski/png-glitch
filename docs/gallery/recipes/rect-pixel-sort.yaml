@@ -1,0 +1,6 @@
+# Pixel-sort restricted to a rectangle. The sort edits filtered bytes, so the change also
+# spreads into decoded rows below the rectangle (ADR 0006).
+filters:
+  - type: pixel-sort
+    magnitude: 0.5
+    rect: 150,100,300,250

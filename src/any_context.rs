@@ -4,7 +4,7 @@
 //! rather than in `png-glitch-recipe` or `webp-glitch-context`.
 
 use anyhow::{Context, Result};
-use png_glitch_recipe::{FilterEntry, GlitchContext, ParseOptions, PngWarning};
+use png_glitch_recipe::{FilterEntry, GlitchContext, MaskSet, ParseOptions, PngWarning};
 use std::path::Path;
 use webp_glitch_context::WebpGlitchContext;
 
@@ -125,22 +125,55 @@ impl AnyGlitchContext {
         }
     }
 
-    /// Adds a step (a `FilterConfig`, or a [`FilterEntry`] with an optional row range),
-    /// returning an error if it is not supported for the underlying image format.
-    ///
-    /// A step with `rows` is supported for PNG only.
-    pub fn add_from_config(&mut self, entry: impl Into<FilterEntry>) -> Result<()> {
-        let FilterEntry { config, rows } = entry.into();
-        match (self, rows) {
-            (Self::Png(ctx), None) => ctx.add_from_config(config).map_err(Into::into),
-            (Self::Png(ctx), Some(rows)) => ctx
-                .add_from_config_in_rows(config, rows)
-                .map_err(Into::into),
-            (Self::Webp(_), Some(_)) => {
-                anyhow::bail!("`rows` is not supported for WebP images")
-            }
-            (Self::Webp(ctx), None) => ctx.add_from_config(config),
+    /// Width of the image in pixels.
+    pub fn width(&self) -> u32 {
+        match self {
+            Self::Png(ctx) => ctx.width(),
+            Self::Webp(ctx) => ctx.width(),
         }
+    }
+
+    /// Height of the image in pixels.
+    pub fn height(&self) -> u32 {
+        match self {
+            Self::Png(ctx) => ctx.height(),
+            Self::Webp(ctx) => ctx.height(),
+        }
+    }
+
+    /// Adds a step (a `FilterConfig`, or a [`FilterEntry`] with `rows`, `rect` or `mask`),
+    /// returning an error if it is not supported for the underlying image format. A step with
+    /// a `mask` fails: use [`add_from_entry`](Self::add_from_entry) with the loaded masks.
+    pub fn add_from_config(&mut self, entry: impl Into<FilterEntry>) -> Result<()> {
+        self.add_from_entry(entry.into(), &MaskSet::new())
+    }
+
+    /// Adds a step with its `rows`, `rect`, `mask` and `invert-mask`. `masks` holds the loaded
+    /// mask images by path. Targeting is supported for PNG only; a mask must be as large as the
+    /// image.
+    pub fn add_from_entry(&mut self, entry: FilterEntry, masks: &MaskSet) -> Result<()> {
+        if entry.is_plain() {
+            return match self {
+                Self::Png(ctx) => ctx.add_from_config(entry.config).map_err(Into::into),
+                Self::Webp(ctx) => ctx.add_from_config(entry.config),
+            };
+        }
+        let (width, height) = (self.width(), self.height());
+        let Self::Png(ctx) = self else {
+            anyhow::bail!("`rows`, `rect` and `mask` are not supported for WebP images");
+        };
+        if let Some(reference) = &entry.mask
+            && let Some(mask) = masks.get(&reference.path)
+            && (mask.width(), mask.height()) != (width, height)
+        {
+            anyhow::bail!(
+                "the mask '{}' is {}x{} pixels, but the image is {width}x{height}",
+                reference.path,
+                mask.width(),
+                mask.height()
+            );
+        }
+        ctx.add_from_entry(entry, masks).map_err(Into::into)
     }
 
     /// Executes all queued filters and drains the filter queue.

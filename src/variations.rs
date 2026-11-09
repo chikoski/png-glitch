@@ -4,7 +4,7 @@
 use crate::any_context::{AnyGlitchContext, ImageFormat, detect_format};
 use crate::cli::Cli;
 use crate::{
-    OrderedStep, check_overwrite, effective_filters, recipe_io, resolve_output_path, resolve_seed,
+    OrderedStep, check_overwrite, prepare_filters, recipe_io, resolve_output_path, resolve_seed,
     save_output, validate_flags_for_format,
 };
 use anyhow::{Context, bail};
@@ -125,7 +125,7 @@ pub fn variations_process(args: &Cli, steps: &[OrderedStep], count: u32) -> anyh
         check_overwrite(Path::new(sheet), args.force)?;
     }
 
-    let filters = effective_filters(args, steps)?;
+    let (filters, masks) = prepare_filters(args, steps)?;
     // `--print-recipe` / `--save-recipe` describe the base seed; every output's own seed is
     // printed below and embedded with `--embed-recipe`.
     if args.print_recipe {
@@ -156,7 +156,7 @@ pub fn variations_process(args: &Cli, steps: &[OrderedStep], count: u32) -> anyh
             let options = ParseOptions::default().with_strict(args.strict);
             let mut context = AnyGlitchContext::open_with_options(input, Some(seed), options)?;
             for f in &filters {
-                context.add_from_config(f.clone())?;
+                context.add_from_entry(f.clone(), &masks)?;
             }
             context.execute();
             let recipe = recipe_io::render_recipe(seed, &filters)?;

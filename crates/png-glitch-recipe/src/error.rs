@@ -62,4 +62,20 @@ pub enum RecipeError {
         /// Debug representation of the rejected step.
         step: String,
     },
+    /// A step names a mask file that the host did not supply.
+    #[error("the mask '{path}' was not supplied (load it and add it with `MaskSet::insert`)")]
+    MissingMask {
+        /// The `path` the step refers to.
+        path: String,
+    },
+    /// The mask the host supplied is not the one the recipe was written for.
+    #[error("the mask '{path}' has CRC-32 {actual:08x}, but the recipe expects {expected:08x}")]
+    MaskChecksum {
+        /// The `path` the step refers to.
+        path: String,
+        /// The CRC-32 written in the recipe.
+        expected: u32,
+        /// The CRC-32 of the supplied file.
+        actual: u32,
+    },
 }

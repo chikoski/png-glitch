@@ -6,10 +6,11 @@
 //! no RNG.
 
 use crate::{
-    FilterConfig, FilterEntry, GlitchFilter, RecipeError, Result, RowRange, filter_from_config,
+    FilterConfig, FilterEntry, GlitchFilter, MaskSet, RecipeError, Result, RowRange,
+    filter_from_config,
 };
 use png_glitch::effects as fx;
-use png_glitch::effects::{Effect, ScanLinesEffect};
+use png_glitch::effects::{Effect, Mask, Masked, ScanLinesEffect};
 use png_glitch::{ColorType, PngGlitch, ScanLines};
 use rand::{RngCore, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -116,43 +117,85 @@ impl PartialEq for ResolvedEffect {
     }
 }
 
-/// Resolves `config` for the rows `rows` of an image with header `header`. The step is resolved
-/// for an image as tall as the range, so its random choices and row numbers are relative to it.
-pub(crate) fn resolve_in_rows(
-    config: &FilterConfig,
-    rows: &RowRange,
+/// The mask of `entry` for the whole image, or `None` if the entry has no `rect` / `mask`.
+fn entry_mask(entry: &FilterEntry, header: &ImageHeader, masks: &MaskSet) -> Result<Option<Mask>> {
+    let mask = match (&entry.rect, &entry.mask) {
+        (Some(_), Some(_)) => {
+            return Err(RecipeError::InvalidSpec(
+                "a step cannot have both `rect` and `mask`".into(),
+            ));
+        }
+        (Some(r), None) => Mask::rect(header.width, header.height, r.x, r.y, r.w, r.h),
+        (None, Some(reference)) => masks.lookup(reference)?,
+        (None, None) if entry.invert_mask => {
+            return Err(RecipeError::InvalidSpec(
+                "`invert-mask` needs a `rect` or a `mask`".into(),
+            ));
+        }
+        (None, None) => return Ok(None),
+    };
+    Ok(Some(if entry.invert_mask {
+        mask.inverted()
+    } else {
+        mask
+    }))
+}
+
+/// Resolves a built-in step with its `rows` / `rect` / `mask` for an image with header `header`.
+///
+/// The step is resolved for an image as tall as the `rows` range, so its random choices and row
+/// numbers are relative to the range. A mask is cropped to the same rows and wraps the resolved
+/// step; the pair then runs on the row sub-view.
+pub(crate) fn resolve_entry(
+    entry: &FilterEntry,
     header: &ImageHeader,
     rng: &mut dyn RngCore,
+    masks: &MaskSet,
 ) -> Result<ResolvedStep> {
-    let range = rows.resolve(header.height);
+    let range = match &entry.rows {
+        Some(rows) => rows.resolve(header.height),
+        None => 0..header.height,
+    };
     let sub = ImageHeader {
         height: range.end - range.start,
         ..*header
     };
-    filter_from_config(config)?
-        .resolve(&sub, rng)
-        .in_rows(range.start, range.end)
+    let mask = entry_mask(entry, header, masks)?;
+    let mut step = filter_from_config(&entry.config)?.resolve(&sub, rng);
+    if let Some(mask) = mask {
+        step = step.masked(
+            mask.crop_rows(range.start, range.end),
+            sub.line_size() + 1,
+            sub.height,
+        )?;
+    }
+    if entry.rows.is_some() {
+        step.in_rows(range.start, range.end)
+    } else {
+        Ok(step)
+    }
 }
 
-/// A [`GlitchFilter`] that runs a built-in step on a range of rows.
-struct RowsFilter {
-    config: FilterConfig,
-    rows: RowRange,
+/// A [`GlitchFilter`] that runs a built-in step with a `rows` / `rect` / `mask`.
+pub(crate) struct EntryFilter {
+    entry: FilterEntry,
+    masks: MaskSet,
 }
 
-impl GlitchFilter for RowsFilter {
+impl GlitchFilter for EntryFilter {
     fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
         let header = ImageHeader::of(png);
-        // The step was checked when the filter was made; `Err` cannot happen here.
-        if let Ok(step) = resolve_in_rows(&self.config, &self.rows, &header, rng) {
+        // The entry was checked when the filter was made; `Err` cannot happen here.
+        if let Ok(step) = resolve_entry(&self.entry, &header, rng, &self.masks) {
             step.execute(png);
         }
     }
 }
 
-/// Checks that `config` can run on a range of rows, and returns a filter that does it.
-pub(crate) fn rows_filter(config: FilterConfig, rows: RowRange) -> Result<impl GlitchFilter> {
-    // Any header will do: only the kind of step is checked.
+/// Checks that `entry` can run, and returns a filter that does it. `masks` must hold the mask
+/// the entry refers to.
+pub(crate) fn entry_filter(entry: FilterEntry, masks: &MaskSet) -> Result<EntryFilter> {
+    // Any header will do: only the kind of step and the mask lookup are checked.
     let probe = ImageHeader {
         width: 8,
         height: 8,
@@ -160,8 +203,14 @@ pub(crate) fn rows_filter(config: FilterConfig, rows: RowRange) -> Result<impl G
         bit_depth: 8,
     };
     let mut rng = ChaCha8Rng::seed_from_u64(0);
-    resolve_in_rows(&config, &RowRange::default(), &probe, &mut rng)?;
-    Ok(RowsFilter { config, rows })
+    resolve_entry(&entry, &probe, &mut rng, masks)?;
+    let mut own = MaskSet::new();
+    if let Some(reference) = &entry.mask
+        && let Some(mask) = masks.get(&reference.path)
+    {
+        own.insert(reference.path.clone(), mask.clone(), None);
+    }
+    Ok(EntryFilter { entry, masks: own })
 }
 
 /// A user-defined recipe step: draws its random choices from the RNG and returns a
@@ -199,6 +248,8 @@ pub enum Step {
     Config(FilterConfig),
     /// A built-in step restricted to a range of rows (`rows: a..b` in a recipe file).
     Rows(FilterConfig, RowRange),
+    /// A built-in step with a `rect` / `mask` (and maybe `rows`): see [`FilterEntry`].
+    Targeted(Box<FilterEntry>),
     /// A user-defined step.
     Custom(Arc<dyn RecipeStep>),
 }
@@ -208,6 +259,7 @@ impl fmt::Debug for Step {
         match self {
             Self::Config(config) => f.debug_tuple("Config").field(config).finish(),
             Self::Rows(config, rows) => f.debug_tuple("Rows").field(config).field(rows).finish(),
+            Self::Targeted(entry) => f.debug_tuple("Targeted").field(entry).finish(),
             Self::Custom(_) => f.write_str("Custom(..)"),
         }
     }
@@ -218,6 +270,7 @@ impl PartialEq for Step {
         match (self, other) {
             (Self::Config(a), Self::Config(b)) => a == b,
             (Self::Rows(a, ra), Self::Rows(b, rb)) => a == b && ra == rb,
+            (Self::Targeted(a), Self::Targeted(b)) => a == b,
             (Self::Custom(a), Self::Custom(b)) => Arc::ptr_eq(a, b),
             _ => false,
         }
@@ -262,8 +315,45 @@ pub enum ResolvedStep {
         /// The step, with row numbers relative to `start`.
         step: Box<ResolvedStep>,
     },
+    /// A step whose result is kept only where a mask allows it (ADR 0006).
+    Masked {
+        /// The step, resolved as for an unmasked run.
+        step: Box<ResolvedStep>,
+        /// The mask, for the rows the step covers.
+        mask: Mask,
+        /// The wrapper that runs `step` through `mask`; it owns the snapshot buffer.
+        effect: MaskedEffect,
+    },
     /// A user-defined effect.
     Custom(ResolvedEffect),
+}
+
+/// The effect that runs a [`ResolvedStep::Masked`] step. Two values compare equal: the step and
+/// the mask next to it already say everything.
+#[derive(Clone)]
+pub struct MaskedEffect(Arc<Masked<StepEffect>>);
+
+impl fmt::Debug for MaskedEffect {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("MaskedEffect(..)")
+    }
+}
+
+impl PartialEq for MaskedEffect {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+/// A resolved step viewed as a [`ScanLinesEffect`], so it can be wrapped in [`Masked`].
+#[derive(Debug)]
+pub struct StepEffect(ResolvedStep);
+
+impl ScanLinesEffect for StepEffect {
+    fn apply_to_scan_lines(&self, lines: &mut ScanLines<'_>) {
+        // `masked` only wraps steps that run on a scan-line view.
+        let _ = self.0.execute_live(lines);
+    }
 }
 
 impl ResolvedStep {
@@ -303,8 +393,41 @@ impl ResolvedStep {
                     let _ = inner.execute_live(&mut lines.rows(*start..*end));
                 }
             },
+            Self::Masked { effect, .. } => effect.0.apply_to(png),
             Self::Custom(e) => e.apply_to(png),
         }
+    }
+
+    /// Keeps the result of a step only where `mask` allows it. The step was resolved for an image
+    /// with `height` rows of `stride` bytes (the filter-type tag plus the filtered bytes), which
+    /// are the rows `mask` covers.
+    ///
+    /// # Errors
+    /// [`RecipeError::InvalidSpec`] for `regenerate` and the re-encodes (`sub-filter`, ...),
+    /// which recompute filtered values and cannot be masked, and for a user-defined effect that
+    /// is not a `ScanLinesEffect`.
+    pub fn masked(self, mask: Mask, stride: usize, height: u32) -> Result<ResolvedStep> {
+        let supported = match &self {
+            Self::Regenerate(_) | Self::Refilter(_) => false,
+            Self::Custom(e) => e.is_live(),
+            _ => true,
+        };
+        if !supported {
+            return Err(RecipeError::InvalidSpec(format!(
+                "`rect` / `mask` is not supported for this step (it recomputes filtered values): {self:?}"
+            )));
+        }
+        let effect = MaskedEffect(Arc::new(Masked::new(
+            StepEffect(self.clone()),
+            mask.clone(),
+            stride,
+            height,
+        )));
+        Ok(Self::Masked {
+            step: Box::new(self),
+            mask,
+            effect,
+        })
     }
 
     /// Restricts a step (resolved for an image as tall as the range) to the rows `start..end`.
@@ -363,6 +486,7 @@ impl ResolvedStep {
                 }
                 step.execute_live(&mut lines.rows(*start..*end))?;
             }
+            Self::Masked { effect, .. } => effect.0.apply_to_scan_lines(lines),
             Self::Custom(e) => match &e.0 {
                 EffectKind::Live(e) => e.apply_to_scan_lines(lines),
                 EffectKind::File(_) => return Err(self.not_live()),
@@ -531,6 +655,7 @@ macro_rules! impl_glitch_filter_via_resolve {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Recipe {
     steps: Vec<Step>,
+    masks: MaskSet,
 }
 
 impl Recipe {
@@ -543,6 +668,7 @@ impl Recipe {
     pub fn from_configs(steps: impl IntoIterator<Item = FilterConfig>) -> Self {
         Self {
             steps: steps.into_iter().map(Step::Config).collect(),
+            masks: MaskSet::new(),
         }
     }
 
@@ -551,12 +677,33 @@ impl Recipe {
         Self {
             steps: entries
                 .into_iter()
-                .map(|e| match e.rows {
-                    Some(rows) => Step::Rows(e.config, rows),
-                    None => Step::Config(e.config),
+                .map(|e| {
+                    if e.is_plain() {
+                        Step::Config(e.config)
+                    } else if e.rows.is_some() && !e.has_region() && !e.invert_mask {
+                        Step::Rows(e.config, e.rows.unwrap_or_default())
+                    } else {
+                        Step::Targeted(Box::new(e))
+                    }
                 })
                 .collect(),
+            masks: MaskSet::new(),
         }
+    }
+
+    /// Supplies the masks that steps with a `mask` refer to, by `path`. The recipe crate reads
+    /// no files; the host loads them. A step whose mask is missing fails to resolve with
+    /// [`RecipeError::MissingMask`], and one whose CRC-32 differs with
+    /// [`RecipeError::MaskChecksum`].
+    pub fn with_masks(mut self, masks: MaskSet) -> Self {
+        self.masks = masks;
+        self
+    }
+
+    /// Appends a built-in step with a `rows` / `rect` / `mask`. See [`FilterEntry`].
+    pub fn then_entry(mut self, entry: FilterEntry) -> Self {
+        self.steps.push(Step::Targeted(Box::new(entry)));
+        self
     }
 
     /// Appends a built-in step that works on the rows `rows` only.
@@ -576,6 +723,7 @@ impl Recipe {
             .map(|step| match step {
                 Step::Config(config) => Some(config.clone().into()),
                 Step::Rows(config, rows) => Some(FilterEntry::with_rows(config.clone(), *rows)),
+                Step::Targeted(entry) => Some((**entry).clone()),
                 Step::Custom(_) => None,
             })
             .collect()
@@ -605,7 +753,7 @@ impl Recipe {
             .iter()
             .map(|step| match step {
                 Step::Config(config) => Some(config.clone()),
-                Step::Rows(..) | Step::Custom(_) => None,
+                Step::Rows(..) | Step::Targeted(_) | Step::Custom(_) => None,
             })
             .collect()
     }
@@ -630,7 +778,13 @@ impl Recipe {
             .iter()
             .map(|step| match step {
                 Step::Config(config) => Ok(filter_from_config(config)?.resolve(header, &mut rng)),
-                Step::Rows(config, rows) => resolve_in_rows(config, rows, header, &mut rng),
+                Step::Rows(config, rows) => resolve_entry(
+                    &FilterEntry::with_rows(config.clone(), *rows),
+                    header,
+                    &mut rng,
+                    &self.masks,
+                ),
+                Step::Targeted(entry) => resolve_entry(entry, header, &mut rng, &self.masks),
                 Step::Custom(step) => Ok(ResolvedStep::Custom(step.resolve(header, &mut rng))),
             })
             .collect::<Result<Vec<_>>>()?;
@@ -687,7 +841,11 @@ impl Recipe {
                 }
                 // A step with `rows` is resolved as in `resolve`, with its allocations.
                 Step::Rows(config, rows) => {
-                    *slot = resolve_in_rows(config, rows, header, &mut rng)?
+                    let entry = FilterEntry::with_rows(config.clone(), *rows);
+                    *slot = resolve_entry(&entry, header, &mut rng, &self.masks)?
+                }
+                Step::Targeted(entry) => {
+                    *slot = resolve_entry(entry, header, &mut rng, &self.masks)?
                 }
                 Step::Custom(step) => *slot = ResolvedStep::Custom(step.resolve(header, &mut rng)),
             }
@@ -781,16 +939,18 @@ impl ResolvedRecipe {
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RecipeData {
-    filters: Vec<FilterConfig>,
+    filters: Vec<FilterEntry>,
 }
 
 impl serde::Serialize for Recipe {
-    /// Serializes as `filters: [...]`. Fails if the recipe has a user-defined step.
+    /// Serializes as `filters: [...]`, with `rows`, `rect`, `mask` and `invert-mask` where a
+    /// step has them (the supplied [`MaskSet`] is not part of it). Fails if the recipe has a
+    /// user-defined step.
     fn serialize<S: serde::Serializer>(
         &self,
         serializer: S,
     ) -> std::result::Result<S::Ok, S::Error> {
-        let filters = self.configs().ok_or_else(|| {
+        let filters = self.entries().ok_or_else(|| {
             serde::ser::Error::custom("a recipe with user-defined steps cannot be serialized")
         })?;
         RecipeData { filters }.serialize(serializer)
@@ -802,6 +962,6 @@ impl<'de> serde::Deserialize<'de> for Recipe {
         deserializer: D,
     ) -> std::result::Result<Self, D::Error> {
         let data = RecipeData::deserialize(deserializer)?;
-        Ok(Recipe::from_configs(data.filters))
+        Ok(Recipe::from_entries(data.filters))
     }
 }

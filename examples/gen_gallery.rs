@@ -13,9 +13,9 @@
 use anyhow::{Context, Result};
 use png_glitch_recipe::{
     BitOp, Bitwise, BlockScramble, Brighten, ChangeFilterType, ChromaticAberration,
-    ColorDistortion, ColorSpaceGlitch, FilterConfig, GlitchContext, GlitchFilter, HorizontalShift,
-    Invert, PreProcess, RandomCopy, Regenerate, RegenerateStrategy, Replace, SetZero,
-    ShiftChannels, SortCriterion, SwapTarget, Transpose,
+    ColorDistortion, ColorSpaceGlitch, FilterConfig, FilterEntry, GlitchContext, GlitchFilter,
+    HorizontalShift, Invert, MaskSet, PreProcess, RandomCopy, Regenerate, RegenerateStrategy,
+    Replace, SetZero, ShiftChannels, SortCriterion, SwapTarget, Transpose,
 };
 use serde::Deserialize;
 use std::fs;
@@ -26,17 +26,19 @@ const SEED: u64 = 42;
 
 #[derive(Deserialize)]
 struct RecipeFile {
-    filters: Vec<FilterConfig>,
+    filters: Vec<FilterEntry>,
 }
 
 fn generate_png(
     sample_bytes: &[u8],
     out_path: &Path,
-    filters: impl IntoIterator<Item = FilterConfig>,
+    filters: impl IntoIterator<Item = FilterEntry>,
 ) -> Result<()> {
     let mut ctx = GlitchContext::new(sample_bytes, Some(SEED))?;
+    // Gallery recipes use `rows` and `rect`; a `mask` would need a file, which they do not have.
+    let masks = MaskSet::new();
     for filter in filters {
-        ctx.add_from_config(filter)?;
+        ctx.add_from_entry(filter, &masks)?;
     }
     ctx.execute();
     ctx.save(out_path)?;
@@ -71,7 +73,11 @@ fn generate_recipes(png_sample: &[u8], webp_sample: &[u8], dir: &Path) -> Result
             .with_context(|| format!("failed to parse {}", path.display()))?;
         let stem = path.file_stem().unwrap().to_string_lossy();
         if stem.starts_with("webp-") {
-            generate_webp(webp_sample, &path.with_extension("webp"), recipe.filters)?;
+            generate_webp(
+                webp_sample,
+                &path.with_extension("webp"),
+                recipe.filters.into_iter().map(|e| e.config),
+            )?;
         } else {
             generate_png(png_sample, &path.with_extension("png"), recipe.filters)?;
         }
@@ -254,7 +260,11 @@ fn main() -> Result<()> {
         ),
     ];
     for (filename, filter) in &more_png {
-        generate_png(&sample_bytes, &out_dir.join(filename), [filter.clone()])?;
+        generate_png(
+            &sample_bytes,
+            &out_dir.join(filename),
+            [filter.clone().into()],
+        )?;
     }
 
     let webp_sample = fs::read(root.join("crates/webp-glitch/etc/sample00.webp"))?;

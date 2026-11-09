@@ -50,7 +50,7 @@ use resolve::{Builtin, Resolve, StepScratch, take_buffer};
 pub use resolve::{
     ImageHeader, Recipe, RecipeStep, ResolvedEffect, ResolvedRecipe, ResolvedStep, Step,
 };
-pub use targeting::{FilterEntry, RowRange};
+pub use targeting::{FilterEntry, MaskRef, MaskSet, RectSpec, RowRange};
 
 #[cfg(feature = "clap")]
 use clap::ValueEnum;

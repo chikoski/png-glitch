@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### png-glitch-recipe, CLI: `rect`, `mask` and `invert-mask` on every step (#189, part of #77, ADR 0006)
+
+#### Added
+- `png-glitch-recipe`: `RectSpec` (`x,y,w,h`), `MaskRef { path, crc32 }` and `MaskSet` (masks the host loads, by path); `FilterEntry` gains `rect`, `mask` and `invert_mask` (YAML `rect:`, `mask:`, `invert-mask:`). `Recipe::with_masks`, `Recipe::then_entry`, `GlitchContext::add_from_entry`, `ResolvedStep::Masked` and `ResolvedStep::masked`, `Step::Targeted`, and the errors `RecipeError::MissingMask` and `RecipeError::MaskChecksum`.
+- The recipe crate reads no files. The step is resolved as without the region and wrapped in `png_glitch::effects::Masked`; with `rows` the mask is cropped to the same rows. `rect` together with `mask`, `invert-mask` alone, and a region on `regenerate` or a re-encode are `RecipeError::InvalidSpec`. `LiveRecipe` runs masked steps.
+- `png-glitch`: `Mask::crop_rows`.
+- CLI: `-f 'replace:magnitude=0.2,rect=10,20,100,50'`, `mask=FILE` and `invert-mask`, and the same keys in `--config` files. The CLI decodes the mask PNG (Rec. 601 luma times alpha / 255), requires the image's size, checks the CRC-32 and, when the recipe has none, warns and records it, so a saved or embedded recipe pins the file. WebP input rejects them.
+- Docs: "Masks and regions" in `docs/CLI_GUIDE.md` and the README, with two gallery recipes (`rect-pixel-sort`, `rect-clean-pixel-sort`); `gen_gallery` reads `FilterEntry`.
+
+#### Fixed
+- Serialising a `Recipe` with `rows` failed with "user-defined steps cannot be serialized"; it now writes `rows` (and the new keys).
+
 ### png-glitch: `Mask` and `Masked` for pixel-level targeting (#187, part of #77, ADR 0006)
 
 #### Added

@@ -193,6 +193,32 @@ png-glitch crates/png-glitch/etc/sample00.png --config docs/gallery/recipes/<nam
 
 The guarantee is about the **stored bytes**: the filter-type tag and filtered bytes of rows outside the range are unchanged. The *decoded* pixels below the range can still change, because a decoder rebuilds each row from the one above it. A change in rows 300..452 also reaches the rows below when those use Up, Average or Paeth, but not when they use None or Sub. That is the medium working as intended, not a bug; put `-f regenerate=none` first if you want the effect to stay inside the range on screen.
 
+### Masks and regions
+
+Three more keys restrict a step to part of the image. They go in the same `key=value` list as `rows` (or next to `type:` in YAML) and work on any PNG step:
+
+| `-f` key | YAML key | Meaning |
+| --- | --- | --- |
+| `rect=x,y,w,h` | `rect: x,y,w,h` | Only that rectangle (clipped to the image). |
+| `mask=FILE` | `mask: { path: FILE, crc32: N }` | Only where the PNG `FILE` is bright. It must be as large as the image. |
+| `invert-mask` | `invert-mask: true` | Everything outside the `rect` / `mask` instead. |
+
+```zsh
+png-glitch input.png -f 'pixel-sort:magnitude=0.5,rect=150,100,300,250' --seed 42
+png-glitch input.png -f 'replace:magnitude=0.3,mask=mask.png' --seed 42
+png-glitch input.png -f 'invert:mask=mask.png,invert-mask' --seed 42
+```
+
+- **A mask value is a strength.** The step runs on the whole image (or on its `rows`), and each stored sample becomes `orig × (255 − m) + result × m` (divided by 255): black keeps the original, white keeps the result, grays blend. A mask with only black and white behaves like a hard selection. For indexed colour and 1/2/4-bit images the mask is thresholded at 128.
+- **How a mask file is read.** It is decoded as a PNG and each pixel becomes its Rec. 601 luma times alpha / 255. `rect` and `mask` cannot be combined on one step, and a mask of another size is an error that names both sizes.
+- **The recipe pins the file.** `--print-recipe`, `--save-recipe` and `--embed-recipe` write `mask: { path, crc32 }`, where `crc32` is the CRC-32 of the file's bytes. `--config recipe.yaml` fails if the file has changed, and a hand-written recipe without `crc32` loads with a warning. Keep the mask file next to the recipe.
+- **Re-encodes cannot be masked.** `regenerate`, `sub-filter`, `up-filter`, ... recompute filtered values (a new generation), so `rect`, `mask` and `invert-mask` are rejected for them. They are not available for WebP either. `rows` and a region can be combined: the mask is cropped to the same rows.
+- **The caveat of `rows` applies here too.** The guarantee is about the stored bytes: outside the mask they are unchanged. A decoder rebuilds each row from the one above, so a change inside the mask can show up in decoded rows below it. Put `remove-filter` first to make the change stay in the region on screen:
+
+| `rect` only ([`rect-pixel-sort.yaml`](./gallery/recipes/rect-pixel-sort.yaml)) | after `remove-filter` ([`rect-clean-pixel-sort.yaml`](./gallery/recipes/rect-clean-pixel-sort.yaml)) |
+| :---: | :---: |
+| ![Pixel sort in a rectangle, filtered bytes](./gallery/recipes/rect-pixel-sort.png) | ![Pixel sort in a rectangle after remove-filter](./gallery/recipes/rect-clean-pixel-sort.png) |
+
 ### Filtered vs. unfiltered
 
 The same effect, without and with `remove-filter` first.

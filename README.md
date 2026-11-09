@@ -186,6 +186,29 @@ filters:
 - **What stays unchanged:** the stored bytes (filter-type tag and filtered bytes) of the rows outside the range. The *decoded* pixels below the range can still change, because a decoder rebuilds each row from the one above it (`up`, `average`, `paeth`) unless those rows use `none` or `sub`. That is how the medium works (ADR 0002), not a bug.
 - `--print-recipe`, `--save-recipe` and `--embed-recipe` include `rows`, and the saved recipe gives the same output.
 
+### Rectangles and masks (`rect`, `mask`, `invert-mask`)
+
+A step can also be restricted to a rectangle or to a grayscale mask image (see [Masks and regions](docs/CLI_GUIDE.md#masks-and-regions)):
+
+```yaml
+filters:
+  - type: pixel-sort
+    magnitude: 0.5
+    rect: 150,100,300,250        # x,y,w,h
+  - type: invert
+    mask:
+      path: mask.png             # a PNG of the image's size; white = full effect
+      crc32: 305419896           # CRC-32 of the file; filled in by --save-recipe
+    invert-mask: true            # everything outside the mask instead
+```
+
+On the command line: `-f 'pixel-sort:magnitude=0.5,rect=150,100,300,250'`, `-f 'invert:mask=mask.png,invert-mask'`.
+
+- A mask value is a strength: black keeps the original stored bytes, white keeps the result, grays blend. The mask must be as large as the image.
+- The recipe pins the mask file with its CRC-32; a changed file is an error, and a missing `crc32` is a warning.
+- `rect` and `mask` cannot be combined, and `regenerate` / `sub-filter` / ... and WebP input do not accept them. With `rows` too, the mask is cropped to the same rows.
+- As with `rows`, the guarantee is about stored bytes; decoded pixels below the region can still change unless you put `remove-filter` first.
+
 See the [recipe gallery](docs/CLI_GUIDE.md#6-recipes) for ready-made recipes and the images they produce.
 
 ## Documentation
