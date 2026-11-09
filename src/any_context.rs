@@ -4,7 +4,7 @@
 //! rather than in `png-glitch-recipe` or `webp-glitch-context`.
 
 use anyhow::{Context, Result};
-use png_glitch_recipe::{FilterConfig, GlitchContext, ParseOptions, PngWarning};
+use png_glitch_recipe::{FilterEntry, GlitchContext, ParseOptions, PngWarning};
 use std::path::Path;
 use webp_glitch_context::WebpGlitchContext;
 
@@ -125,12 +125,21 @@ impl AnyGlitchContext {
         }
     }
 
-    /// Adds a filter from a [`FilterConfig`] definition, returning an error if the filter is not
-    /// supported for the underlying image format.
-    pub fn add_from_config(&mut self, config: FilterConfig) -> Result<()> {
-        match self {
-            Self::Png(ctx) => ctx.add_from_config(config).map_err(Into::into),
-            Self::Webp(ctx) => ctx.add_from_config(config),
+    /// Adds a step (a `FilterConfig`, or a [`FilterEntry`] with an optional row range),
+    /// returning an error if it is not supported for the underlying image format.
+    ///
+    /// A step with `rows` is supported for PNG only.
+    pub fn add_from_config(&mut self, entry: impl Into<FilterEntry>) -> Result<()> {
+        let FilterEntry { config, rows } = entry.into();
+        match (self, rows) {
+            (Self::Png(ctx), None) => ctx.add_from_config(config).map_err(Into::into),
+            (Self::Png(ctx), Some(rows)) => ctx
+                .add_from_config_in_rows(config, rows)
+                .map_err(Into::into),
+            (Self::Webp(_), Some(_)) => {
+                anyhow::bail!("`rows` is not supported for WebP images")
+            }
+            (Self::Webp(ctx), None) => ctx.add_from_config(config),
         }
     }
 

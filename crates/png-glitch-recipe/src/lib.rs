@@ -33,6 +33,7 @@
 
 #[macro_use]
 mod resolve;
+mod targeting;
 
 mod config;
 mod context;
@@ -49,6 +50,7 @@ use resolve::{Builtin, Resolve, StepScratch, take_buffer};
 pub use resolve::{
     ImageHeader, Recipe, RecipeStep, ResolvedEffect, ResolvedRecipe, ResolvedStep, Step,
 };
+pub use targeting::{FilterEntry, RowRange};
 
 #[cfg(feature = "clap")]
 use clap::ValueEnum;

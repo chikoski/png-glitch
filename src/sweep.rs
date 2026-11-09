@@ -9,7 +9,7 @@ use crate::{
 };
 use anyhow::{Context, anyhow, bail};
 use indicatif::{ProgressBar, ProgressStyle};
-use png_glitch_recipe::{FilterConfig, ParseOptions};
+use png_glitch_recipe::{FilterConfig, FilterEntry, ParseOptions};
 use rayon::prelude::*;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -96,7 +96,7 @@ fn serialize_step(f: &FilterConfig) -> anyhow::Result<String> {
 }
 
 /// Finds the step a sweep targets: a 0-based index, or the first step with that type name.
-fn find_step(filters: &[FilterConfig], step: &str) -> anyhow::Result<usize> {
+fn find_step(filters: &[FilterEntry], step: &str) -> anyhow::Result<usize> {
     if let Ok(i) = step.parse::<usize>() {
         if i < filters.len() {
             return Ok(i);
@@ -108,7 +108,7 @@ fn find_step(filters: &[FilterConfig], step: &str) -> anyhow::Result<usize> {
     }
     let wanted = normalize(step);
     for (i, f) in filters.iter().enumerate() {
-        if step_type(&serialize_step(f)?).is_some_and(|t| normalize(&t) == wanted) {
+        if step_type(&serialize_step(&f.config)?).is_some_and(|t| normalize(&t) == wanted) {
             return Ok(i);
         }
     }
@@ -181,11 +181,14 @@ pub fn sweep_process(args: &Cli, steps: &[OrderedStep], spec: &SweepSpec) -> any
     let idx = find_step(&base_filters, &spec.step)?;
     let values = sweep_values(spec.from, spec.to, spec.count);
     // Validate every value before writing anything.
-    let variants: Vec<Vec<FilterConfig>> = values
+    let variants: Vec<Vec<FilterEntry>> = values
         .iter()
         .map(|&v| {
             let mut filters = base_filters.clone();
-            filters[idx] = set_param(&base_filters[idx], &spec.param, v)?;
+            filters[idx] = FilterEntry {
+                config: set_param(&base_filters[idx].config, &spec.param, v)?,
+                rows: base_filters[idx].rows,
+            };
             Ok(filters)
         })
         .collect::<anyhow::Result<_>>()?;
@@ -300,9 +303,9 @@ mod tests {
 
     #[test]
     fn finds_steps_by_index_or_type() {
-        let fs = [
-            FilterConfig::Replace { magnitude: 0.1 },
-            FilterConfig::RandomCopy { times: 2 },
+        let fs: [FilterEntry; 2] = [
+            FilterConfig::Replace { magnitude: 0.1 }.into(),
+            FilterConfig::RandomCopy { times: 2 }.into(),
         ];
         assert_eq!(find_step(&fs, "1").unwrap(), 1);
         assert_eq!(find_step(&fs, "random-copy").unwrap(), 1);

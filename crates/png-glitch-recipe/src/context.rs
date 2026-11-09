@@ -190,6 +190,16 @@ impl GlitchContext {
         self.add_filter(Regenerate::new(RegenerateStrategy::Fixed(pre_process)));
     }
 
+    /// Adds a step that works on the rows `rows` only. See [`FilterEntry`].
+    ///
+    /// # Errors
+    /// As [`add_from_config`](Self::add_from_config), and [`RecipeError::InvalidSpec`] for
+    /// `regenerate`, which recomputes the whole image.
+    pub fn add_from_config_in_rows(&mut self, config: FilterConfig, rows: RowRange) -> Result<()> {
+        self.add_filter(crate::resolve::rows_filter(config, rows)?);
+        Ok(())
+    }
+
     /// Adds a filter from a [`FilterConfig`] definition.
     ///
     /// Returns an error if the filter configuration is not supported for PNG images

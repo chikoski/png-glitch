@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### png-glitch-recipe, CLI: `rows=a..b` targeting on every step (#186, part of #77)
+
+#### Added
+- `RowRange` (`a..b`, `a..`, `..b`; serialises as that string) and `FilterEntry { config, rows }` (YAML: an optional `rows:` key next to `type:`). `FilterConfig` is unchanged.
+- `Step::Rows`, `Recipe::then_rows`, `Recipe::from_entries`, `Recipe::entries`, `GlitchContext::add_from_config_in_rows` and `ResolvedStep::Rows` / `ResolvedStep::in_rows`. A targeted step is resolved for an image as tall as the range and runs on `ScanLines::rows`; `sub-filter` and the other re-encodes run as `Refilter::within_rows`. `regenerate` and file-only custom effects are rejected. Live recipes accept targeted scan-line steps and reject targeted re-encodes.
+- CLI: `-f 'replace:magnitude=0.2,rows=300..452'` and `rows:` in `--config` files. `--print-recipe`, `--save-recipe` and `--embed-recipe` include it. WebP input rejects `rows`.
+- Docs: `rows` in the README and `docs/CLI_GUIDE.md`, including the decoded-pixel caveat.
+
+#### Changed
+- `Step` has a new variant `Rows` and `ResolvedStep` a new variant `Rows` (`ResolvedStep` is `non_exhaustive`; a `match` on `Step` needs an arm). `Recipe::configs` returns `None` for a recipe with a targeted step; use `Recipe::entries`.
+- A step with `rows` draws a different random stream than the same step without it. Recipes without `rows` give the same bytes as before (golden outputs unchanged).
+
 ### png-glitch: row sub-views and `WithinRows` (#185, part of #77)
 
 #### Added

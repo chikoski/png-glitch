@@ -5,7 +5,9 @@
 //! only concrete `png-glitch` effects. *Executing* a resolved recipe is deterministic and uses
 //! no RNG.
 
-use crate::{FilterConfig, GlitchFilter, RecipeError, Result, filter_from_config};
+use crate::{
+    FilterConfig, FilterEntry, GlitchFilter, RecipeError, Result, RowRange, filter_from_config,
+};
 use png_glitch::effects as fx;
 use png_glitch::effects::{Effect, ScanLinesEffect};
 use png_glitch::{ColorType, PngGlitch, ScanLines};
@@ -114,6 +116,54 @@ impl PartialEq for ResolvedEffect {
     }
 }
 
+/// Resolves `config` for the rows `rows` of an image with header `header`. The step is resolved
+/// for an image as tall as the range, so its random choices and row numbers are relative to it.
+pub(crate) fn resolve_in_rows(
+    config: &FilterConfig,
+    rows: &RowRange,
+    header: &ImageHeader,
+    rng: &mut dyn RngCore,
+) -> Result<ResolvedStep> {
+    let range = rows.resolve(header.height);
+    let sub = ImageHeader {
+        height: range.end - range.start,
+        ..*header
+    };
+    filter_from_config(config)?
+        .resolve(&sub, rng)
+        .in_rows(range.start, range.end)
+}
+
+/// A [`GlitchFilter`] that runs a built-in step on a range of rows.
+struct RowsFilter {
+    config: FilterConfig,
+    rows: RowRange,
+}
+
+impl GlitchFilter for RowsFilter {
+    fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
+        let header = ImageHeader::of(png);
+        // The step was checked when the filter was made; `Err` cannot happen here.
+        if let Ok(step) = resolve_in_rows(&self.config, &self.rows, &header, rng) {
+            step.execute(png);
+        }
+    }
+}
+
+/// Checks that `config` can run on a range of rows, and returns a filter that does it.
+pub(crate) fn rows_filter(config: FilterConfig, rows: RowRange) -> Result<impl GlitchFilter> {
+    // Any header will do: only the kind of step is checked.
+    let probe = ImageHeader {
+        width: 8,
+        height: 8,
+        color_type: ColorType::TrueColorAlpha,
+        bit_depth: 8,
+    };
+    let mut rng = ChaCha8Rng::seed_from_u64(0);
+    resolve_in_rows(&config, &RowRange::default(), &probe, &mut rng)?;
+    Ok(RowsFilter { config, rows })
+}
+
 /// A user-defined recipe step: draws its random choices from the RNG and returns a
 /// deterministic `png-glitch` effect.
 ///
@@ -147,6 +197,8 @@ impl RecipeStep for FixedStep {
 pub enum Step {
     /// A built-in step.
     Config(FilterConfig),
+    /// A built-in step restricted to a range of rows (`rows: a..b` in a recipe file).
+    Rows(FilterConfig, RowRange),
     /// A user-defined step.
     Custom(Arc<dyn RecipeStep>),
 }
@@ -155,6 +207,7 @@ impl fmt::Debug for Step {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Config(config) => f.debug_tuple("Config").field(config).finish(),
+            Self::Rows(config, rows) => f.debug_tuple("Rows").field(config).field(rows).finish(),
             Self::Custom(_) => f.write_str("Custom(..)"),
         }
     }
@@ -164,6 +217,7 @@ impl PartialEq for Step {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Config(a), Self::Config(b)) => a == b,
+            (Self::Rows(a, ra), Self::Rows(b, rb)) => a == b && ra == rb,
             (Self::Custom(a), Self::Custom(b)) => Arc::ptr_eq(a, b),
             _ => false,
         }
@@ -198,6 +252,16 @@ pub enum ResolvedStep {
     Brighten(fx::Brighten),
     Darken(fx::Darken),
     ShiftChannels(fx::ShiftChannels),
+    /// A step restricted to the rows `start..end` of the image. The inner step was resolved for
+    /// an image as tall as the range, so its row numbers are relative to `start`.
+    Rows {
+        /// First row.
+        start: u32,
+        /// One past the last row.
+        end: u32,
+        /// The step, with row numbers relative to `start`.
+        step: Box<ResolvedStep>,
+    },
     /// A user-defined effect.
     Custom(ResolvedEffect),
 }
@@ -229,8 +293,41 @@ impl ResolvedStep {
             Self::Brighten(e) => e.apply_to(png),
             Self::Darken(e) => e.apply_to(png),
             Self::ShiftChannels(e) => e.apply_to(png),
+            Self::Rows { start, end, step } => match &**step {
+                Self::Refilter(r) => fx::Refilter::new(r.filter_type)
+                    .within_rows(*start..*end)
+                    .apply_to(png),
+                inner => {
+                    // `in_rows` only builds steps that run on a scan-line view.
+                    let mut lines = png.scan_lines_mut();
+                    let _ = inner.execute_live(&mut lines.rows(*start..*end));
+                }
+            },
             Self::Custom(e) => e.apply_to(png),
         }
+    }
+
+    /// Restricts a step (resolved for an image as tall as the range) to the rows `start..end`.
+    ///
+    /// # Errors
+    /// [`RecipeError::InvalidSpec`] for `regenerate`, which recomputes the whole image, and
+    /// for a user-defined effect that is not a `ScanLinesEffect`.
+    pub fn in_rows(self, start: u32, end: u32) -> Result<ResolvedStep> {
+        let supported = match &self {
+            Self::Regenerate(_) => false,
+            Self::Custom(e) => e.is_live(),
+            _ => true,
+        };
+        if !supported {
+            return Err(RecipeError::InvalidSpec(format!(
+                "`rows` is not supported for this step: {self:?}"
+            )));
+        }
+        Ok(Self::Rows {
+            start,
+            end,
+            step: Box::new(self),
+        })
     }
 
     /// Applies the step to the scan lines of a live frame. Deterministic; uses no RNG.
@@ -260,6 +357,12 @@ impl ResolvedStep {
             Self::Brighten(e) => e.apply_to_scan_lines(lines),
             Self::Darken(e) => e.apply_to_scan_lines(lines),
             Self::ShiftChannels(e) => e.apply_to_scan_lines(lines),
+            Self::Rows { start, end, step } => {
+                if matches!(**step, Self::Refilter(_)) {
+                    return Err(self.not_live());
+                }
+                step.execute_live(&mut lines.rows(*start..*end))?;
+            }
             Self::Custom(e) => match &e.0 {
                 EffectKind::Live(e) => e.apply_to_scan_lines(lines),
                 EffectKind::File(_) => return Err(self.not_live()),
@@ -282,6 +385,7 @@ impl ResolvedStep {
     /// Whether the live runner can run this step (as a scan-line effect or a boundary).
     pub(crate) fn is_live(&self) -> bool {
         match self {
+            Self::Rows { step, .. } => !matches!(**step, Self::Refilter(_)) && step.is_live(),
             Self::Custom(e) => e.is_live(),
             _ => true,
         }
@@ -442,6 +546,41 @@ impl Recipe {
         }
     }
 
+    /// Builds a recipe from entries, each with an optional row range.
+    pub fn from_entries(entries: impl IntoIterator<Item = FilterEntry>) -> Self {
+        Self {
+            steps: entries
+                .into_iter()
+                .map(|e| match e.rows {
+                    Some(rows) => Step::Rows(e.config, rows),
+                    None => Step::Config(e.config),
+                })
+                .collect(),
+        }
+    }
+
+    /// Appends a built-in step that works on the rows `rows` only.
+    ///
+    /// The step is resolved for an image as tall as the range, so its random choices and row
+    /// numbers are relative to the range. [`resolve`](Self::resolve) fails for `regenerate`,
+    /// which recomputes the whole image.
+    pub fn then_rows(mut self, step: FilterConfig, rows: RowRange) -> Self {
+        self.steps.push(Step::Rows(step, rows));
+        self
+    }
+
+    /// The steps as [`FilterEntry`] values, or `None` if the recipe has a user-defined step.
+    pub fn entries(&self) -> Option<Vec<FilterEntry>> {
+        self.steps
+            .iter()
+            .map(|step| match step {
+                Step::Config(config) => Some(config.clone().into()),
+                Step::Rows(config, rows) => Some(FilterEntry::with_rows(config.clone(), *rows)),
+                Step::Custom(_) => None,
+            })
+            .collect()
+    }
+
     /// Appends a built-in step.
     pub fn then(mut self, step: FilterConfig) -> Self {
         self.steps.push(Step::Config(step));
@@ -466,7 +605,7 @@ impl Recipe {
             .iter()
             .map(|step| match step {
                 Step::Config(config) => Some(config.clone()),
-                Step::Custom(_) => None,
+                Step::Rows(..) | Step::Custom(_) => None,
             })
             .collect()
     }
@@ -491,6 +630,7 @@ impl Recipe {
             .iter()
             .map(|step| match step {
                 Step::Config(config) => Ok(filter_from_config(config)?.resolve(header, &mut rng)),
+                Step::Rows(config, rows) => resolve_in_rows(config, rows, header, &mut rng),
                 Step::Custom(step) => Ok(ResolvedStep::Custom(step.resolve(header, &mut rng))),
             })
             .collect::<Result<Vec<_>>>()?;
@@ -544,6 +684,10 @@ impl Recipe {
             match step {
                 Step::Config(config) => {
                     filter_from_config(config)?.resolve_into(header, &mut rng, slot, scratch)
+                }
+                // A step with `rows` is resolved as in `resolve`, with its allocations.
+                Step::Rows(config, rows) => {
+                    *slot = resolve_in_rows(config, rows, header, &mut rng)?
                 }
                 Step::Custom(step) => *slot = ResolvedStep::Custom(step.resolve(header, &mut rng)),
             }

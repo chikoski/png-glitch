@@ -1068,3 +1068,132 @@ fn surprise_conflicts_with_other_modes_and_recipes() {
         .failure();
     assert!(!dir.path().join("x.png").exists());
 }
+
+// ---------------------------------------------------------------- rows
+
+fn stored(path: &Path) -> (Vec<u8>, usize) {
+    let png = png_glitch_recipe::PngGlitch::open(path).unwrap();
+    let h = png.height() as usize;
+    (png.data().to_vec(), h)
+}
+
+#[test]
+fn rows_restrict_a_step_and_leave_other_rows_untouched() {
+    let dir = TempDir::new().unwrap();
+    let input = copy_fixture(&dir, "small.png");
+    let (before, h) = stored(&input);
+    assert!(h > 8);
+    let stride = before.len() / h;
+    for spec in [
+        "replace:magnitude=0.8,rows=2..6",
+        "transpose:magnitude=1.0,rows=2..6",
+        "invert:rows=2..6",
+        "sub-filter:rows=2..6",
+    ] {
+        let out = dir.path().join("o.png");
+        cmd()
+            .arg(&input)
+            .args(["--seed", SEED, "--force", "-f", spec, "-o"])
+            .arg(&out)
+            .assert()
+            .success();
+        let (after, _) = stored(&out);
+        assert_eq!(after[..2 * stride], before[..2 * stride], "{spec}: above");
+        assert_eq!(after[6 * stride..], before[6 * stride..], "{spec}: below");
+    }
+}
+
+#[test]
+fn rows_appear_in_the_printed_recipe_and_round_trip_through_config() {
+    let dir = TempDir::new().unwrap();
+    let input = copy_fixture(&dir, "small.png");
+    let (a, b, c) = (
+        dir.path().join("a.png"),
+        dir.path().join("b.png"),
+        dir.path().join("c.png"),
+    );
+    let recipe = dir.path().join("r.yaml");
+    cmd()
+        .arg(&input)
+        .args([
+            "--seed",
+            SEED,
+            "-f",
+            "replace:magnitude=0.8,rows=2..",
+            "-f",
+            "invert",
+            "--save-recipe",
+        ])
+        .arg(&recipe)
+        .arg("-o")
+        .arg(&a)
+        .assert()
+        .success();
+    let text = fs::read_to_string(&recipe).unwrap();
+    assert!(text.contains("2.."), "{text}");
+    cmd()
+        .arg(&input)
+        .args(["--seed", SEED, "--config"])
+        .arg(&recipe)
+        .arg("-o")
+        .arg(&b)
+        .assert()
+        .success();
+    assert_eq!(fs::read(&a).unwrap(), fs::read(&b).unwrap());
+    // The embedded recipe loads back to the same output, too.
+    let embedded = dir.path().join("e.png");
+    cmd()
+        .arg(&input)
+        .args([
+            "--seed",
+            SEED,
+            "--embed-recipe",
+            "-f",
+            "replace:magnitude=0.8,rows=..5",
+            "-o",
+        ])
+        .arg(&embedded)
+        .assert()
+        .success();
+    cmd()
+        .arg(&embedded)
+        .arg("--show-recipe")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("..5"));
+    let _ = c;
+}
+
+#[test]
+fn rows_errors() {
+    let dir = TempDir::new().unwrap();
+    let png = copy_fixture(&dir, "small.png");
+    let webp = copy_fixture(&dir, "small.webp");
+    let out = dir.path().join("x.png");
+    for bad in [
+        "replace:magnitude=0.1,rows=soon",
+        "replace:magnitude=0.1,rows=5",
+        "replace:magnitude=0.1,rows=1..2,rows=3..4",
+    ] {
+        cmd()
+            .arg(&png)
+            .args(["-f", bad, "-o"])
+            .arg(&out)
+            .assert()
+            .code(2);
+    }
+    cmd()
+        .arg(&png)
+        .args(["-f", "regenerate:strategy=paeth,rows=1..4", "-o"])
+        .arg(&out)
+        .assert()
+        .failure();
+    cmd()
+        .arg(&webp)
+        .args(["-f", "invert:rows=1..4", "-o"])
+        .arg(dir.path().join("x.webp"))
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("rows"));
+    assert!(!out.exists());
+}

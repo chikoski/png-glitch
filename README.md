@@ -168,6 +168,24 @@ Run it with:
 % png-glitch input.png --config my_glitch.yaml
 ```
 
+### Targeting rows (`rows`)
+
+Any PNG step takes an optional `rows` key (`a..b`, `a..` or `..b`; end exclusive, 0-based) that restricts it to those rows. On the command line put it in the parameter list: `-f 'replace:magnitude=0.2,rows=300..452'`.
+
+```yaml
+filters:
+  - type: replace
+    magnitude: 0.2
+    rows: 300..452
+```
+
+- The range is clamped to the image. An empty range, or one past the last row, does nothing.
+- The step is resolved for an image as tall as the range: its random choices and row numbers (`random-copy`, `transpose`, ...) are relative to the range. A step with `rows` draws a different random stream than the same step without it; a recipe without `rows` gives the same bytes as before.
+- `regenerate` cannot take `rows`. `sub-filter`, `up-filter`, ... (and `remove-filter`) re-encode only the rows in the range.
+- WebP input does not support `rows`.
+- **What stays unchanged:** the stored bytes (filter-type tag and filtered bytes) of the rows outside the range. The *decoded* pixels below the range can still change, because a decoder rebuilds each row from the one above it (`up`, `average`, `paeth`) unless those rows use `none` or `sub`. That is how the medium works (ADR 0002), not a bug.
+- `--print-recipe`, `--save-recipe` and `--embed-recipe` include `rows`, and the saved recipe gives the same output.
+
 See the [recipe gallery](docs/CLI_GUIDE.md#6-recipes) for ready-made recipes and the images they produce.
 
 ## Documentation

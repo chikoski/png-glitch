@@ -206,7 +206,9 @@ mod tests {
                 let yaml = recipe_io::render_recipe(seed, &r).unwrap();
                 // Every recipe parses back through the normal validation.
                 let cfg: crate::cli::ConfigFile = serde_saphyr::from_str(&yaml).unwrap();
-                assert_eq!(cfg.filters, r);
+                let want: Vec<png_glitch_recipe::FilterEntry> =
+                    r.into_iter().map(Into::into).collect();
+                assert_eq!(cfg.filters, want);
             }
         }
     }

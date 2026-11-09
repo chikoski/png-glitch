@@ -74,7 +74,7 @@ Recipe:
 
 Glitch Filters:
   -f, --filter <SPEC>
-          Add a filter step to the pipeline (repeatable, applied in order; see `--list-filters`)
+          Add a filter step to the pipeline (repeatable, applied in order; see `--list-filters`). Add `rows=a..b` to the parameters to restrict the step to those rows, e.g. `replace:magnitude=0.2,rows=300..452`
 
       --change-filter-type <MAG>
           Randomly overwrite PNG scanline filter type bytes [0.0..=1.0] (PNG only)

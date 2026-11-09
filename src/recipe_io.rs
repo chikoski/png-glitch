@@ -1,7 +1,6 @@
 //! Writing, embedding and reading back the effective recipe of a run.
 
 use anyhow::{Context, Result, bail};
-use png_glitch_recipe::FilterConfig;
 use serde::Serialize;
 
 /// Keyword of the PNG `iTXt` chunk that holds the recipe.
@@ -9,13 +8,13 @@ const KEYWORD: &str = "png-glitch-recipe";
 const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
 
 #[derive(Serialize)]
-struct RecipeFile<'a> {
-    filters: &'a [FilterConfig],
+struct RecipeFile<'a, T> {
+    filters: &'a [T],
 }
 
 /// Renders the effective recipe as YAML that `--config` accepts. The seed is a leading comment,
 /// so the text can be saved and fed back with `--config FILE --seed SEED`.
-pub fn render_recipe(seed: u64, filters: &[FilterConfig]) -> Result<String> {
+pub fn render_recipe<T: Serialize>(seed: u64, filters: &[T]) -> Result<String> {
     let yaml = serde_saphyr::to_string(&RecipeFile { filters })
         .context("failed to serialize the recipe")?;
     Ok(format!("# seed: {seed}\n{yaml}"))
