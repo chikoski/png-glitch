@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### CLI: `-` as standard input and output (#75)
+
+#### Added
+- `INPUT` = `-` reads the image from standard input (PNG or WebP, detected from the magic bytes; an unknown format is an error), and `-o -` writes it to standard output. With `-` as input and no `-o`, the output goes to standard output. `--show-recipe -` reads the PNG from standard input.
+- Only the image goes to standard output; the seed, warnings and `--print-recipe` stay on standard error. The CLI refuses to write binary data to a terminal unless `--force` is given, like `gzip`.
+- `-` with `--batch-output`, `--variations`, `--sweep` or `--watch`, and `-o -` with the last three, are errors (exit code 1). `--save-recipe -` is not supported.
+
 ### png-glitch-recipe, CLI: `rect`, `mask` and `invert-mask` on every step (#189, part of #77, ADR 0006)
 
 #### Added

@@ -187,6 +187,17 @@ png-glitch crates/png-glitch/etc/sample00.png --config docs/gallery/recipes/<nam
 
 (`webp-blocks` uses `crates/webp-glitch/etc/sample00.webp` instead.)
 
+### Pipes
+
+`png-glitch` can sit in a shell pipeline: `-` as `INPUT` reads the image from standard input, and `-o -` writes it to standard output (with `-` as input and no `-o`, the output goes to standard output too).
+
+```zsh
+cat in.png | png-glitch - -o - -f invert > out.png
+png-glitch in.png -o - -f 'replace:magnitude=0.1,rows=100..200' --seed 42 | convert - out.jpg
+```
+
+The format of an image from standard input comes from its magic bytes (PNG or WebP). Only the image is written to standard output; the seed, warnings and `--print-recipe` go to standard error. Like `gzip`, the CLI refuses to write binary data to a terminal unless `--force` is given. `--show-recipe -` reads the PNG from standard input.
+
 ### Targeting rows
 
 `-f 'replace:magnitude=0.3,rows=300..452'` (or `rows: 300..452` in a YAML step) restricts a step to a range of rows (`a..b`, `a..` or `..b`). Row numbers and random choices inside the step are relative to the range.

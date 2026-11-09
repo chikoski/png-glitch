@@ -161,6 +161,7 @@ pub fn sweep_path(base: &Path, param: &str, value: f64) -> PathBuf {
 }
 
 pub fn sweep_process(args: &Cli, steps: &[OrderedStep], spec: &SweepSpec) -> anyhow::Result<()> {
+    crate::stdio::reject_stdio(args, "--sweep")?;
     let input = args
         .input
         .as_deref()

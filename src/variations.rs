@@ -93,6 +93,7 @@ fn encode_sheet(width: u32, height: u32, pixels: &[u8]) -> anyhow::Result<Vec<u8
 }
 
 pub fn variations_process(args: &Cli, steps: &[OrderedStep], count: u32) -> anyhow::Result<()> {
+    crate::stdio::reject_stdio(args, "--variations")?;
     let input = args
         .input
         .as_deref()

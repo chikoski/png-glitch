@@ -81,7 +81,6 @@ impl AnyGlitchContext {
     }
 
     /// Creates an [`AnyGlitchContext`] from an in-memory image buffer with custom PNG [`ParseOptions`].
-    #[cfg(test)]
     pub fn from_bytes_with_options(
         data: &[u8],
         seed: Option<u64>,
