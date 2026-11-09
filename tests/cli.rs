@@ -95,6 +95,34 @@ fn list_filters_does_not_require_input() {
 }
 
 #[test]
+fn list_filters_json_is_valid_and_lists_every_filter() {
+    let output = cmd().args(["--list-filters", "--json"]).output().unwrap();
+    assert!(output.status.success());
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let names: Vec<&str> = value
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names.len(), 28);
+    for expected in ["invert", "pixel-sort", "regenerate", "alpha-glitch"] {
+        assert!(names.contains(&expected), "{expected} missing");
+    }
+    // Every filter in the JSON is listed in the text output too.
+    let text = cmd().arg("--list-filters").output().unwrap();
+    let text = String::from_utf8(text.stdout).unwrap();
+    for name in names {
+        assert!(text.contains(name), "{name} missing from the text list");
+    }
+}
+
+#[test]
+fn json_requires_list_filters() {
+    cmd().arg("--json").assert().failure();
+}
+
+#[test]
 fn directory_without_batch_output_is_an_error() {
     let dir = TempDir::new().unwrap();
     cmd()

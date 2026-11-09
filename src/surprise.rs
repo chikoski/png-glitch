@@ -14,8 +14,12 @@ use rand_chacha::ChaCha8Rng;
 use std::fs;
 use std::path::Path;
 
-/// Kinds of step `--surprise` can draw. Parameter ranges below are a hand-written table;
-/// #85 (filter metadata as data) should replace it.
+/// Kinds of step `--surprise` can draw.
+///
+/// The ranges drawn below are deliberately narrower than the valid ranges in
+/// `png_glitch_recipe::filters()`: they keep the image recognisable, and changing them changes
+/// the image a given `--seed` produces. The tests check that they stay inside the valid ranges
+/// and that the kinds agree with each filter's supported formats.
 #[derive(Clone, Copy, Debug)]
 enum Kind {
     Replace,
@@ -208,6 +212,52 @@ mod tests {
                 let want: Vec<png_glitch_recipe::FilterEntry> =
                     r.into_iter().map(Into::into).collect();
                 assert_eq!(cfg.filters, want);
+            }
+        }
+    }
+
+    fn all_kinds() -> Vec<Kind> {
+        let mut kinds = PNG_KINDS.to_vec();
+        kinds.extend_from_slice(WEBP_KINDS);
+        kinds
+    }
+
+    #[test]
+    fn kinds_agree_with_the_filter_metadata_formats() {
+        use png_glitch_recipe::{Format, info_for};
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        for &k in PNG_KINDS {
+            let info = info_for(&make(k, &mut rng));
+            assert!(info.supports(Format::Png), "{k:?} is not a PNG filter");
+        }
+        for &k in WEBP_KINDS {
+            let info = info_for(&make(k, &mut rng));
+            assert!(info.supports(Format::Webp), "{k:?} is not a WebP filter");
+        }
+    }
+
+    #[test]
+    fn drawn_values_lie_inside_the_metadata_ranges() {
+        use png_glitch_recipe::info_for;
+        for seed in 0..300 {
+            let mut rng = ChaCha8Rng::seed_from_u64(seed);
+            for k in all_kinds() {
+                let config = make(k, &mut rng);
+                let info = info_for(&config);
+                let value = serde_json::to_value(&config).unwrap();
+                for p in info.params {
+                    let Some(n) = value.get(p.name).and_then(|v| v.as_f64()) else {
+                        continue;
+                    };
+                    assert!(
+                        p.min.is_none_or(|lo| n >= lo) && p.max.is_none_or(|hi| n <= hi),
+                        "{}.{} = {n} is outside {:?}..={:?}",
+                        info.name,
+                        p.name,
+                        p.min,
+                        p.max
+                    );
+                }
             }
         }
     }

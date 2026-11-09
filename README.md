@@ -44,16 +44,16 @@ Multiple filters can be combined and are applied in the exact order they appear 
 | `--shift-channels <R,G,B>` | `shift-channels` / `ShiftChannels` | PNG, WebP | `r`, `g`, `b` (`i16`) | Shifts R, G, B channel values independently (wrapping). |
 | `--chromatic-aberration <MAG>` | `chromatic-aberration` / `ChromaticAberration` | PNG, WebP | `magnitude` (`0.0..=1.0`), `r_offset=2`, `g_offset=0`, `b_offset=-2` | Displaces R/G/B channels horizontally for a color fringe effect. |
 | `--pixel-sort <MAG>` | `pixel-sort` / `PixelSort` | PNG, WebP | `magnitude` (`0.0..=1.0`), `criterion=brightness` (`brightness` \| `hue`) | Sorts pixels within scanlines/rows by brightness or hue. |
-| `--bitwise <MAG>` | `bitwise` / `Bitwise` | PNG, WebP | `magnitude` (`0.0..=1.0`), `op=xor` (`and` \| `or` \| `xor`), `value=128` | Applies a bitwise operation to pixel data. |
+| `--bitwise <MAG>` | `bitwise` / `Bitwise` | PNG, WebP | `magnitude` (`0.0..=1.0`), `op=xor` (`and` \| `or` \| `xor`), `value=0` (`0..=255`) | Applies a bitwise operation to pixel data. |
 | `--channel-swap <MAG>` | `channel-swap` / `ChannelSwap` | PNG, WebP | `magnitude` (`0.0..=1.0`), `target=rg` (`rg` \| `gb` \| `br`) | Swaps two color channels. |
 | `--horizontal-shift <MAG>` | `horizontal-shift` / `HorizontalShift` | PNG, WebP | `magnitude` (`0.0..=1.0`) | Circularly shifts scanlines/rows horizontally. |
-| `--color-distortion <MAG>` | `color-distortion` / `ColorDistortion` | PNG, WebP | `magnitude` (`0.0..=1.0`), `strength=32` (`0..=255`) | Adds signed random deltas to RGB channels per scanline/row. |
+| `--color-distortion <MAG>` | `color-distortion` / `ColorDistortion` | PNG, WebP | `magnitude` (`0.0..=1.0`), `strength=20` (`0..=32767`) | Adds signed random deltas to RGB channels per scanline/row. |
 | `--color-space-glitch <MAG>` | `color-space-glitch` / `ColorSpaceGlitch` | PNG only | `magnitude` (`0.0..=1.0`), `hue_shift=0.0`, `saturation_mult=1.0`, `lightness_mult=1.0` | Artistic HSL (Hue, Saturation, Lightness) distortion. |
-| `--block-scramble <MAG>` | `block-scramble` / `BlockScramble` | PNG only | `magnitude` (`0.0..=1.0`), `block_size=32` | Shuffles rectangular blocks across scanlines. |
+| `--block-scramble <MAG>` | `block-scramble` / `BlockScramble` | PNG only | `magnitude` (`0.0..=1.0`), `block_size=16` | Shuffles rectangular blocks across scanlines. |
 | `--transpose <MAG>` | `transpose` / `Transpose` | PNG only | `magnitude` (`0.0..=1.0`) | Randomly swaps blocks of scanlines. |
 | `--replace <MAG>` | `replace` / `Replace` | PNG only | `magnitude` (`0.0..=1.0`) | Replaces scanline bytes with random noise. |
 | `--set-zero <MAG>` | `set-zero` / `SetZero` | PNG only | `magnitude` (`0.0..=1.0`) | Zeroes out randomly selected scanlines. |
-| `--random-copy <COUNT>` | `random-copy` / `RandomCopy` | PNG only | `times` (`usize`) | Copies random scanline bytes `COUNT` times. |
+| `--random-copy <COUNT>` | `random-copy` / `RandomCopy` | PNG only | `times` (`0..=100000`) | Copies random scanline bytes `COUNT` times. |
 | `--substitute <INDEX:VALUE>` | `substitute` / `Substitute` | PNG only | `index` (`usize`), `value` (`u8`) | Substitutes a single byte in the middle scanline. |
 | `--change-filter-type <MAG>` | `change-filter-type` / `ChangeFilterType` | PNG only | `magnitude` (`0.0..=1.0`) | Randomly changes PNG filter types across scanlines. |
 | `-f set-filter-type=<TYPE>` | `set-filter-type` / `SetFilterType` | PNG only | `filter` (`none` \| `sub` \| `up` \| `average` \| `paeth`) | Overwrites the filter-type tag of **every** scanline and leaves the filtered bytes as they are (tag only; no value is recomputed). |
@@ -117,7 +117,7 @@ filters:
 | `--save-recipe <FILE>` | Save the effective recipe as YAML. `--config FILE --seed SEED` reproduces the output byte for byte. |
 | `--embed-recipe` | Embed the recipe and seed in the output PNG (an `iTXt` chunk named `png-glitch-recipe`; PNG only). |
 | `--show-recipe` | Print the recipe embedded in `INPUT` and exit. |
-| `--list-filters` | List all available filters, parameters, defaults, and format support. |
+| `--list-filters` | List all available filters, parameters, defaults, and format support. Add `--json` for machine-readable output. |
 
 #### Pipes: `-` as standard input and output
 

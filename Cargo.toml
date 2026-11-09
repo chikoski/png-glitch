@@ -66,6 +66,7 @@ walkdir.workspace = true
 indicatif.workspace = true
 rayon.workspace = true
 serde-saphyr.workspace = true
+serde_json = "1"
 
 [dev-dependencies]
 assert_cmd = "2.2.2"

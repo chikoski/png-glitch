@@ -14,6 +14,9 @@ Options:
       --list-filters
           List all available glitch filters with their parameters and defaults
 
+      --json
+          With `--list-filters`: print the filter metadata as JSON instead of text
+
   -o, --output <FILE>
           Output file path; `-` writes the image to standard output [default: `<input-stem>-glitched.<ext>`, or standard output when INPUT is `-`]
 

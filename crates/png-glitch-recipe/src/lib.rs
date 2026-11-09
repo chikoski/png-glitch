@@ -40,12 +40,14 @@ mod context;
 mod error;
 pub(crate) mod filters;
 mod live;
+mod meta;
 
 pub use config::*;
 pub use context::*;
 pub use error::*;
 pub use filters::*;
 pub use live::{LiveRecipe, SeedMode, frame_seed};
+pub use meta::{FilterInfo, Format, ParamInfo, ParamKind, filter_info, filters, info_for};
 use resolve::{Builtin, Resolve, StepScratch, take_buffer};
 pub use resolve::{
     ImageHeader, Recipe, RecipeStep, ResolvedEffect, ResolvedRecipe, ResolvedStep, Step,

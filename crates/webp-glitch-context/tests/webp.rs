@@ -2,7 +2,8 @@
 
 use anyhow::Result;
 use webp_glitch_context::{
-    AlphaGlitchStrategy, BitOp, FilterConfig, SortCriterion, SwapTarget, WebpGlitchContext,
+    AlphaGlitchStrategy, BitOp, FilterConfig, Format, ParamKind, SortCriterion, SwapTarget,
+    WebpGlitchContext, filters,
 };
 
 fn sample_webp() -> Vec<u8> {
@@ -94,5 +95,35 @@ fn chromatic_aberration_extreme_offsets_do_not_overflow() -> Result<()> {
     })?;
     ctx.execute();
     ctx.buffer()?;
+    Ok(())
+}
+
+/// The metadata's `formats` agrees with what the WebP context accepts.
+#[test]
+fn filter_metadata_formats_match_the_webp_context() -> Result<()> {
+    let webp_bytes = sample_webp();
+    for info in filters() {
+        let mut yaml = format!("type: {}\n", info.yaml_type);
+        for p in info.params.iter().filter(|p| p.default.is_none()) {
+            let value = match p.kind {
+                ParamKind::Float => "0.5".to_string(),
+                ParamKind::Int => "1".to_string(),
+                ParamKind::Enum => p.choices[0].to_string(),
+                ParamKind::Strategy => "adaptive".to_string(),
+                _ => unreachable!(),
+            };
+            yaml.push_str(&format!("{}: {value}\n", p.name));
+        }
+        let config: FilterConfig = serde_saphyr::from_str(&yaml)?;
+        let mut ctx = WebpGlitchContext::new(&webp_bytes, Some(1))?;
+        let accepted = ctx.add_from_config(config).is_ok();
+        assert_eq!(
+            accepted,
+            info.supports(Format::Webp),
+            "{}: formats say webp={}, the context says {accepted}",
+            info.name,
+            info.supports(Format::Webp)
+        );
+    }
     Ok(())
 }

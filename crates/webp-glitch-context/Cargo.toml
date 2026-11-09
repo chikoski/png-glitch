@@ -17,3 +17,4 @@ webp-glitch.workspace = true
 [dev-dependencies]
 image.workspace = true
 webp.workspace = true
+serde-saphyr.workspace = true

@@ -298,6 +298,9 @@ pub fn parse_filter_spec(spec: &str) -> Result<FilterConfig, String> {
     };
 
     let norm = raw_name.trim().to_ascii_lowercase().replace('_', "-");
+    // Resolve aliases (`sub`, `none`, `random-transpose`, ...) through the filter metadata, so
+    // the names accepted here cannot drift from `--list-filters` and the YAML `type:` values.
+    let norm = png_glitch_recipe::filter_info(&norm).map_or(norm, |info| info.name.to_string());
 
     match norm.as_str() {
         "invert" => {
@@ -934,113 +937,90 @@ fn extract_single_magnitude(name: &str, mode: Option<(char, &str)>) -> Result<f6
     }
 }
 
-pub fn format_filter_list() -> &'static str {
-    "\
-Available Glitch Filters (use with `-f / --filter <SPEC>` or in YAML `--config`):
+pub fn format_filter_list() -> String {
+    use png_glitch_recipe::{FilterInfo, Format, ParamInfo, ParamKind};
+    use std::fmt::Write as _;
 
-  Shared Filters (PNG & WebP):
-    invert
-      Inverts all color channels.
-      Example: -f invert
+    fn bound(v: f64) -> String {
+        format!("{v}")
+    }
 
-    brighten=<STRENGTH> | brighten:strength=<N>
-      Increases brightness (saturating at bit-depth maximum). [default strength: 20]
-      Example: -f brighten=30
+    fn describe(p: &ParamInfo) -> String {
+        let mut s = match p.kind {
+            ParamKind::Float | ParamKind::Int => {
+                let kind = if p.kind == ParamKind::Float {
+                    "number"
+                } else {
+                    "integer"
+                };
+                match (p.min, p.max) {
+                    (Some(lo), Some(hi)) => format!("{kind} {}..={}", bound(lo), bound(hi)),
+                    (Some(lo), None) => format!("{kind} >= {}", bound(lo)),
+                    (None, Some(hi)) => format!("{kind} <= {}", bound(hi)),
+                    (None, None) => kind.to_string(),
+                }
+            }
+            ParamKind::Enum => p.choices.join("|"),
+            ParamKind::Strategy => format!("strategy: {}", p.choices.join("|")),
+            _ => String::new(),
+        };
+        match p.default {
+            Some(d) => {
+                let _ = write!(s, ", default {d}");
+            }
+            None => s.push_str(", required"),
+        }
+        s
+    }
 
-    darken=<STRENGTH> | darken:strength=<N>
-      Decreases brightness (saturating at 0). [default strength: 20]
-      Example: -f darken=30
+    fn entry(out: &mut String, info: &FilterInfo) {
+        let _ = write!(out, "    {}", info.name);
+        if info.deprecated {
+            out.push_str("  [deprecated]");
+        }
+        out.push('\n');
+        let _ = writeln!(out, "      {}", info.doc);
+        if !info.params.is_empty() {
+            out.push_str("      Parameters:\n");
+            for p in info.params {
+                let _ = writeln!(out, "        {} ({}): {}", p.name, describe(p), p.doc);
+            }
+        }
+        if !info.aliases.is_empty() {
+            let _ = writeln!(out, "      Aliases: {}", info.aliases.join(", "));
+        }
+        let _ = writeln!(out, "      Example: {}\n", info.example);
+    }
 
-    shift-channels=<R,G,B> | shift-channels:r=<R>,g=<G>,b=<B>
-      Shifts color channels by signed offsets. [default: r=0, g=0, b=0]
-      Example: -f shift-channels=15,0,-15
+    let mut out = String::from(
+        "Available Glitch Filters (use with `-f / --filter <SPEC>` or in YAML `--config`):\n",
+    );
+    type Group = (&'static str, fn(&FilterInfo) -> bool);
+    let groups: [Group; 3] = [
+        ("Shared Filters (PNG & WebP):", |i| {
+            i.supports(Format::Png) && i.supports(Format::Webp)
+        }),
+        ("PNG-only Filters:", |i| {
+            i.supports(Format::Png) && !i.supports(Format::Webp)
+        }),
+        ("WebP-only Filters:", |i| {
+            i.supports(Format::Webp) && !i.supports(Format::Png)
+        }),
+    ];
+    for (title, wanted) in groups {
+        let _ = writeln!(out, "\n  {title}");
+        for info in png_glitch_recipe::filters().iter().filter(|i| wanted(i)) {
+            entry(&mut out, info);
+        }
+    }
+    out.truncate(out.trim_end().len());
+    out.push('\n');
+    out
+}
 
-    pixel-sort=<MAG> | pixel-sort:magnitude=<MAG>[,criterion=brightness|hue]
-      Sorts pixels within selected scanlines. [MAG: 0.0..=1.0, default criterion: brightness]
-      Example: -f 'pixel-sort:magnitude=0.2,criterion=hue'
-
-    bitwise=<MAG> | bitwise:magnitude=<MAG>[,op=and|or|xor][,value=<0..255>]
-      Applies a bitwise operation to scanline bytes. [MAG: 0.0..=1.0, default: op=xor, value=0]
-      Example: -f 'bitwise:magnitude=0.05,op=xor,value=255'
-
-    channel-swap=<MAG> | channel-swap:magnitude=<MAG>[,target=rg|gb|br]
-      Swaps two color channels in selected scanlines. [MAG: 0.0..=1.0, default target: rg]
-      Example: -f 'channel-swap:magnitude=0.2,target=br'
-
-    horizontal-shift=<MAG>
-      Rotates scanline bytes horizontally by a random offset. [MAG: 0.0..=1.0]
-      Example: -f horizontal-shift=0.1
-
-    color-distortion=<MAG> | color-distortion:magnitude=<MAG>[,strength=<N>]
-      Adds random per-pixel color noise. [MAG: 0.0..=1.0, default strength: 20]
-      Example: -f 'color-distortion:magnitude=0.2,strength=40'
-
-    chromatic-aberration=<MAG> | chromatic-aberration:magnitude=<MAG>[,r=<N>][,g=<N>][,b=<N>]
-      Horizontally shifts R, G, B channels. [MAG: 0.0..=1.0, default: r=2, g=0, b=-2]
-      Example: -f 'chromatic-aberration:magnitude=0.2,r=4,b=-4'
-
-  PNG-only Filters:
-    block-scramble=<MAG> | block-scramble:magnitude=<MAG>[,block_size=<PX>]
-      Swaps square blocks of pixels. [MAG: 0.0..=1.0, default block_size: 16]
-      Example: -f 'block-scramble:magnitude=0.1,block_size=32'
-
-    color-space-glitch=<MAG> | color-space-glitch:magnitude=<MAG>[,hue_shift=<DEG>][,saturation_mult=<F>][,lightness_mult=<F>]
-      Transforms colors in HSL space. [MAG: 0.0..=1.0, default: hue_shift=0.0, saturation_mult=1.0, lightness_mult=1.0]
-      Example: -f 'color-space-glitch:magnitude=0.2,hue_shift=90,saturation_mult=1.5'
-
-    change-filter-type=<MAG>
-      Randomly overwrites PNG scanline filter type bytes without re-filtering. [MAG: 0.0..=1.0]
-      Example: -f change-filter-type=0.1
-
-    replace=<MAG>
-      Replaces random scanline bytes with random values. [MAG: 0.0..=1.0]
-      Example: -f replace=0.05
-
-    transpose=<MAG>
-      Randomly swaps scanlines. [MAG: 0.0..=1.0]
-      Example: -f transpose=0.1
-
-    set-zero=<MAG>
-      Sets random scanline bytes to 0. [MAG: 0.0..=1.0]
-      Example: -f set-zero=0.05
-
-    random-copy=<TIMES>
-      Copies random scanlines onto other scanlines N times.
-      Example: -f random-copy=10
-
-    substitute=<INDEX:VALUE> | substitute:index=<IDX>,value=<0..255>
-      Sets byte at INDEX to VALUE on every scanline.
-      Example: -f substitute=0:255
-
-    set-filter-type=<TYPE>
-      Overwrites the filter type tag of every PNG scanline and leaves the filtered bytes as they
-      are (tag only; no value is recomputed). [TYPE: none|sub|up|average|paeth]
-      Example: -f set-filter-type=paeth
-
-    regenerate=<STRATEGY>
-      Starts a new generation: recomputes every filtered value (PNG only). Glitches so far are
-      baked into the pixels. [STRATEGY: a TYPE (none|sub|up|average|paeth), `adaptive`, or a
-      comma-separated pattern such as `sub,up,paeth`]
-      Example: -f regenerate=paeth
-
-    remove-filter | sub-filter | up-filter | average-filter | paeth-filter  [deprecated]
-      Re-encode all PNG scanlines with a fixed PNG prediction filter (recompute the values).
-      Use `regenerate=<TYPE>` instead; the output is the same.
-      Example: -f sub-filter
-
-  WebP-only Filters:
-    macroblock-glitch=<MAG>
-      Swaps 16x16 macroblocks along VP8 block boundaries. [MAG: 0.0..=1.0]
-      Example: -f macroblock-glitch=0.2
-
-    alpha-glitch=<STRATEGY> | alpha-glitch:magnitude=<MAG>,strategy=invert|randomize|zero|one
-      Corrupts the alpha channel. [MAG: 0.0..=1.0 (default 1.0), default strategy: invert]
-      Example: -f alpha-glitch=randomize
-
-    lossy-artifact=<QUALITY> | lossy-artifact:quality=<0.0..100.0>
-      Lowers WebP re-encoding quality to introduce compression artifacts. [QUALITY: 0.0..=100.0]
-      Example: -f lossy-artifact=10
-"
+/// The `--list-filters --json` output: the filter metadata as a JSON array.
+pub fn format_filter_json() -> anyhow::Result<String> {
+    Ok(serde_json::to_string_pretty(png_glitch_recipe::filters())?)
 }
 
 const AFTER_HELP_EXAMPLES: &str = "\
@@ -1090,6 +1070,10 @@ pub struct Cli {
     /// List all available glitch filters with their parameters and defaults
     #[arg(long)]
     pub list_filters: bool,
+
+    /// With `--list-filters`: print the filter metadata as JSON instead of text
+    #[arg(long, requires = "list_filters")]
+    pub json: bool,
 
     /// Output file path; `-` writes the image to standard output [default: `<input-stem>-glitched.<ext>`, or standard output when INPUT is `-`]
     #[arg(
