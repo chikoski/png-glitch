@@ -196,7 +196,22 @@ impl GlitchContext {
     /// As [`add_from_config`](Self::add_from_config), and [`RecipeError::InvalidSpec`] for
     /// `regenerate`, which recomputes the whole image.
     pub fn add_from_config_in_rows(&mut self, config: FilterConfig, rows: RowRange) -> Result<()> {
-        self.add_filter(crate::resolve::rows_filter(config, rows)?);
+        self.add_from_entry(FilterEntry::with_rows(config, rows), &MaskSet::new())
+    }
+
+    /// Adds a built-in step with its `rows`, `rect`, `mask` and `invert-mask` (a
+    /// [`FilterEntry`]). `masks` supplies the image a `mask` refers to.
+    ///
+    /// # Errors
+    /// As [`add_from_config`](Self::add_from_config); [`RecipeError::InvalidSpec`] for `rect`
+    /// together with `mask`, for `invert-mask` without either, and for a step that recomputes
+    /// filtered values (`regenerate`, `sub-filter`, ...) with `rows` or a region;
+    /// [`RecipeError::MissingMask`] and [`RecipeError::MaskChecksum`] for the mask.
+    pub fn add_from_entry(&mut self, entry: FilterEntry, masks: &MaskSet) -> Result<()> {
+        if entry.is_plain() {
+            return self.add_from_config(entry.config);
+        }
+        self.add_filter(crate::resolve::entry_filter(entry, masks)?);
         Ok(())
     }
 

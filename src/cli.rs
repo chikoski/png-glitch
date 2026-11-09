@@ -1,7 +1,7 @@
 use clap::Parser;
 use png_glitch_recipe::{
-    AlphaGlitchStrategy, BitOp, FilterConfig, FilterEntry, MAX_RANDOM_COPY_TIMES, PreProcess,
-    RegenerateStrategy, RowRange, SortCriterion, SwapTarget,
+    AlphaGlitchStrategy, BitOp, FilterConfig, FilterEntry, MAX_RANDOM_COPY_TIMES, MaskRef,
+    PreProcess, RectSpec, RegenerateStrategy, RowRange, SortCriterion, SwapTarget,
 };
 use serde::Deserialize;
 
@@ -188,36 +188,85 @@ fn parse_regenerate_strategy(value: &str) -> Result<RegenerateStrategy, String> 
     Ok(RegenerateStrategy::Pattern(pattern))
 }
 
-/// Parses a `-f / --filter <SPEC>` argument: a [`parse_filter_spec`] spec with an optional
-/// `rows=a..b` (`a..`, `..b`) key that restricts the step to a range of rows, e.g.
-/// `-f 'replace:magnitude=0.2,rows=300..452'`. `rows` goes in the `key=value` list, so the
-/// spec needs the `<filter>:<k>=<v>` form (a spec without parameters, such as `invert`, can be
-/// written `invert:rows=300..452`).
+/// Parses a `-f / --filter <SPEC>` argument: a [`parse_filter_spec`] spec with optional targeting
+/// keys in its `key=value` list:
+///
+/// - `rows=a..b` (`a..`, `..b`): only those rows;
+/// - `rect=x,y,w,h`: only that rectangle;
+/// - `mask=FILE`: only where the PNG `FILE` is bright (its size must equal the image's);
+/// - `invert-mask`: select everything outside the `rect` / `mask` instead.
+///
+/// For example `-f 'replace:magnitude=0.2,rows=300..452'` or `-f 'invert:rect=10,20,100,50'`. The
+/// keys go in the `<filter>:<k>=<v>` form, so a spec without parameters, such as `invert`, is
+/// written `invert:rect=...`.
 pub fn parse_filter_entry(spec: &str) -> Result<FilterEntry, String> {
     let s = spec.trim();
-    // `rows=` is only recognised after the `:` that starts the key=value list.
+    // The targeting keys are only recognised after the `:` that starts the key=value list.
     let Some((name, list)) = s.split_once(':').filter(|(n, _)| !n.contains('=')) else {
         return parse_filter_spec(s).map(Into::into);
     };
-    let mut rows = None;
-    let mut rest = Vec::new();
-    for item in list.split(',') {
-        match item.trim().strip_prefix("rows=") {
-            Some(value) if rows.is_none() => rows = Some(value.parse::<RowRange>()?),
-            Some(_) => return Err("`rows` is given twice".into()),
-            None => rest.push(item),
+    let mut entry = FilterEntry::from(FilterConfig::Invert);
+    let mut found = false;
+    let mut rest: Vec<&str> = Vec::new();
+    let mut items = list.split(',').peekable();
+    while let Some(item) = items.next() {
+        let item = item.trim();
+        let once = |taken: bool, key: &str| {
+            if taken {
+                Err(format!("`{key}` is given twice"))
+            } else {
+                Ok(())
+            }
+        };
+        if let Some(value) = item.strip_prefix("rows=") {
+            once(entry.rows.is_some(), "rows")?;
+            entry.rows = Some(value.parse::<RowRange>()?);
+            found = true;
+        } else if let Some(first) = item.strip_prefix("rect=") {
+            once(entry.rect.is_some(), "rect")?;
+            // A rectangle is four comma-separated numbers: take the next three items too.
+            let mut parts = vec![first.trim()];
+            for _ in 0..3 {
+                match items.next() {
+                    Some(p) => parts.push(p.trim()),
+                    None => break,
+                }
+            }
+            entry.rect = Some(parts.join(",").parse::<RectSpec>()?);
+            found = true;
+        } else if let Some(path) = item.strip_prefix("mask=") {
+            once(entry.mask.is_some(), "mask")?;
+            if path.trim().is_empty() {
+                return Err("`mask=` needs a file name".into());
+            }
+            entry.mask = Some(MaskRef {
+                path: path.trim().to_string(),
+                crc32: None,
+            });
+            found = true;
+        } else if item == "invert-mask" {
+            entry.invert_mask = true;
+            found = true;
+        } else {
+            rest.push(item);
         }
     }
-    let Some(rows) = rows else {
+    if !found {
         return parse_filter_spec(s).map(Into::into);
-    };
+    }
+    if entry.rect.is_some() && entry.mask.is_some() {
+        return Err("`rect` and `mask` cannot be combined on one step".into());
+    }
+    if entry.invert_mask && entry.rect.is_none() && entry.mask.is_none() {
+        return Err("`invert-mask` needs a `rect=` or a `mask=`".into());
+    }
     let rest = rest.join(",");
-    let config = if rest.trim().is_empty() {
+    entry.config = if rest.trim().is_empty() {
         parse_filter_spec(name)?
     } else {
         parse_filter_spec(&format!("{name}:{rest}"))?
     };
-    Ok(FilterEntry::with_rows(config, rows))
+    Ok(entry)
 }
 
 /// Parses a repeatable `-f / --filter <SPEC>` argument into a [`FilterConfig`].
@@ -1145,7 +1194,7 @@ pub struct Cli {
     pub show_recipe: bool,
 
     /// Add a filter step to the pipeline (repeatable, applied in order; see `--list-filters`).
-    /// Add `rows=a..b` to the parameters to restrict the step to those rows, e.g. `replace:magnitude=0.2,rows=300..452`
+    /// Add `rows=a..b`, `rect=x,y,w,h` or `mask=FILE` (and `invert-mask`) to the parameters to restrict the step to a region, e.g. `replace:magnitude=0.2,rows=300..452` or `invert:rect=10,20,100,50`
     #[arg(
         short = 'f',
         long = "filter",

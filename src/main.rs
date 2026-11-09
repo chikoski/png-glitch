@@ -10,6 +10,7 @@ use walkdir::WalkDir;
 
 mod any_context;
 mod cli;
+mod masks;
 mod recipe_io;
 mod surprise;
 mod sweep;
@@ -23,7 +24,7 @@ use crate::cli::{Cli, ConfigFile, format_filter_list};
 enum OrderedStep {
     Config(String),
     Filter(FilterConfig),
-    /// A `-f` step with a `rows=` range.
+    /// A `-f` step with `rows`, `rect` or `mask`.
     Targeted(FilterEntry),
 }
 
@@ -44,9 +45,10 @@ fn collect_ordered_steps(args: &Cli, matches: Option<&ArgMatches>) -> Vec<Ordere
             .unwrap_or_default();
         for (k, filter_cfg) in args.filters.iter().enumerate() {
             let pos = indices.get(k).copied().unwrap_or(15 + k);
-            let step = match &filter_cfg.rows {
-                None => OrderedStep::Filter(filter_cfg.config.clone()),
-                Some(_) => OrderedStep::Targeted(filter_cfg.clone()),
+            let step = if filter_cfg.is_plain() {
+                OrderedStep::Filter(filter_cfg.config.clone())
+            } else {
+                OrderedStep::Targeted(filter_cfg.clone())
             };
             steps.push((pos, step));
         }
@@ -608,20 +610,32 @@ fn effective_filters(args: &Cli, steps: &[OrderedStep]) -> anyhow::Result<Vec<Fi
     Ok(filters)
 }
 
+/// The effective recipe with the masks it refers to loaded, and the CRC-32 of each mask file
+/// filled in, so that the recipe printed, saved or embedded pins the files.
+fn prepare_filters(
+    args: &Cli,
+    steps: &[OrderedStep],
+) -> anyhow::Result<(Vec<FilterEntry>, png_glitch_recipe::MaskSet)> {
+    let mut filters = effective_filters(args, steps)?;
+    let masks = masks::load_masks(&mut filters)?;
+    Ok((filters, masks))
+}
+
 fn apply_steps(
     args: &Cli,
     steps: &[OrderedStep],
     context: &mut AnyGlitchContext,
 ) -> anyhow::Result<()> {
-    for filter in effective_filters(args, steps)? {
-        context.add_from_config(filter)?;
+    let (filters, masks) = prepare_filters(args, steps)?;
+    for filter in filters {
+        context.add_from_entry(filter, &masks)?;
     }
     Ok(())
 }
 
 /// Prints and/or saves the effective recipe as requested, and returns its text.
 fn report_recipe(args: &Cli, steps: &[OrderedStep], seed: u64) -> anyhow::Result<String> {
-    let text = recipe_io::render_recipe(seed, &effective_filters(args, steps)?)?;
+    let text = recipe_io::render_recipe(seed, &prepare_filters(args, steps)?.0)?;
     if args.print_recipe {
         eprint!("{text}");
     }

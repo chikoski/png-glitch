@@ -84,6 +84,57 @@ impl Mask {
         self
     }
 
+    /// The mask for the rows `start..end` only (row 0 of the result is row `start` here). The
+    /// range is clamped to the mask's height; an empty range gives a mask with no rows.
+    ///
+    /// Use it with [`ScanLines::rows`](crate::ScanLines::rows): a masked effect that runs on a
+    /// sub-view of rows needs the same rows of the mask.
+    ///
+    /// # Examples
+    /// ```
+    /// use png_glitch::effects::Mask;
+    ///
+    /// let m = Mask::rect(8, 8, 2, 4, 3, 2); // rows 4 and 5 are inside
+    /// let part = m.crop_rows(3, 7);
+    /// assert_eq!(part.height(), 4);
+    /// assert_eq!(part.value(2, 0), 0); // image row 3
+    /// assert_eq!(part.value(2, 1), 255); // image row 4
+    /// ```
+    pub fn crop_rows(&self, start: u32, end: u32) -> Mask {
+        let start = start.min(self.height);
+        let end = end.min(self.height).max(start);
+        let kind = match &self.kind {
+            Kind::Rect { x, y, w, h, invert } => {
+                // Rows of the rectangle that fall inside `start..end`, shifted to the new origin.
+                let top = (*y).max(start);
+                let bottom = (*y + *h).min(end);
+                let (ny, nh) = if top < bottom {
+                    (top - start, bottom - top)
+                } else {
+                    (0, 0)
+                };
+                Kind::Rect {
+                    x: *x,
+                    y: ny,
+                    w: *w,
+                    h: nh,
+                    invert: *invert,
+                }
+            }
+            Kind::Values(values) => {
+                let row = self.width as usize;
+                let from = (start as usize).saturating_mul(row);
+                let to = (end as usize).saturating_mul(row);
+                Kind::Values(values.get(from..to).unwrap_or_default().to_vec())
+            }
+        };
+        Mask {
+            width: self.width,
+            height: end - start,
+            kind,
+        }
+    }
+
     /// Width in pixels.
     pub fn width(&self) -> u32 {
         self.width
