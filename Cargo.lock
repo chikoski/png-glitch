@@ -775,6 +775,7 @@ dependencies = [
  "png-glitch-recipe",
  "predicates",
  "rand 0.9.5",
+ "rand_chacha",
  "rayon",
  "serde",
  "serde-saphyr",

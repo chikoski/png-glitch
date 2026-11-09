@@ -11,6 +11,7 @@ use walkdir::WalkDir;
 mod any_context;
 mod cli;
 mod recipe_io;
+mod surprise;
 mod sweep;
 mod variations;
 mod watch;
@@ -393,7 +394,9 @@ fn main() -> anyhow::Result<()> {
     warn_deprecated_flags(&args);
     let steps = collect_ordered_steps(&args, Some(&matches));
 
-    if let Some(spec) = &args.sweep {
+    if args.surprise {
+        surprise::surprise_process(&args, &steps)
+    } else if let Some(spec) = &args.sweep {
         sweep::sweep_process(&args, &steps, spec)
     } else if args.watch {
         watch::watch_process(&args, &steps)

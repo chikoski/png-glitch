@@ -107,6 +107,7 @@ filters:
 | `--batch-output <DIR>` | Output directory for batch processing when `<INPUT>` is a directory. |
 | `--variations <N>` | Write N outputs with different seeds as `<out-stem>-s<seed>.<ext>`; each seed is printed and can be re-run with `--seed`. |
 | `--contact-sheet <FILE>` | With `--variations`, also write a grid of all outputs (PNG input only); `--contact-cell-width <PX>` sets the cell width (default 256). |
+| `--surprise` | Apply a random recipe of 2-5 steps drawn from the seed (the same `--seed` gives the same recipe and image). The recipe is always printed to stderr; `--save-recipe` / `--embed-recipe` keep it, and `--config saved.yaml --seed S` re-runs it. Cannot be combined with `-f`/`--config`. |
 | `--sweep <STEP.PARAM=FROM..TO:N>` | Write N outputs where one numeric parameter of one step takes N evenly spaced values (both ends included) and the seed stays fixed, as `<out-stem>-<param>-<value>.<ext>`. `STEP` is a 0-based index or a step type name. Example: `--sweep replace.magnitude=0.01..0.2:5`. |
 | `--watch` | Requires `--config`. Re-renders whenever the config file or the input changes (polled every 250 ms); the seed stays fixed, a recipe error is printed and watching continues, and the output is written atomically. |
 | `--force` | Overwrite existing output file(s) without prompting. |

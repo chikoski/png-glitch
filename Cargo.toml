@@ -59,6 +59,7 @@ png-glitch-recipe.workspace = true
 crc32fast.workspace = true
 webp-glitch-context.workspace = true
 rand = { workspace = true, features = ["default"] }
+rand_chacha.workspace = true
 log.workspace = true
 serde.workspace = true
 walkdir.workspace = true

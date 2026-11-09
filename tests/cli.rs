@@ -1008,3 +1008,63 @@ fn watch_requires_config_and_conflicts_with_batch() {
         .assert()
         .code(2);
 }
+
+// ---------------------------------------------------------------- surprise
+
+#[test]
+fn surprise_is_reproducible_and_its_recipe_round_trips() {
+    let dir = TempDir::new().unwrap();
+    let input = copy_fixture(&dir, "small.png");
+    let (a, b, c) = (
+        dir.path().join("a.png"),
+        dir.path().join("b.png"),
+        dir.path().join("c.png"),
+    );
+    let recipe = dir.path().join("lucky.yaml");
+    cmd()
+        .arg(&input)
+        .args(["--surprise", "--seed", "77", "--save-recipe"])
+        .arg(&recipe)
+        .arg("-o")
+        .arg(&a)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("seed: 77"));
+    cmd()
+        .arg(&input)
+        .args(["--surprise", "--seed", "77", "-o"])
+        .arg(&b)
+        .assert()
+        .success();
+    assert_eq!(fs::read(&a).unwrap(), fs::read(&b).unwrap());
+    cmd()
+        .arg(&input)
+        .args(["--seed", "77", "--config"])
+        .arg(&recipe)
+        .arg("-o")
+        .arg(&c)
+        .assert()
+        .success();
+    assert_eq!(fs::read(&a).unwrap(), fs::read(&c).unwrap());
+}
+
+#[test]
+fn surprise_conflicts_with_other_modes_and_recipes() {
+    let dir = TempDir::new().unwrap();
+    let input = copy_fixture(&dir, "small.png");
+    for other in [["--variations", "2"], ["--sweep", "0.magnitude=0..1:2"]] {
+        cmd()
+            .arg(&input)
+            .arg("--surprise")
+            .args(other)
+            .assert()
+            .code(2);
+    }
+    cmd()
+        .arg(&input)
+        .args(["--surprise", "-f", "invert", "-o"])
+        .arg(dir.path().join("x.png"))
+        .assert()
+        .failure();
+    assert!(!dir.path().join("x.png").exists());
+}
