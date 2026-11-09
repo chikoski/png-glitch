@@ -12,6 +12,7 @@ mod any_context;
 mod cli;
 mod masks;
 mod recipe_io;
+mod stdio;
 mod surprise;
 mod sweep;
 mod variations;
@@ -343,11 +344,16 @@ fn default_output_path(input: &Path) -> PathBuf {
 fn resolve_output_path(args: &Cli, input: &str) -> PathBuf {
     match &args.output_file {
         Some(out) => PathBuf::from(out),
+        // A filter: an image from stdin has no name to derive a path from, so it goes to stdout.
+        None if stdio::is_stdin(input) => PathBuf::from(stdio::STDIO),
         None => default_output_path(Path::new(input)),
     }
 }
 
 fn check_overwrite(path: &Path, force: bool) -> anyhow::Result<()> {
+    if stdio::is_stdout(path) {
+        return Ok(());
+    }
     if path.exists() && !force {
         bail!(
             "output file '{}' already exists (use --force to overwrite)",
@@ -430,19 +436,22 @@ fn single_process(args: &Cli, steps: &[OrderedStep]) -> anyhow::Result<()> {
         );
     }
 
-    // Check format compatibility from extension first if unambiguous, before opening
-    let ext = input_path
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("");
-    if ext.eq_ignore_ascii_case("webp") {
-        validate_flags_for_format(args, true)?;
-    } else if ext.eq_ignore_ascii_case("png") {
-        validate_flags_for_format(args, false)?;
+    // Check format compatibility from extension first if unambiguous, before opening. An image
+    // from stdin has no extension; its format comes from the magic bytes below.
+    if !stdio::is_stdin(input) {
+        let ext = input_path
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+        if ext.eq_ignore_ascii_case("webp") {
+            validate_flags_for_format(args, true)?;
+        } else if ext.eq_ignore_ascii_case("png") {
+            validate_flags_for_format(args, false)?;
+        }
     }
 
     let parse_options = ParseOptions::default().with_strict(args.strict);
-    let mut context = AnyGlitchContext::open_with_options(input, args.seed, parse_options)?;
+    let mut context = stdio::open_context(input, args.seed, parse_options)?;
     validate_flags_for_format(args, context.is_webp())?;
     for w in context.warnings() {
         eprintln!("warning: {w}");
@@ -515,6 +524,7 @@ fn find_batch_images(input_dir: &Path) -> Vec<PathBuf> {
 }
 
 fn batch_process(args: &Cli, steps: &[OrderedStep], output_dir: &str) -> anyhow::Result<()> {
+    stdio::reject_stdio(args, "--batch-output")?;
     let input = args
         .input
         .as_deref()
@@ -652,6 +662,14 @@ fn save_output(
     path: &Path,
     recipe: &str,
 ) -> anyhow::Result<()> {
+    if stdio::is_stdout(path) {
+        let bytes = if args.embed_recipe {
+            recipe_io::embed_in_png(&context.buffer()?, recipe)?
+        } else {
+            context.buffer()?
+        };
+        return stdio::write_stdout(&bytes, args.force);
+    }
     if args.embed_recipe {
         let bytes = recipe_io::embed_in_png(&context.buffer()?, recipe)?;
         fs::write(path, bytes).with_context(|| format!("failed to save '{}'", path.display()))
@@ -665,13 +683,20 @@ fn show_recipe(args: &Cli) -> anyhow::Result<()> {
         .input
         .as_deref()
         .context("missing required <INPUT> file path")?;
-    let data = fs::read(input).with_context(|| format!("failed to open '{input}'"))?;
+    let data = stdio::read_input(input)?;
     match recipe_io::extract_from_png(&data) {
         Some(text) => {
             print!("{text}");
             Ok(())
         }
-        None => bail!("'{input}' has no embedded recipe (it is written by `--embed-recipe`)"),
+        None => bail!(
+            "'{}' has no embedded recipe (it is written by `--embed-recipe`)",
+            if stdio::is_stdin(input) {
+                "stdin"
+            } else {
+                input
+            }
+        ),
     }
 }
 

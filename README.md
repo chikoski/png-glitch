@@ -103,7 +103,7 @@ filters:
 
 | Option | Description |
 | :--- | :--- |
-| `-o`, `--output <FILE>` | Output file path (default: `<input-stem>-glitched.<ext>`). |
+| `-o`, `--output <FILE>` | Output file path (default: `<input-stem>-glitched.<ext>`). `-o -` writes the image to standard output. |
 | `--batch-output <DIR>` | Output directory for batch processing when `<INPUT>` is a directory. |
 | `--variations <N>` | Write N outputs with different seeds as `<out-stem>-s<seed>.<ext>`; each seed is printed and can be re-run with `--seed`. |
 | `--contact-sheet <FILE>` | With `--variations`, also write a grid of all outputs (PNG input only); `--contact-cell-width <PX>` sets the cell width (default 256). |
@@ -118,6 +118,20 @@ filters:
 | `--embed-recipe` | Embed the recipe and seed in the output PNG (an `iTXt` chunk named `png-glitch-recipe`; PNG only). |
 | `--show-recipe` | Print the recipe embedded in `INPUT` and exit. |
 | `--list-filters` | List all available filters, parameters, defaults, and format support. |
+
+#### Pipes: `-` as standard input and output
+
+`INPUT` = `-` reads the image from standard input (PNG or WebP, detected from the magic bytes), and `-o -` writes it to standard output. With `-` as input and no `-o`, the output goes to standard output too, like a Unix filter:
+
+```zsh
+cat in.png | png-glitch - -o - -f invert > out.png
+curl -s https://example.com/in.png | png-glitch - -f replace=0.1 --seed 42 | convert - -resize 50% out.jpg
+```
+
+- Standard output holds only the image. The `seed:` line, warnings and `--print-recipe` go to standard error.
+- Like `gzip`, it refuses to write binary data to a terminal unless you pass `--force` or redirect standard output.
+- `--show-recipe -` reads the PNG from standard input. `--save-recipe -` is not supported.
+- Modes that write several files or watch a file do not combine with `-`: `--batch-output`, `--variations`, `--sweep` and `--watch` fail with an error.
 
 #### Reproducibility guarantee
 

@@ -1448,3 +1448,195 @@ fn mask_and_rect_errors() {
         .stderr(predicate::str::contains("WebP"));
     assert!(!out.exists());
 }
+
+// ---------------------------------------------------------------- stdin / stdout
+
+/// Runs the binary with `bytes` on stdin and returns (stdout, stderr).
+fn pipe(bytes: &[u8], args: &[&str]) -> (Vec<u8>, String) {
+    let out = cmd()
+        .args(args)
+        .write_stdin(bytes.to_vec())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    (
+        out.stdout,
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    )
+}
+
+#[test]
+fn stdin_to_stdout_equals_the_file_run() {
+    for name in ["small.png", "small.webp"] {
+        let dir = TempDir::new().unwrap();
+        let input = copy_fixture(&dir, name);
+        let want = dir.path().join(format!("want-{name}"));
+        cmd()
+            .arg(&input)
+            .args(["--seed", SEED, "-f", "invert", "-o"])
+            .arg(&want)
+            .assert()
+            .success();
+        let bytes = fs::read(&input).unwrap();
+        let (stdout, _) = pipe(&bytes, &["-", "-o", "-", "--seed", SEED, "-f", "invert"]);
+        assert_same_bytes(
+            &stdout,
+            &fs::read(&want).unwrap(),
+            &format!("{name}: stdin to stdout"),
+        );
+        // With no -o, an image from stdin goes to stdout, like a filter.
+        let (implicit, _) = pipe(&bytes, &["-", "--seed", SEED, "-f", "invert"]);
+        assert_same_bytes(&implicit, &stdout, &format!("{name}: implicit stdout"));
+    }
+}
+
+#[test]
+fn stdin_to_a_file_and_a_file_to_stdout_give_the_same_result() {
+    let dir = TempDir::new().unwrap();
+    let input = copy_fixture(&dir, "small.png");
+    let bytes = fs::read(&input).unwrap();
+    let (via_stdout, _) = pipe(
+        &bytes,
+        &["-", "-o", "-", "--seed", SEED, "-f", "replace=0.3"],
+    );
+    let to_file = dir.path().join("f.png");
+    let out = cmd()
+        .args(["-", "--seed", SEED, "-f", "replace=0.3", "-o"])
+        .arg(&to_file)
+        .write_stdin(bytes.clone())
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    assert!(out.stdout.is_empty(), "nothing goes to stdout with -o FILE");
+    assert_same_bytes(&fs::read(&to_file).unwrap(), &via_stdout, "stdin to file");
+    let from_file = cmd()
+        .arg(&input)
+        .args(["-o", "-", "--seed", SEED, "-f", "replace=0.3"])
+        .output()
+        .unwrap();
+    assert!(from_file.status.success());
+    assert_same_bytes(&from_file.stdout, &via_stdout, "file to stdout");
+}
+
+#[test]
+fn stdout_holds_only_the_image() {
+    let dir = TempDir::new().unwrap();
+    let input = copy_fixture(&dir, "small.png");
+    let bytes = fs::read(&input).unwrap();
+    // No --seed: the seed line is on stderr, and --print-recipe too.
+    let (stdout, stderr) = pipe(&bytes, &["-", "-o", "-", "-f", "invert", "--print-recipe"]);
+    assert!(
+        stdout.starts_with(b"\x89PNG\r\n\x1a\n"),
+        "starts with the PNG signature"
+    );
+    assert!(stderr.contains("seed:"), "{stderr}");
+    assert!(stderr.contains("filters:"), "{stderr}");
+    // --embed-recipe still puts a PNG on stdout, with the recipe inside.
+    let (embedded, _) = pipe(
+        &bytes,
+        &[
+            "-",
+            "-o",
+            "-",
+            "--seed",
+            SEED,
+            "-f",
+            "invert",
+            "--embed-recipe",
+        ],
+    );
+    assert!(embedded.starts_with(b"\x89PNG\r\n\x1a\n"));
+    // WebP in, WebP out.
+    let webp = fs::read(fixture("small.webp")).unwrap();
+    let (out, _) = pipe(&webp, &["-", "-o", "-", "--seed", SEED, "-f", "invert"]);
+    assert!(out.starts_with(b"RIFF") && out.get(8..12) == Some(&b"WEBP"[..]));
+}
+
+#[test]
+fn show_recipe_reads_stdin() {
+    let dir = TempDir::new().unwrap();
+    let input = copy_fixture(&dir, "small.png");
+    let embedded = dir.path().join("e.png");
+    cmd()
+        .arg(&input)
+        .args(["--seed", SEED, "-f", "invert", "--embed-recipe", "-o"])
+        .arg(&embedded)
+        .assert()
+        .success();
+    let bytes = fs::read(&embedded).unwrap();
+    let out = cmd()
+        .args(["-", "--show-recipe"])
+        .write_stdin(bytes)
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stdout)
+            .to_lowercase()
+            .contains("invert")
+    );
+    cmd()
+        .args(["-", "--show-recipe"])
+        .write_stdin(fs::read(&input).unwrap())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("stdin"));
+}
+
+#[test]
+fn stdio_errors() {
+    let dir = TempDir::new().unwrap();
+    let input = copy_fixture(&dir, "small.png");
+    let bytes = fs::read(&input).unwrap();
+    // `-` with --batch-output, and the other modes that cannot read stdin or write stdout.
+    cmd()
+        .args(["-", "--batch-output"])
+        .arg(dir.path().join("o"))
+        .write_stdin(bytes.clone())
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains(
+            "'-' (stdin) cannot be used with --batch-output",
+        ));
+    for extra in [
+        vec!["--variations", "2"],
+        vec!["--sweep", "invert.x=0..1:2"],
+    ] {
+        cmd()
+            .args(["-"])
+            .args(&extra)
+            .write_stdin(bytes.clone())
+            .assert()
+            .failure();
+        cmd()
+            .arg(&input)
+            .args(["-o", "-"])
+            .args(&extra)
+            .assert()
+            .failure();
+    }
+    // Not an image on stdin, and an empty stdin.
+    cmd()
+        .args(["-", "-o", "-", "-f", "invert"])
+        .write_stdin(b"not an image".to_vec())
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("unrecognized image format"));
+    cmd()
+        .args(["-", "-o", "-", "-f", "invert"])
+        .write_stdin(Vec::<u8>::new())
+        .assert()
+        .code(1);
+    // A PNG-only flag on a WebP from stdin is still checked, after the format is detected.
+    cmd()
+        .args(["-", "-o", "-", "-f", "pixel-sort=0.1", "--sub"])
+        .write_stdin(fs::read(fixture("small.webp")).unwrap())
+        .assert()
+        .failure();
+    // A file named `-o`-less run still refuses to overwrite as before, and stdout is not a file.
+    assert!(!dir.path().join("-").exists());
+}

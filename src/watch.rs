@@ -88,6 +88,7 @@ fn render_once(
 }
 
 pub fn watch_process(args: &Cli, steps: &[OrderedStep]) -> anyhow::Result<()> {
+    crate::stdio::reject_stdio(args, "--watch")?;
     let input = args
         .input
         .as_deref()

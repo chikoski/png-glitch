@@ -1067,6 +1067,9 @@ Examples:
   # Tune a recipe with an image viewer open on the output
   png-glitch input.png --config recipe.yaml --seed 42 --watch
 
+  # Use it in a pipeline: read stdin, write stdout (the seed goes to stderr)
+  cat in.png | png-glitch - -o - -f invert > out.png
+
   # Batch process a directory of PNG and WebP images
   png-glitch ./images --batch-output ./glitched -f invert -f block-scramble=0.1";
 
@@ -1080,7 +1083,7 @@ Examples:
     after_help = AFTER_HELP_EXAMPLES
 )]
 pub struct Cli {
-    /// Input PNG or WebP file (or directory when used with `--batch-output`)
+    /// Input PNG or WebP file (or directory when used with `--batch-output`); `-` reads the image from standard input
     #[arg(value_name = "INPUT", required_unless_present = "list_filters")]
     pub input: Option<String>,
 
@@ -1088,7 +1091,7 @@ pub struct Cli {
     #[arg(long)]
     pub list_filters: bool,
 
-    /// Output file path [default: `<input-stem>-glitched.<ext>`]
+    /// Output file path; `-` writes the image to standard output [default: `<input-stem>-glitched.<ext>`, or standard output when INPUT is `-`]
     #[arg(
         short,
         long = "output",

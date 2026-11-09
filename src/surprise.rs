@@ -1,7 +1,6 @@
 //! `--surprise`: a random recipe of 2-5 built-in steps, drawn from a ChaCha8 RNG seeded with
 //! the run's seed. The same `--seed` gives the same recipe and therefore the same image.
 
-use crate::any_context::AnyGlitchContext;
 use crate::cli::Cli;
 use crate::{
     OrderedStep, check_overwrite, recipe_io, resolve_output_path, resolve_seed, save_output,
@@ -161,7 +160,7 @@ pub fn surprise_process(args: &Cli, steps: &[OrderedStep]) -> anyhow::Result<()>
         bail!("'{input}' is a directory; --surprise works on a single image");
     }
     let options = ParseOptions::default().with_strict(args.strict);
-    let mut context = AnyGlitchContext::open_with_options(input, args.seed, options)?;
+    let mut context = crate::stdio::open_context(input, args.seed, options)?;
     validate_flags_for_format(args, context.is_webp())?;
     for w in context.warnings() {
         eprintln!("warning: {w}");

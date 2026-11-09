@@ -8,14 +8,14 @@ Usage: png-glitch [OPTIONS] [INPUT]
 
 Arguments:
   [INPUT]
-          Input PNG or WebP file (or directory when used with `--batch-output`)
+          Input PNG or WebP file (or directory when used with `--batch-output`); `-` reads the image from standard input
 
 Options:
       --list-filters
           List all available glitch filters with their parameters and defaults
 
   -o, --output <FILE>
-          Output file path [default: `<input-stem>-glitched.<ext>`]
+          Output file path; `-` writes the image to standard output [default: `<input-stem>-glitched.<ext>`, or standard output when INPUT is `-`]
 
       --force
           Overwrite existing output file(s) without prompting
@@ -276,6 +276,9 @@ Examples:
 
   # Tune a recipe with an image viewer open on the output
   png-glitch input.png --config recipe.yaml --seed 42 --watch
+
+  # Use it in a pipeline: read stdin, write stdout (the seed goes to stderr)
+  cat in.png | png-glitch - -o - -f invert > out.png
 
   # Batch process a directory of PNG and WebP images
   png-glitch ./images --batch-output ./glitched -f invert -f block-scramble=0.1
