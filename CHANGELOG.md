@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### png-glitch: raster access, 2D pixel access and `Pixel` conversions (#72)
+
+#### Added
+- `ScanLines::pixel(x, y)`, `ScanLines::set_pixel(x, y, pixel) -> Result<(), PixelError>`, `ScanLines::column(x)` (top to bottom) and `ScanLines::block_mut(x, y, w, h)` (a `BlockMut`, clipped at the right and bottom edges; `None` if empty), and `PngGlitch::pixel` / `PngGlitch::set_pixel`. They work on the stored samples (see ADR 0002), make no heap allocation, and never panic for out-of-range coordinates, including `u32::MAX`.
+- `PixelError` (`OutOfBounds { x, y }`, `ColorTypeMismatch`, `SampleOutOfRange`; `non_exhaustive`) and `ScanLine::try_set_pixel`, which reports why a write failed. `ScanLine::set_pixel` is unchanged (it still ignores a bad write, and masks or narrows a sample that is too large) and is not deprecated.
+- `Pixel::to_rgba16(bit_depth)`, `Pixel::from_rgba16(rgba, color_type, bit_depth)`, `Pixel::luma16(bit_depth)` and `Pixel::map_channels`. Samples are scaled up by bit replication (`v * 65535 / (2^depth - 1)`), down by keeping the high bits, and gray from colour is the integer Rec. 601 luma `(299 r + 587 g + 114 b + 500) / 1000`. Indexed pixels have no conversion (they need the palette).
+- `ScanLine::get_pixel` and the new read-only views share one sample decoder (`pixel_at`).
+- No existing effect uses the new helpers yet, so no output changes. Candidates for a follow-up: `PixelSort` (its hue divides raw samples by 65535), `BlockScramble`, `ChannelShift`, the per-colour-type `match` in `Invert`, `Brighten` and `Darken`.
+
 ### CLI: `-` as standard input and output (#75)
 
 #### Added

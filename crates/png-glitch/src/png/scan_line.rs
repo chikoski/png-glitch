@@ -4,6 +4,7 @@
 #![allow(clippy::indexing_slicing)]
 
 use crate::png::ColorType;
+use crate::png::png_error::PixelError;
 pub use filter_type::FilterType;
 pub use pixel::Pixel;
 use std::io::{Read, Write};
@@ -26,6 +27,78 @@ pub(crate) fn bytes_per_pixel(color_type: ColorType, bit_depth: u8) -> usize {
         ColorType::TrueColor => std::cmp::max(bits * 3 / 8, 1),
         ColorType::TrueColorAlpha => std::cmp::max(bits * 4 / 8, 1),
         ColorType::IndexColor => std::cmp::max(bits / 8, 1),
+    }
+}
+
+/// Decodes the pixel `x` of a scan line (`data` is the filter-type tag plus the filtered bytes).
+/// The one sample decoder: [`ScanLine::get_pixel`] and the read-only views use it.
+pub(crate) fn pixel_at(
+    data: &[u8],
+    color_type: ColorType,
+    bit_depth: u8,
+    width: u32,
+    x: usize,
+) -> Option<Pixel> {
+    if x >= width as usize || bit_depth == 0 {
+        return None;
+    }
+    if bit_depth < 8 {
+        let pixels_per_byte = 8 / bit_depth as usize;
+        let byte_offset = 1 + x / pixels_per_byte;
+        if byte_offset >= data.len() {
+            return None;
+        }
+        let byte = data[byte_offset];
+        let shift = (pixels_per_byte - 1 - (x % pixels_per_byte)) * bit_depth as usize;
+        let mask = (1 << bit_depth) - 1;
+        let value = (byte >> shift) & mask;
+
+        return match color_type {
+            ColorType::GrayScale => Some(Pixel::Gray(value as u16)),
+            ColorType::IndexColor => Some(Pixel::Indexed(value)),
+            _ => None,
+        };
+    }
+
+    let bpp = bytes_per_pixel(color_type, bit_depth);
+    let offset = 1 + x * bpp;
+    if offset + bpp > data.len() {
+        return None;
+    }
+
+    let slice = &data[offset..offset + bpp];
+    match (color_type, bit_depth) {
+        (ColorType::GrayScale, 8) => Some(Pixel::Gray(slice[0] as u16)),
+        (ColorType::GrayScale, 16) => Some(Pixel::Gray(u16::from_be_bytes([slice[0], slice[1]]))),
+        (ColorType::TrueColor, 8) => Some(Pixel::RGB(
+            slice[0] as u16,
+            slice[1] as u16,
+            slice[2] as u16,
+        )),
+        (ColorType::TrueColor, 16) => Some(Pixel::RGB(
+            u16::from_be_bytes([slice[0], slice[1]]),
+            u16::from_be_bytes([slice[2], slice[3]]),
+            u16::from_be_bytes([slice[4], slice[5]]),
+        )),
+        (ColorType::IndexColor, 8) => Some(Pixel::Indexed(slice[0])),
+        (ColorType::GrayScaleAlpha, 8) => Some(Pixel::GrayAlpha(slice[0] as u16, slice[1] as u16)),
+        (ColorType::GrayScaleAlpha, 16) => Some(Pixel::GrayAlpha(
+            u16::from_be_bytes([slice[0], slice[1]]),
+            u16::from_be_bytes([slice[2], slice[3]]),
+        )),
+        (ColorType::TrueColorAlpha, 8) => Some(Pixel::RGBA(
+            slice[0] as u16,
+            slice[1] as u16,
+            slice[2] as u16,
+            slice[3] as u16,
+        )),
+        (ColorType::TrueColorAlpha, 16) => Some(Pixel::RGBA(
+            u16::from_be_bytes([slice[0], slice[1]]),
+            u16::from_be_bytes([slice[2], slice[3]]),
+            u16::from_be_bytes([slice[4], slice[5]]),
+            u16::from_be_bytes([slice[6], slice[7]]),
+        )),
+        _ => None,
     }
 }
 
@@ -71,75 +144,92 @@ impl<'a> ScanLine<'a> {
     }
 
     /// The method returns a pixel at the specified index.
+    ///
+    /// The value is the *stored* sample, at the image's bit depth. If the scan line is still
+    /// filtered it is a filtered byte, not the decoded colour; call
+    /// [`PngGlitch::remove_filter`](crate::PngGlitch::remove_filter) first to read real pixels.
     pub fn get_pixel(&self, x: usize) -> Option<Pixel> {
+        pixel_at(self.data, self.color_type, self.bit_depth, self.width, x)
+    }
+
+    /// Sets the pixel `x`, or says why it cannot.
+    ///
+    /// Unlike [`set_pixel`](Self::set_pixel), which silently does nothing, this checks that
+    /// `x` is inside the row, that the [`Pixel`] variant matches the colour type, and that every
+    /// sample fits the bit depth (`Gray(5)` does not fit 2 bits; `Gray(300)` does not fit 8).
+    /// For [`Pixel::Indexed`] the index must fit the bit depth too (it is not checked against
+    /// the palette).
+    ///
+    /// The sample written is the *stored* one: on a scan line that is still filtered it is a
+    /// filtered byte. Call [`PngGlitch::remove_filter`](crate::PngGlitch::remove_filter) first
+    /// to write real pixels.
+    ///
+    /// # Errors
+    /// [`PixelError::OutOfBounds`] (with `y` = 0), [`PixelError::ColorTypeMismatch`],
+    /// [`PixelError::SampleOutOfRange`].
+    ///
+    /// # Examples
+    /// ```
+    /// use png_glitch::{Encoding, FilterStrategy, FilterType, Pixel, PixelError, PixelSource, PngGlitch};
+    ///
+    /// let frame = vec![0u8; 3 * 2 * 4];
+    /// let mut png = PngGlitch::from_pixels(
+    ///     PixelSource::rgba8(3, 2, &frame),
+    ///     Encoding::rgba8(FilterStrategy::Fixed(FilterType::None)),
+    /// )?;
+    /// let mut lines = png.scan_lines_mut();
+    /// let mut row = lines.get_mut(0).unwrap();
+    /// assert_eq!(row.try_set_pixel(1, Pixel::RGBA(1, 2, 3, 4)), Ok(()));
+    /// assert_eq!(row.get_pixel(1), Some(Pixel::RGBA(1, 2, 3, 4)));
+    /// assert_eq!(row.try_set_pixel(1, Pixel::Gray(1)), Err(PixelError::ColorTypeMismatch));
+    /// assert_eq!(row.try_set_pixel(1, Pixel::RGBA(300, 0, 0, 0)), Err(PixelError::SampleOutOfRange));
+    /// assert_eq!(row.try_set_pixel(3, Pixel::RGBA(0, 0, 0, 0)), Err(PixelError::OutOfBounds { x: 3, y: 0 }));
+    /// # Ok::<(), png_glitch::PngError>(())
+    /// ```
+    pub fn try_set_pixel(&mut self, x: usize, pixel: Pixel) -> Result<(), PixelError> {
+        let out_of_bounds = PixelError::OutOfBounds {
+            x: u32::try_from(x).unwrap_or(u32::MAX),
+            y: 0,
+        };
         if x >= self.width as usize || self.bit_depth == 0 {
-            return None;
+            return Err(out_of_bounds);
         }
-        if self.bit_depth < 8 {
-            let pixels_per_byte = 8 / self.bit_depth as usize;
-            let byte_offset = self.pixel_data_offset() + x / pixels_per_byte;
-            if byte_offset >= self.data.len() {
-                return None;
-            }
-            let byte = self.data[byte_offset];
-            let shift = (pixels_per_byte - 1 - (x % pixels_per_byte)) * self.bit_depth as usize;
-            let mask = (1 << self.bit_depth) - 1;
-            let value = (byte >> shift) & mask;
-
-            return match self.color_type {
-                ColorType::GrayScale => Some(Pixel::Gray(value as u16)),
-                ColorType::IndexColor => Some(Pixel::Indexed(value)),
-                _ => None,
-            };
+        let matches = matches!(
+            (pixel, self.color_type),
+            (Pixel::Gray(_), ColorType::GrayScale)
+                | (Pixel::GrayAlpha(..), ColorType::GrayScaleAlpha)
+                | (Pixel::RGB(..), ColorType::TrueColor)
+                | (Pixel::RGBA(..), ColorType::TrueColorAlpha)
+                | (Pixel::Indexed(_), ColorType::IndexColor)
+        );
+        if !matches {
+            return Err(PixelError::ColorTypeMismatch);
         }
-
-        let bpp = self.bytes_per_pixel();
-        let offset = self.pixel_data_offset() + x * bpp;
-        if offset + bpp > self.data.len() {
-            return None;
+        let max = (1u32 << self.bit_depth.min(16)) - 1;
+        let fits = |v: u16| u32::from(v) <= max;
+        let in_range = match pixel {
+            Pixel::Gray(v) => fits(v),
+            Pixel::GrayAlpha(v, a) => fits(v) && fits(a),
+            Pixel::RGB(r, g, b) => fits(r) && fits(g) && fits(b),
+            Pixel::RGBA(r, g, b, a) => fits(r) && fits(g) && fits(b) && fits(a),
+            Pixel::Indexed(v) => fits(u16::from(v)),
+        };
+        if !in_range {
+            return Err(PixelError::SampleOutOfRange);
         }
-
-        let slice = &self.data[offset..offset + bpp];
-        match (self.color_type, self.bit_depth) {
-            (ColorType::GrayScale, 8) => Some(Pixel::Gray(slice[0] as u16)),
-            (ColorType::GrayScale, 16) => {
-                Some(Pixel::Gray(u16::from_be_bytes([slice[0], slice[1]])))
-            }
-            (ColorType::TrueColor, 8) => Some(Pixel::RGB(
-                slice[0] as u16,
-                slice[1] as u16,
-                slice[2] as u16,
-            )),
-            (ColorType::TrueColor, 16) => Some(Pixel::RGB(
-                u16::from_be_bytes([slice[0], slice[1]]),
-                u16::from_be_bytes([slice[2], slice[3]]),
-                u16::from_be_bytes([slice[4], slice[5]]),
-            )),
-            (ColorType::IndexColor, 8) => Some(Pixel::Indexed(slice[0])),
-            (ColorType::GrayScaleAlpha, 8) => {
-                Some(Pixel::GrayAlpha(slice[0] as u16, slice[1] as u16))
-            }
-            (ColorType::GrayScaleAlpha, 16) => Some(Pixel::GrayAlpha(
-                u16::from_be_bytes([slice[0], slice[1]]),
-                u16::from_be_bytes([slice[2], slice[3]]),
-            )),
-            (ColorType::TrueColorAlpha, 8) => Some(Pixel::RGBA(
-                slice[0] as u16,
-                slice[1] as u16,
-                slice[2] as u16,
-                slice[3] as u16,
-            )),
-            (ColorType::TrueColorAlpha, 16) => Some(Pixel::RGBA(
-                u16::from_be_bytes([slice[0], slice[1]]),
-                u16::from_be_bytes([slice[2], slice[3]]),
-                u16::from_be_bytes([slice[4], slice[5]]),
-                u16::from_be_bytes([slice[6], slice[7]]),
-            )),
-            _ => None,
+        // The row may be shorter than its header says (a malformed image).
+        if pixel_at(self.data, self.color_type, self.bit_depth, self.width, x).is_none() {
+            return Err(out_of_bounds);
         }
+        self.set_pixel(x, pixel);
+        Ok(())
     }
 
     /// The method sets a pixel at the specified index.
+    ///
+    /// It silently does nothing if `x` is out of range or the [`Pixel`] variant does not match
+    /// the colour type, and it masks or narrows samples that are too large for the bit depth.
+    /// Use [`try_set_pixel`](Self::try_set_pixel) to be told about those cases.
     pub fn set_pixel(&mut self, x: usize, pixel: Pixel) {
         if x >= self.width as usize || self.bit_depth == 0 {
             return;

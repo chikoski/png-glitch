@@ -11,11 +11,11 @@ use crate::png::parser::Parser;
 use crate::png::parser::Terminator;
 use crate::png::parser::{Chunk, ChunkType};
 pub use crate::png::parser::{Limits, ParseOptions};
-pub use crate::png::png_error::{PngError, PngWarning};
+pub use crate::png::png_error::{PixelError, PngError, PngWarning};
 pub use crate::png::render::Renderer;
 pub use crate::png::scan_line::Pixel;
 pub use crate::png::scan_line::ScanLine;
-pub use crate::png::scan_lines::ScanLines;
+pub use crate::png::scan_lines::{BlockMut, ScanLines};
 pub use parser::ColorType;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -112,6 +112,20 @@ impl Png {
         let start = self.index_of(scan_line_index);
         let end = start + self.scan_line_width() * lines;
         start..end
+    }
+
+    /// The stored pixel at column `x` of row `y`, or `None` outside the image.
+    pub(crate) fn pixel(&self, x: u32, y: u32) -> Option<Pixel> {
+        let stride = self.scan_line_width();
+        let start = (y as usize).checked_mul(stride)?;
+        let row = self.data.get(start..start.checked_add(stride)?)?;
+        scan_line::pixel_at(
+            row,
+            self.header.color_type(),
+            self.header.bit_depth(),
+            self.header.width(),
+            x as usize,
+        )
     }
 
     /// The method removes filter from all scan lines.

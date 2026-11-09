@@ -269,3 +269,28 @@ mod tests {
         );
     }
 }
+
+/// Why a pixel could not be written (or read) at a position.
+///
+/// Returned by [`ScanLine::try_set_pixel`](crate::ScanLine::try_set_pixel),
+/// [`ScanLines::set_pixel`](crate::ScanLines::set_pixel) and the block views.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum PixelError {
+    /// The position is outside the image, the row, or the block. For a single scan line `y` is 0.
+    #[error("pixel ({x}, {y}) is out of bounds")]
+    OutOfBounds {
+        /// Column.
+        x: u32,
+        /// Row.
+        y: u32,
+    },
+    /// The [`Pixel`](crate::Pixel) variant does not match the image's colour type (for example
+    /// `Pixel::Gray` on an RGB image).
+    #[error("the pixel variant does not match the colour type of the image")]
+    ColorTypeMismatch,
+    /// A sample does not fit the image's bit depth (for example `Pixel::Gray(5)` on a 2-bit
+    /// image, or `Pixel::Gray(300)` on an 8-bit one).
+    #[error("a sample is too large for the bit depth of the image")]
+    SampleOutOfRange,
+}
