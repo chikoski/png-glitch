@@ -19,7 +19,7 @@ mod variations;
 mod watch;
 
 use crate::any_context::AnyGlitchContext;
-use crate::cli::{Cli, ConfigFile, format_filter_list};
+use crate::cli::{Cli, ConfigFile, format_filter_json, format_filter_list};
 
 #[derive(Debug, Clone)]
 enum OrderedStep {
@@ -397,7 +397,11 @@ fn main() -> anyhow::Result<()> {
     let matches = Cli::command().get_matches();
     let args = Cli::from_arg_matches(&matches)?;
     if args.list_filters {
-        print!("{}", format_filter_list());
+        if args.json {
+            println!("{}", format_filter_json()?);
+        } else {
+            print!("{}", format_filter_list());
+        }
         return Ok(());
     }
 

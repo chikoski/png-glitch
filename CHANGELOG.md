@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Filter metadata as data (#85)
+
+#### Added
+- `png_glitch_recipe::filters()`, `filter_info(name_or_alias)` and `info_for(&FilterConfig)`: names, YAML `type:` values, aliases, parameters (kind, range, default, `choices` for enum parameters), supported formats (`Format::Png` / `Webp`) and a `deprecated` flag for every filter, as static data. `info_for` is an exhaustive `match`, so a new `FilterConfig` variant does not compile until it has metadata. Re-exported by `webp-glitch-context`.
+- CLI: `--list-filters --json` prints the metadata as JSON. `--list-filters` is now rendered from the same table (text changed; the order and the three groups are kept).
+- Tests that the metadata agrees with `FilterConfig` (every YAML type, alias and parameter name), the filter `Default`s, validation (`magnitude`, `random-copy` `times`), `--surprise` (its narrower ranges stay inside the valid ones) and the WebP context (`formats`).
+
+#### Fixed
+- README: the defaults of `block_size` (16), `bitwise` `value` (0) and `color-distortion` `strength` (20) now match the code.
+- CLI: `-f` filter name aliases are resolved through the metadata.
+
 ### png-glitch: raster access, 2D pixel access and `Pixel` conversions (#72)
 
 #### Added

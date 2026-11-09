@@ -779,6 +779,7 @@ dependencies = [
  "rayon",
  "serde",
  "serde-saphyr",
+ "serde_json",
  "tempfile",
  "walkdir",
  "webp-glitch-context",
@@ -1384,6 +1385,7 @@ dependencies = [
  "anyhow",
  "image",
  "png-glitch-recipe",
+ "serde-saphyr",
  "webp",
  "webp-glitch",
 ]

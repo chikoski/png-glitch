@@ -28,6 +28,7 @@ pub use png_glitch_recipe::{
     PixelFilterAdapter, PixelSort, ShiftChannels, SortCriterion, SwapTarget,
 };
 pub use png_glitch_recipe::{ChaCha8Rng, rand, rand_chacha};
+pub use png_glitch_recipe::{FilterInfo, Format, ParamInfo, ParamKind, filter_info, filters};
 pub use webp_glitch::{WebpError, WebpGlitch, WebpGlitchFilter, WebpPixel};
 
 fn clamp_magnitude(m: f64) -> f64 {
