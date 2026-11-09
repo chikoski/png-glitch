@@ -13,6 +13,7 @@ mod cli;
 mod recipe_io;
 mod sweep;
 mod variations;
+mod watch;
 
 use crate::any_context::AnyGlitchContext;
 use crate::cli::{Cli, ConfigFile, format_filter_list};
@@ -394,6 +395,8 @@ fn main() -> anyhow::Result<()> {
 
     if let Some(spec) = &args.sweep {
         sweep::sweep_process(&args, &steps, spec)
+    } else if args.watch {
+        watch::watch_process(&args, &steps)
     } else if let Some(count) = args.variations {
         variations::variations_process(&args, &steps, count)
     } else if let Some(batch_output) = &args.batch_output {

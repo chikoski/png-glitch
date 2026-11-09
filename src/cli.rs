@@ -980,6 +980,9 @@ Examples:
   # Sweep one parameter: five outputs, same seed, only the magnitude changes
   png-glitch input.png -f replace=0.1 --sweep replace.magnitude=0.01..0.2:5 --seed 1
 
+  # Tune a recipe with an image viewer open on the output
+  png-glitch input.png --config recipe.yaml --seed 42 --watch
+
   # Batch process a directory of PNG and WebP images
   png-glitch ./images --batch-output ./glitched -f invert -f block-scramble=0.1";
 
@@ -1067,6 +1070,15 @@ pub struct Cli {
         help_heading = "Exploration"
     )]
     pub contact_cell_width: u32,
+
+    /// Re-render whenever the `--config` file or the input image changes (polled every 250 ms; Ctrl-C to stop)
+    #[arg(
+        long,
+        requires = "config",
+        conflicts_with_all = ["batch_output", "variations", "sweep", "list_filters", "show_recipe"],
+        help_heading = "Exploration"
+    )]
+    pub watch: bool,
 
     /// Path to YAML config file
     #[arg(long, value_name = "FILE")]

@@ -940,3 +940,71 @@ fn sweep_rejects_unknown_steps_parameters_and_conflicts() {
         .assert()
         .code(2);
 }
+
+// ---------------------------------------------------------------- watch
+
+#[test]
+fn watch_rerenders_when_the_config_changes() {
+    use std::process::{Command as Proc, Stdio};
+    use std::time::{Duration, Instant};
+
+    let dir = TempDir::new().unwrap();
+    let input = copy_fixture(&dir, "small.png");
+    let config = dir.path().join("recipe.yaml");
+    let out = dir.path().join("w.png");
+    fs::write(
+        &config,
+        "filters:\n  - type: Replace\n    magnitude: 0.01\n",
+    )
+    .unwrap();
+    let mut child = Proc::new(env!("CARGO_BIN_EXE_png-glitch"))
+        .arg(&input)
+        .args(["--watch", "--seed", SEED, "--config"])
+        .arg(&config)
+        .arg("-o")
+        .arg(&out)
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let wait_for = |pred: &dyn Fn() -> bool| {
+        let start = Instant::now();
+        while !pred() {
+            assert!(start.elapsed() < Duration::from_secs(20), "timed out");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    };
+    wait_for(&|| out.exists());
+    let first = fs::read(&out).unwrap();
+    // A broken recipe keeps the watcher alive; a valid one re-renders.
+    fs::write(&config, "filters: [").unwrap();
+    std::thread::sleep(Duration::from_millis(600));
+    fs::write(&config, "filters:\n  - type: Replace\n    magnitude: 0.5\n").unwrap();
+    wait_for(&|| fs::read(&out).map(|b| b != first).unwrap_or(false));
+    assert!(child.try_wait().unwrap().is_none(), "watcher exited");
+    child.kill().unwrap();
+    child.wait().unwrap();
+    assert!(!dir.path().join("w.png.tmp").exists());
+}
+
+#[test]
+fn watch_requires_config_and_conflicts_with_batch() {
+    let dir = TempDir::new().unwrap();
+    let input = copy_fixture(&dir, "small.png");
+    cmd().arg(&input).arg("--watch").assert().code(2);
+    cmd()
+        .arg(&input)
+        .args([
+            "--watch",
+            "--config",
+            "x.yaml",
+            "--sweep",
+            "0.magnitude=0..1:2",
+        ])
+        .assert()
+        .code(2);
+    cmd()
+        .arg(&input)
+        .args(["--watch", "--config", "x.yaml", "--variations", "2"])
+        .assert()
+        .code(2);
+}
