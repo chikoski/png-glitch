@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### WebAssembly component MVP (#86)
+
+#### Added
+- `crates/png-glitch-component` (`chikoski:png-glitch@0.1.0`, WASI 0.2): `list-filters`, `validate-recipe` and `glitch(image, recipe, seed)`, stateless, PNG only. The recipe is the CLI's `--config` YAML or JSON; the seed is required and there is no OS randomness, so the same inputs give the same bytes, equal to the CLI's. Errors are `invalid-image`, `unsupported-format`, `invalid-recipe` and `too-large` (default decode limits, enforced before allocation); `mask:` steps are rejected, `rows` and `rect` work. Build: `cargo build -p png-glitch-component --target wasm32-wasip2 --release`.
+- `png_glitch_recipe::RecipeFile` (`RecipeFile::from_yaml`) and `RecipeError::InvalidRecipe`: the `--config` file format, moved out of the CLI (accepted input and error text are unchanged). `png-glitch-recipe` now depends on `serde-saphyr`.
+- CI (`wasm` job): builds the component, prints its WIT with `wasm-tools`, and runs `crates/png-glitch-component/host-test` (wasmtime) to compare `glitch` with the CLI byte for byte.
+
 ### Filter metadata as data (#85)
 
 #### Added

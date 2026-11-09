@@ -92,6 +92,18 @@ jobs:
       run: cargo build -p png-glitch --no-default-features --target wasm32-unknown-unknown --release
     - name: Build for wasm32-wasip2
       run: cargo build -p png-glitch -p png-glitch-recipe --no-default-features --target wasm32-wasip2
+    # The component (#86): build it, print its WIT, and run it with wasmtime against the CLI.
+    - name: Build the component
+      run: cargo build -p png-glitch-component --target wasm32-wasip2 --release
+    - uses: taiki-e/install-action@v2
+      with:
+        tool: wasm-tools
+    - name: Show the component's interface
+      run: wasm-tools component wit target/wasm32-wasip2/release/png_glitch_component.wasm
+    - name: Build the CLI for the comparison
+      run: cargo build -p png-glitch-cli
+    - name: Smoke test the component with wasmtime
+      run: cargo test --manifest-path crates/png-glitch-component/host-test/Cargo.toml
 
   coverage:
     name: Coverage (informational)

@@ -1,0 +1,60 @@
+package chikoski:png-glitch@0.1.0;
+
+interface glitch {
+  /// Why a call failed. No call traps on bad input.
+  variant glitch-error {
+    /// The bytes are a PNG signature but not a decodable PNG; the message says why.
+    invalid-image(string),
+    /// The bytes are not a PNG (a WebP or an unknown signature). WebP is not supported yet.
+    unsupported-format,
+    /// The recipe does not parse or fails validation; the message says why.
+    invalid-recipe(string),
+    /// The image exceeds the decode limits (64 million pixels, 256 MiB decompressed).
+    too-large,
+  }
+
+  enum param-kind { float, int, %enum, strategy }
+
+  enum format { png, webp }
+
+  record param-info {
+    /// Name as written in the recipe and in `-f name:key=value`.
+    name: string,
+    kind: param-kind,
+    min: option<f64>,
+    max: option<f64>,
+    /// `none` means the parameter is required.
+    default: option<string>,
+    /// Valid values of an `enum` parameter, empty otherwise.
+    choices: list<string>,
+    doc: string,
+  }
+
+  record filter-info {
+    /// Kebab-case name, as in `-f`.
+    name: string,
+    /// PascalCase `type:` value in a recipe.
+    yaml-type: string,
+    aliases: list<string>,
+    doc: string,
+    example: string,
+    formats: list<format>,
+    params: list<param-info>,
+    deprecated: bool,
+  }
+
+  /// Every built-in filter with its parameters, ranges and defaults.
+  list-filters: func() -> list<filter-info>;
+
+  /// Checks a recipe without an image.
+  validate-recipe: func(recipe: string) -> result<_, glitch-error>;
+
+  /// Applies `recipe` to the PNG `image`. `recipe` is the YAML or JSON of the CLI's `--config`
+  /// file; steps may use `rows` and `rect` but not `mask`. The same image, recipe and seed
+  /// always give the same bytes.
+  glitch: func(image: list<u8>, recipe: string, seed: u64) -> result<list<u8>, glitch-error>;
+}
+
+world png-glitch {
+  export glitch;
+}
