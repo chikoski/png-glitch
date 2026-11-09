@@ -15,10 +15,10 @@ thiserror.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true
 serde.workspace = true
+serde-saphyr.workspace = true
 clap = { workspace = true, optional = true }
 
 [dev-dependencies]
-serde-saphyr.workspace = true
 image.workspace = true
 fdeflate.workspace = true
 crc32fast.workspace = true

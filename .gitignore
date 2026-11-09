@@ -13,3 +13,4 @@ PngSuite
 **/bindings.rs
 **/.idea
 .claude
+!crates/png-glitch-component/src/probe.png

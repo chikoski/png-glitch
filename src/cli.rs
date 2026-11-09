@@ -3,7 +3,6 @@ use png_glitch_recipe::{
     AlphaGlitchStrategy, BitOp, FilterConfig, FilterEntry, MAX_RANDOM_COPY_TIMES, MaskRef,
     PreProcess, RectSpec, RegenerateStrategy, RowRange, SortCriterion, SwapTarget,
 };
-use serde::Deserialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SubstituteArg {
@@ -1396,8 +1395,5 @@ pub struct Cli {
     pub lossy_quality: Option<f32>,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ConfigFile {
-    pub filters: Vec<FilterEntry>,
-}
+/// The `--config` file format (defined in `png-glitch-recipe`).
+pub use png_glitch_recipe::RecipeFile as ConfigFile;

@@ -36,6 +36,9 @@ pub enum RecipeError {
     /// A random specification (effect parameter) is out of range or otherwise invalid.
     #[error("{0}")]
     InvalidSpec(String),
+    /// A recipe file (YAML or JSON) could not be parsed or failed validation.
+    #[error("invalid recipe: {0}")]
+    InvalidRecipe(String),
     /// A resolved recipe was executed on an image whose header differs from the one it was resolved for.
     #[error("resolved recipe does not match the image: expected {expected:?}, got {actual:?}")]
     HeaderMismatch {

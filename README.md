@@ -2,6 +2,8 @@
 
 `png-glitch` is a powerful tool and library suite for the intentional corruption of **PNG** and **WebP** images, creating unique "glitch art" by manipulating pixel data, scanline filters, and underlying compression structures.
 
+> **WebAssembly:** `crates/png-glitch-component` builds png-glitch as a WASI 0.2 component (PNG in, PNG out, seeded and deterministic). See its [README](crates/png-glitch-component/README.md).
+
 ## Installation
 
 To install `png-glitch` from crates.io, run the following command:
