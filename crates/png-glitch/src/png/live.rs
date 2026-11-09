@@ -287,6 +287,27 @@ impl Png {
         Ok(())
     }
 
+    /// Copies the scan-line data (filter-type bytes included) of `other` into `self` without
+    /// allocating. Both must have the same size, colour type and bit depth.
+    pub(crate) fn copy_data_from(&mut self, other: &Png) -> Result<(), PngError> {
+        let same = (
+            self.header.width(),
+            self.header.height(),
+            self.header.color_type(),
+            self.header.bit_depth(),
+        ) == (
+            other.header.width(),
+            other.header.height(),
+            other.header.color_type(),
+            other.header.bit_depth(),
+        );
+        if !same || self.data.len() != other.data.len() {
+            return Err(PngError::HeaderMismatch);
+        }
+        self.data.copy_from_slice(&other.data);
+        Ok(())
+    }
+
     /// Refills the scan lines from `rgba` without allocating. `enc` must be the encoding the
     /// model was created with.
     pub(crate) fn reload_pixels(&mut self, rgba: &[u8], enc: &Encoding) -> Result<(), PngError> {

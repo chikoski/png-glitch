@@ -215,6 +215,29 @@ impl PngGlitch {
         self.png.reload_pixels(rgba, enc)
     }
 
+    /// Copies the scan-line data of `other` (filter-type bytes included) into `self`, so that
+    /// both hold the same filtered bytes again. It makes **no heap allocation**; keep a clean
+    /// copy of a model and call this to restore it. Ancillary chunks and the encoding of a
+    /// model made by [`from_pixels`](Self::from_pixels) are not touched.
+    ///
+    /// # Errors
+    /// [`PngError::HeaderMismatch`] if the size, colour type or bit depth differ.
+    ///
+    /// ```
+    /// use png_glitch::{Encoding, FilterStrategy, FilterType, PixelSource, PngGlitch};
+    /// let frame = vec![9u8; 4 * 4 * 4];
+    /// let enc = Encoding::rgba8(FilterStrategy::Fixed(FilterType::Sub));
+    /// let clean = PngGlitch::from_pixels(PixelSource::rgba8(4, 4, &frame), enc.clone())?;
+    /// let mut glitched = PngGlitch::from_pixels(PixelSource::rgba8(4, 4, &frame), enc)?;
+    /// glitched.scan_lines_mut().swap(0, 3);
+    /// glitched.copy_data_from(&clean)?;
+    /// assert_eq!(glitched.to_bytes()?, clean.to_bytes()?);
+    /// # Ok::<(), png_glitch::PngError>(())
+    /// ```
+    pub fn copy_data_from(&mut self, other: &PngGlitch) -> Result<(), PngError> {
+        self.png.copy_data_from(&other.png)
+    }
+
     /// Recomputes every filtered value with `strategy`, in place: an **explicit generation
     /// boundary**. It removes the filters (`D`) and applies new ones (`E`), so earlier glitches
     /// are baked into the pixels; the reconstructed pixels do not change, only the scan lines.

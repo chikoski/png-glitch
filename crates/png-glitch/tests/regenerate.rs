@@ -175,7 +175,7 @@ fn live_pipeline_regenerate_keeps_its_encoding_and_pixels() {
     live.decode_into(&mut after).unwrap();
     assert_eq!(before, after);
     assert_eq!(
-        live.encoding().filter,
+        live.encoding().expect("made from pixels").filter,
         FilterStrategy::Fixed(FilterType::Sub)
     );
 }

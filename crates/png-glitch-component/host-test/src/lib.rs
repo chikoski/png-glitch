@@ -21,6 +21,13 @@ wasmtime::component::bindgen!({
 });
 
 pub use exports::chikoski::png_glitch::glitch::{FilterInfo, Format, GlitchError, ParamKind};
+pub use exports::chikoski::png_glitch::live::{
+    ColorType, Encoding, FilterStrategy, FilterType, SeedMode,
+};
+use wasmtime::component::ResourceAny;
+
+/// A `session` resource of a [`Host`].
+pub struct Session(ResourceAny);
 
 struct State {
     ctx: WasiCtx,
@@ -84,5 +91,89 @@ impl Host {
         self.bindings
             .chikoski_png_glitch_glitch()
             .call_glitch(&mut self.store, image, recipe, seed)
+    }
+
+    /// `session.from-pixels`.
+    pub fn session_from_pixels(
+        &mut self,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+        enc: &Encoding,
+    ) -> anyhow::Result<Result<Session, GlitchError>> {
+        let r = self
+            .bindings
+            .chikoski_png_glitch_live()
+            .session()
+            .call_from_pixels(&mut self.store, width, height, rgba, enc)?;
+        Ok(r.map(Session))
+    }
+
+    /// `session.from-png`.
+    pub fn session_from_png(&mut self, png: &[u8]) -> anyhow::Result<Result<Session, GlitchError>> {
+        let r = self
+            .bindings
+            .chikoski_png_glitch_live()
+            .session()
+            .call_from_png(&mut self.store, png)?;
+        Ok(r.map(Session))
+    }
+
+    /// `session.reload-pixels`.
+    pub fn reload_pixels(
+        &mut self,
+        s: &Session,
+        rgba: &[u8],
+    ) -> anyhow::Result<Result<(), GlitchError>> {
+        self.bindings
+            .chikoski_png_glitch_live()
+            .session()
+            .call_reload_pixels(&mut self.store, s.0, rgba)
+    }
+
+    /// `session.set-recipe`.
+    pub fn set_recipe(
+        &mut self,
+        s: &Session,
+        recipe: &str,
+        seed: u64,
+        mode: SeedMode,
+    ) -> anyhow::Result<Result<(), GlitchError>> {
+        self.bindings
+            .chikoski_png_glitch_live()
+            .session()
+            .call_set_recipe(&mut self.store, s.0, recipe, seed, mode)
+    }
+
+    /// `session.apply`.
+    pub fn apply(&mut self, s: &Session) -> anyhow::Result<Result<(), GlitchError>> {
+        self.bindings
+            .chikoski_png_glitch_live()
+            .session()
+            .call_apply(&mut self.store, s.0)
+    }
+
+    /// `session.reset`.
+    pub fn reset(&mut self, s: &Session) -> anyhow::Result<Result<(), GlitchError>> {
+        self.bindings
+            .chikoski_png_glitch_live()
+            .session()
+            .call_reset(&mut self.store, s.0)
+    }
+
+    /// `session.render-rgba`.
+    pub fn render_rgba(&mut self, s: &Session) -> anyhow::Result<Result<Vec<u8>, GlitchError>> {
+        self.bindings
+            .chikoski_png_glitch_live()
+            .session()
+            .call_render_rgba(&mut self.store, s.0)
+    }
+
+    /// `session.snapshot`.
+    pub fn snapshot(&mut self, s: &Session) -> anyhow::Result<Result<Vec<u8>, GlitchError>> {
+        self.bindings
+            .chikoski_png_glitch_live()
+            .session()
+            .call_snapshot(&mut self.store, s.0)
     }
 }

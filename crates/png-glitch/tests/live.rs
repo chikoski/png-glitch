@@ -320,3 +320,45 @@ fn par_for_each_matches_for_each_mut() {
     b.scan_lines_mut().par_for_each(|row| row.update(5, 0x42));
     assert_eq!(a.data(), b.data());
 }
+
+#[test]
+fn copy_data_from_restores_a_glitched_model_and_checks_the_header() {
+    let frame = noise(3, 8 * 6 * 4);
+    let enc = Encoding::rgba8(FilterStrategy::Fixed(FilterType::Sub));
+    let clean = PngGlitch::from_pixels(PixelSource::rgba8(8, 6, &frame), enc.clone()).unwrap();
+    let mut model = PngGlitch::from_pixels(PixelSource::rgba8(8, 6, &frame), enc.clone()).unwrap();
+    model.scan_lines_mut().swap(0, 5);
+    assert_ne!(model.data(), clean.data());
+    model.copy_data_from(&clean).unwrap();
+    assert_eq!(model.data(), clean.data());
+
+    let other =
+        PngGlitch::from_pixels(PixelSource::rgba8(6, 8, &noise(3, 6 * 8 * 4)), enc).unwrap();
+    assert!(matches!(
+        model.copy_data_from(&other),
+        Err(png_glitch::PngError::HeaderMismatch)
+    ));
+}
+
+#[test]
+fn a_pipeline_from_a_png_decodes_regenerates_and_snapshots() {
+    let png = include_bytes!("../etc/sample00.png");
+    let mut live = LivePipeline::from_png(PngGlitch::from_bytes(png).unwrap());
+    assert!(live.encoding().is_none());
+    let (w, h) = {
+        let m = live.model();
+        (m.width(), m.height())
+    };
+    let mut out = vec![0u8; (w * h * 4) as usize];
+    live.decode_into(&mut out).unwrap();
+    live.regenerate(&FilterStrategy::Fixed(FilterType::Paeth))
+        .unwrap();
+    let mut again = vec![0u8; out.len()];
+    live.decode_into(&mut again).unwrap();
+    assert_eq!(out, again);
+    assert!(live.snapshot().unwrap().starts_with(b"\x89PNG"));
+    assert!(matches!(
+        live.encode(&out),
+        Err(png_glitch::PngError::NotCreatedFromPixels)
+    ));
+}

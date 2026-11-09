@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### WebAssembly component: `session` resource for live use (#87)
+
+#### Added
+- `live.session` in `png-glitch-component` (WIT): `from-png`, `from-pixels` (8-bit gray, gray-alpha, rgb, rgba; fixed, pattern or adaptive filters), `reload-pixels`, `set-recipe` (parse once; `fixed` or `per-frame` seeds), `apply`, `reset`, `render-rgba` and `snapshot`. `glitch-error` gains `no-recipe` and `unsupported-encoding`. A Rust `Session` type carries the logic: `render-rgba` equals the `image` crate's decoding of `snapshot` for every colour type, filter strategy and recipe tested, and `reload_pixels` -> `apply` -> `render_into` / `reset` make no heap allocation (counting allocator test).
+- `png-glitch`: `PngGlitch::copy_data_from` (restore the scan lines of a model from a clean copy without allocating), `LivePipeline::from_png` (a live loop over a model opened from a file) and `LivePipeline::restore_from`.
+
+#### Changed
+- `png-glitch`: `LivePipeline::encoding()` returns `Option<&Encoding>` (`None` for a pipeline made by `from_png`).
+
 ### WebAssembly component MVP (#86)
 
 #### Added

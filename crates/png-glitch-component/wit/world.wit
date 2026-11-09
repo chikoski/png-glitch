@@ -11,6 +11,10 @@ interface glitch {
     invalid-recipe(string),
     /// The image exceeds the decode limits (64 million pixels, 256 MiB decompressed).
     too-large,
+    /// `apply` was called on a session without a recipe (see `set-recipe`).
+    no-recipe,
+    /// The encoding is not supported: only 8-bit gray, gray-alpha, rgb and rgba for now.
+    unsupported-encoding,
   }
 
   enum param-kind { float, int, %enum, strategy }
@@ -55,6 +59,62 @@ interface glitch {
   glitch: func(image: list<u8>, recipe: string, seed: u64) -> result<list<u8>, glitch-error>;
 }
 
+/// A resident PNG model for live use: the scan lines stay in memory, the recipe is parsed once,
+/// and compression happens only in `snapshot`.
+interface live {
+  use glitch.{glitch-error};
+
+  enum color-type { gray, gray-alpha, rgb, rgba }
+
+  enum filter-type { none, sub, up, average, paeth }
+
+  variant filter-strategy {
+    /// Every row uses this filter type.
+    fixed(filter-type),
+    /// Row `y` uses `pattern[y % len]`; must not be empty.
+    pattern(list<filter-type>),
+    /// libpng's heuristic. About ten times the cost of a fixed filter: avoid it in a live loop.
+    adaptive,
+  }
+
+  record encoding {
+    color-type: color-type,
+    /// Only 8 is supported; other values give `unsupported-encoding`.
+    bit-depth: u8,
+    filter: filter-strategy,
+  }
+
+  /// How each frame is seeded by `apply`.
+  enum seed-mode {
+    /// The same seed for every frame.
+    fixed,
+    /// Frame n uses a seed derived from `seed` and n (SplitMix64, `frame_seed` in the Rust API).
+    per-frame,
+  }
+
+  resource session {
+    /// From a real PNG file. `reload-pixels` is not available on such a session.
+    from-png: static func(png: list<u8>) -> result<session, glitch-error>;
+    /// From RGBA8 pixels (`width * height * 4` bytes): only the PNG encoder's filter step runs.
+    from-pixels: static func(width: u32, height: u32, rgba: list<u8>, enc: encoding) -> result<session, glitch-error>;
+    /// Refills the model with the next frame and discards earlier glitches.
+    reload-pixels: func(rgba: list<u8>) -> result<_, glitch-error>;
+
+    /// Parses `recipe` (the format of `glitch`) once and keeps it. `apply` runs it.
+    set-recipe: func(recipe: string, seed: u64, mode: seed-mode) -> result<_, glitch-error>;
+    /// Runs the recipe on the current scan lines. Parses nothing.
+    apply: func() -> result<_, glitch-error>;
+    /// Restores the model as it was after the last `from-png`, `from-pixels` or `reload-pixels`.
+    reset: func() -> result<_, glitch-error>;
+
+    /// The current frame as RGBA8 (`width * height * 4` bytes), equal to decoding `snapshot`.
+    render-rgba: func() -> result<list<u8>, glitch-error>;
+    /// The current frame as a real PNG file (compression runs here).
+    snapshot: func() -> result<list<u8>, glitch-error>;
+  }
+}
+
 world png-glitch {
   export glitch;
+  export live;
 }
