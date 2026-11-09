@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Browser benchmark and decoder equivalence for the wasm component (#146)
+
+#### Added
+- `bench/browser`: a headless Chrome harness (jco, Playwright; exact versions pinned in `package.json` and `package-lock.json`) that runs the component's `session` live loop in a Web Worker and reports per-stage and per-frame timings in the JSON schema of `png-glitch-bench`, so `png-glitch-bench compare` works on it. `npm run bench`, `npm run equivalence` (byte-exact comparison of `render-rgba` with Chrome's PNG decoder), `npm test` (the JavaScript frame generator equals the Rust one by CRC-32). The run fails if wasm linear memory grows after warm-up.
+- `png-glitch-bench`: a test pins the CRC-32 of four fixture frames for the JavaScript port.
+- CI: a `browser` job in `bench.yml` (not a required check) runs the equivalence check and compares base and head alternately; it skips the comparison if the base has no component with a `live` interface.
+
 ### WebAssembly component: `session` resource for live use (#87)
 
 #### Added

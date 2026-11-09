@@ -1,0 +1,144 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>png-glitch decoder equivalence</title>
+<script type="module">
+  import * as component from "./dist/component.js";
+
+  const W = 96, H = 64;
+  const RECIPES = {
+    swap: "filters:\n  - type: transpose\n    magnitude: 0.3\n  - type: replace\n    magnitude: 0.1\n",
+    regenerate: "filters:\n  - type: invert\n  - type: sub-filter\n  - type: set-zero\n    magnitude: 0.1\n",
+    filter_tags: "filters:\n  - type: change-filter-type\n    magnitude: 0.5\n",
+  };
+  const ENCODINGS = [
+    ["rgba", { tag: "fixed", val: "paeth" }],
+    ["rgba", { tag: "adaptive" }],
+    ["rgb", { tag: "pattern", val: ["sub", "up", "none", "average"] }],
+    ["gray-alpha", { tag: "fixed", val: "up" }],
+    ["gray", { tag: "fixed", val: "sub" }],
+  ];
+
+  function frame(k, alpha) {
+    const px = new Uint8Array(W * H * 4);
+    for (let i = 0; i < W * H; i++) {
+      const x = i % W, y = (i / W) | 0;
+      px[i * 4] = (x * 255 / W + k * 17) & 255;
+      px[i * 4 + 1] = (y * 255 / H + k * 31) & 255;
+      px[i * 4 + 2] = ((x * y) + k * 5) & 255;
+      px[i * 4 + 3] = alpha ? (40 + ((x + 2 * y + 61 * k) % 200)) : 255;
+    }
+    return px;
+  }
+
+  // Opaque images: createImageBitmap -> canvas, with every colour conversion switched off.
+  async function viaCanvas(png) {
+    const bmp = await createImageBitmap(new Blob([png], { type: "image/png" }), {
+      colorSpaceConversion: "none",
+      premultiplyAlpha: "none",
+    });
+    const canvas = new OffscreenCanvas(bmp.width, bmp.height);
+    const ctx = canvas.getContext("2d", { colorSpace: "srgb", willReadFrequently: true });
+    ctx.drawImage(bmp, 0, 0);
+    return new Uint8Array(ctx.getImageData(0, 0, bmp.width, bmp.height).data.buffer);
+  }
+
+  // Images with alpha: WebCodecs, which keeps straight (non-premultiplied) alpha.
+  async function viaImageDecoder(png) {
+    const dec = new ImageDecoder({ data: png, type: "image/png", colorSpaceConversion: "none", premultiplyAlpha: "none" });
+    const { image } = await dec.decode();
+    const out = new Uint8Array(image.allocationSize({ format: "RGBA" }));
+    await image.copyTo(out, { format: "RGBA" });
+    image.close();
+    dec.close();
+    return out;
+  }
+
+  // Images with alpha, second route: an ImageBitmap uploaded to a WebGL texture without
+  // premultiplying, then read back from a framebuffer.
+  async function viaWebGL(png) {
+    const bmp = await createImageBitmap(new Blob([png], { type: "image/png" }), {
+      colorSpaceConversion: "none",
+      premultiplyAlpha: "none",
+    });
+    const gl = new OffscreenCanvas(bmp.width, bmp.height).getContext("webgl2", { premultipliedAlpha: false, alpha: true });
+    if (!gl) throw new Error("WebGL2 is not available");
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, bmp);
+    const fb = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    const out = new Uint8Array(bmp.width * bmp.height * 4);
+    gl.readPixels(0, 0, bmp.width, bmp.height, gl.RGBA, gl.UNSIGNED_BYTE, out);
+    // WebGL's origin is the bottom-left, but texImage2D of an ImageBitmap is not flipped, so
+    // row 0 of the texture is the top row of the image.
+    return out;
+  }
+
+  // True if `theirs` is `mine` after a premultiply / unpremultiply round trip, which is what
+  // ImageDecoder.copyTo returns in Chrome whatever premultiplyAlpha says: alpha is equal and
+  // each colour differs by at most the quantisation step 255 / alpha (and is exact at alpha 255).
+  function isAlphaRoundTrip(mine, theirs) {
+    if (mine.length !== theirs.length) return false;
+    for (let i = 0; i < mine.length; i += 4) {
+      const a = mine[i + 3];
+      if (a !== theirs[i + 3]) return false;
+      const tolerance = a === 255 ? 0 : Math.ceil(255 / a);
+      for (let c = 0; c < 3; c++) {
+        if (Math.abs(mine[i + c] - theirs[i + c]) > tolerance) return false;
+      }
+    }
+    return true;
+  }
+
+  function firstDifference(a, b) {
+    if (a.length !== b.length) return `length ${a.length} vs ${b.length}`;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) {
+        const p = (i / 4) | 0;
+        return `pixel (${p % W}, ${(p / W) | 0}) channel ${i % 4}: component ${a[i]}, Chrome ${b[i]}`;
+      }
+    }
+    return null;
+  }
+
+  window.runEquivalence = async () => {
+    const { Session } = component.live;
+    const results = [];
+    const hasDecoder = typeof ImageDecoder !== "undefined";
+    for (const [color, filter] of ENCODINGS) {
+      for (const [name, recipe] of Object.entries(RECIPES)) {
+        const alpha = color === "rgba" || color === "gray-alpha";
+        for (const k of [0, 1]) {
+          const label = `${color}/${filter.tag}/${name}/frame${k}`;
+          const s = Session.fromPixels(W, H, frame(k, alpha), { colorType: color, bitDepth: 8, filter });
+          s.setRecipe(recipe, 7n, "per-frame");
+          s.reloadPixels(frame(k, alpha));
+          s.apply();
+          const mine = s.renderRgba();
+          const png = s.snapshot();
+          let via = "canvas", theirs;
+          if (alpha) {
+            if (hasDecoder) {
+              const theirs = await viaImageDecoder(png);
+              const d = firstDifference(mine, theirs);
+              // Documented, not a failure: ImageDecoder hands out alpha that went through premultiplication.
+              const status = !d ? "equal" : isAlphaRoundTrip(mine, theirs) ? "premultiplied" : "differs";
+              results.push({ label, via: "ImageDecoder", status, detail: d });
+            }
+            via = "WebGL";
+            theirs = await viaWebGL(png);
+          } else {
+            theirs = await viaCanvas(png);
+          }
+          const diff = firstDifference(mine, theirs);
+          results.push({ label, via, status: diff ? "differs" : "equal", detail: diff });
+        }
+      }
+    }
+    return { userAgent: navigator.userAgent, results };
+  };
+  window.ready = true;
+</script>

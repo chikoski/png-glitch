@@ -1,0 +1,16 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>png-glitch browser benchmark</title>
+<script type="module">
+  // window.runBench(options) -> Promise<report>; the worker does the work so the page's main
+  // thread stays free, as it would in a real webcam app.
+  window.runBench = (options) =>
+    new Promise((resolve, reject) => {
+      const worker = new Worker("./bench-worker.mjs", { type: "module" });
+      worker.onmessage = (e) => (e.data.ok ? resolve(e.data.report) : reject(new Error(e.data.error)));
+      worker.onerror = (e) => reject(new Error(e.message));
+      worker.postMessage({ ...options, componentUrl: new URL(`./${options.dist ?? "dist"}/component.js`, location.href).href });
+    });
+  window.ready = true;
+</script>
+<body>png-glitch browser benchmark: use window.runBench()</body>
