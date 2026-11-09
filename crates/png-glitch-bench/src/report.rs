@@ -42,6 +42,12 @@ pub struct Report {
     pub stages: Vec<StageReport>,
 }
 
+/// Live heap growth over a run that is not a failure, in bytes: a lazy one-time initialisation
+/// (thread-local state, a runtime's registry) can land in the first timed iteration and stay
+/// live. A leak per frame cannot hide behind it: it allocates in every iteration, which the
+/// `alloc_iters` check catches, and a frame-sized one is far above it.
+pub const HEAP_GROWTH_TOLERANCE: u64 = 4096;
+
 /// Stages that must not allocate in steady state: the live path (`Encoding`/`reload_pixels`,
 /// `Renderer`, `LivePipeline`, `LiveRecipe`) and the effects that run on scan lines in place,
 /// which `crates/png-glitch/tests/*_alloc.rs` already cover. `parse`, `serialize` and
@@ -75,7 +81,7 @@ impl Report {
     /// A live stage fails when it allocates in more than `max(1, frames / 10)` timed iterations
     /// (one stray iteration is tolerated: the counter is global, so it also sees other threads,
     /// e.g. a rayon worker waking up), or when its live heap at the end of the loop is larger
-    /// than at the start.
+    /// than at the start by more than [`HEAP_GROWTH_TOLERANCE`].
     pub fn live_violations(&self) -> Vec<String> {
         let allowed = (self.meta.frames / 10).max(1);
         let mut out = Vec::new();
@@ -86,7 +92,7 @@ impl Report {
                     s.name, s.alloc_iters, self.meta.frames, s.alloc_bytes_per_iter
                 ));
             }
-            if s.live_bytes_end > s.live_bytes_start {
+            if s.live_bytes_end > s.live_bytes_start + HEAP_GROWTH_TOLERANCE {
                 out.push(format!(
                     "{}: live heap grew by {} bytes over the run ({} -> {})",
                     s.name,
@@ -215,14 +221,15 @@ mod tests {
             vec![
                 stage("live/encode", 30, 100, 100),
                 stage("live/decode", 1, 100, 100), // one stray iteration is tolerated
-                stage("effect/invert", 0, 100, 164), // heap grew
-                stage("parse", 30, 100, 900),      // report-only
+                stage("effect/invert", 0, 100, 100 + HEAP_GROWTH_TOLERANCE + 64), // heap grew
+                stage("effect/darken", 0, 100, 100 + HEAP_GROWTH_TOLERANCE), // a one-time 4 KiB is tolerated
+                stage("parse", 30, 100, 900),                                // report-only
             ],
         );
         let v = r.live_violations();
         assert_eq!(v.len(), 2, "{v:?}");
         assert!(v[0].starts_with("live/encode: allocated in 30 of 30"));
-        assert!(v[1].starts_with("effect/invert: live heap grew by 64 bytes"));
+        assert!(v[1].starts_with("effect/invert: live heap grew by 4160 bytes"));
     }
 
     #[test]
