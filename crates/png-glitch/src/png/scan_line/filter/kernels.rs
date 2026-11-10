@@ -121,16 +121,38 @@ const COST_BLOCK: usize = 256;
 
 #[inline(always)]
 fn abs_cost(c: u8, predicted: u8) -> u32 {
-    u32::from((c.wrapping_sub(predicted) as i8).unsigned_abs())
+    u32::from(abs_cost16(c, predicted))
 }
 
-/// Bytes per lane group of the adaptive cost loops: eight 16-bit lanes are exactly one 128-bit
-/// vector (SSE2, NEON, wasm `simd128`). Measured at 1080p RGBA: the Paeth cost went from 23 ms to
-/// 4 ms with 8 lanes, and stayed at 20 ms with 16 or 32.
-const LANES: usize = 8;
+#[inline(always)]
+fn abs_cost16(c: u8, predicted: u8) -> u16 {
+    u16::from((c.wrapping_sub(predicted) as i8).unsigned_abs())
+}
 
-/// Sum of `|c - predict(left, top, top_left) as i8|` over equally long slices, as fixed-size
-/// lane groups plus a scalar tail, so that LLVM vectorises the groups.
+/// Bytes per lane group of the adaptive cost loops: two 128-bit vectors of bytes (SSE2, NEON,
+/// wasm `simd128`), whose costs are kept in `[u16; LANES]` accumulators (four vectors).
+/// Measured at 1080p RGBA (#154): with `u16` accumulators 32 lanes beat 16 on native, wasmtime
+/// and V8 alike; with 16, LLVM vectorised the Average loop across lane groups with stride-16
+/// gathers on x86 and gave up on wasm.
+const LANES: usize = 32;
+
+// A lane takes at most `COST_BLOCK / LANES` costs of at most 128 per block.
+const _: () = assert!((COST_BLOCK / LANES) * 128 <= u16::MAX as usize);
+
+/// Sums `[u16; LANES]` accumulators, once per block. The lane additions cannot overflow (see the
+/// assertion above); they are written as `wrapping_add` only because the release profile keeps
+/// overflow checks on, and a checked add per byte stops LLVM from vectorising the loop (2 to 3
+/// times slower).
+#[inline(always)]
+fn reduce(acc: [u16; LANES]) -> u32 {
+    acc.iter().map(|&a| u32::from(a)).sum()
+}
+
+/// Sum of `|c - predict(left, top, top_left) as i8|` over equally long slices of at most
+/// [`COST_BLOCK`] bytes. Each lane group is first filtered into a byte array, then its costs
+/// are added lane by lane into `u16` accumulators that are reduced once per block. A horizontal
+/// sum per lane group into a `u32` (the shape before) took about as long as the predictor on
+/// wasm, where every widening to `u32` costs shuffles.
 #[inline(always)]
 fn lane_cost(
     cur: &[u8],
@@ -139,18 +161,22 @@ fn lane_cost(
     top_left: &[u8],
     predict: impl Fn(u8, u8, u8) -> u8,
 ) -> u32 {
+    debug_assert!(cur.len() <= COST_BLOCK);
     let (cur, cur_tail) = cur.as_chunks::<LANES>();
     let (left, left_tail) = left.as_chunks::<LANES>();
     let (top, top_tail) = top.as_chunks::<LANES>();
     let (top_left, top_left_tail) = top_left.as_chunks::<LANES>();
-    let mut sum = 0u32;
+    let mut acc = [0u16; LANES];
     for (((c, l), t), tl) in cur.iter().zip(left).zip(top).zip(top_left) {
-        let mut lanes = 0u32;
-        for (((&c, &l), &t), &tl) in c.iter().zip(l).zip(t).zip(tl) {
-            lanes += abs_cost(c, predict(l, t, tl));
+        let mut d = [0u8; LANES];
+        for (((d, &c), (&l, &t)), &tl) in d.iter_mut().zip(c).zip(l.iter().zip(t)).zip(tl) {
+            *d = c.wrapping_sub(predict(l, t, tl));
         }
-        sum += lanes;
+        for (a, d) in acc.iter_mut().zip(d) {
+            *a = a.wrapping_add(u16::from((d as i8).unsigned_abs()));
+        }
     }
+    let mut sum = reduce(acc);
     let tails = cur_tail
         .iter()
         .zip(left_tail)
@@ -166,7 +192,8 @@ fn lane_cost(
 /// in that order and keeping the first minimum (libpng's "minimum sum of absolute differences",
 /// ties to the lowest type), computed faster and with the same result for every input:
 ///
-/// 1. the sums are taken over eight-byte lane groups, which LLVM vectorises (see [`LANES`]);
+/// 1. the sums are taken over lane groups with `u16` lane accumulators, which LLVM vectorises
+///    (see [`LANES`]);
 /// 2. `Average` and `Paeth` stop as soon as a block ends with a partial sum that is already at
 ///    least the best complete sum so far: a candidate that reaches the best cost cannot be
 ///    chosen (a tie goes to the lower type), so the choice does not change.
@@ -184,7 +211,7 @@ pub fn adaptive_filter(bpp: usize, cur: &[u8], prev: Option<&[u8]>) -> Option<Fi
         best = (up, FilterType::Up);
     }
     // Average and Paeth, with the early exit.
-    let avg = row.cost(best.0, |l, t, _| average(l, t));
+    let avg = row.cost(best.0, |l, t, _| average8(l, t));
     if avg < best.0 {
         best = (avg, FilterType::Average);
     }
@@ -240,21 +267,19 @@ impl<'a> AdaptiveRow<'a> {
             .zip(self.cur_left.chunks(COST_BLOCK))
             .zip(self.top_rest.chunks(COST_BLOCK))
         {
-            let (c8, c_tail) = c.as_chunks::<LANES>();
-            let (l8, l_tail) = l.as_chunks::<LANES>();
-            let (t8, t_tail) = t.as_chunks::<LANES>();
-            let (mut n, mut s, mut u) = (0u32, 0u32, 0u32);
-            for ((c, l), t) in c8.iter().zip(l8).zip(t8) {
-                let (mut ln, mut ls, mut lu) = (0u32, 0u32, 0u32);
-                for ((&c, &l), &t) in c.iter().zip(l).zip(t) {
-                    ln += abs_cost(c, 0);
-                    ls += abs_cost(c, l);
-                    lu += abs_cost(c, t);
+            let (c_lanes, c_tail) = c.as_chunks::<LANES>();
+            let (l_lanes, l_tail) = l.as_chunks::<LANES>();
+            let (t_lanes, t_tail) = t.as_chunks::<LANES>();
+            let (mut an, mut as_, mut au) = ([0u16; LANES], [0u16; LANES], [0u16; LANES]);
+            for ((c, l), t) in c_lanes.iter().zip(l_lanes).zip(t_lanes) {
+                let accs = an.iter_mut().zip(as_.iter_mut()).zip(au.iter_mut());
+                for (((n, s), u), ((&c, &l), &t)) in accs.zip(c.iter().zip(l).zip(t)) {
+                    *n = n.wrapping_add(abs_cost16(c, 0));
+                    *s = s.wrapping_add(abs_cost16(c, l));
+                    *u = u.wrapping_add(abs_cost16(c, t));
                 }
-                n += ln;
-                s += ls;
-                u += lu;
             }
+            let (mut n, mut s, mut u) = (reduce(an), reduce(as_), reduce(au));
             for ((&c, &l), &t) in c_tail.iter().zip(l_tail).zip(t_tail) {
                 n += abs_cost(c, 0);
                 s += abs_cost(c, l);
@@ -419,6 +444,16 @@ fn sub_filter_n<const BPP: usize>(cur: &mut [u8], _prev: Option<&[u8]>) {
 #[inline(always)]
 fn average(left: u8, top: u8) -> u8 {
     ((u16::from(left) + u16::from(top)) >> 1) as u8
+}
+
+/// [`average`] without widening: `a + b = 2 (a & b) + (a ^ b)`, so `(a + b) >> 1` is
+/// `(a & b) + ((a ^ b) >> 1)`, which stays in `u8` and needs no carry. On wasm `simd128` the
+/// widening form needs two `u16` vectors per sixteen bytes in the adaptive cost loop (Average cost
+/// at 1080p RGBA on wasmtime: 3.2 ms with it, 1.3 ms without). The sum is at most 255, so `wrapping_add` never wraps; it only avoids the overflow check of the release
+/// profile, which LLVM cannot prove away here and which stops vectorisation.
+#[inline(always)]
+fn average8(left: u8, top: u8) -> u8 {
+    (left & top).wrapping_add((left ^ top) >> 1)
 }
 
 fn average_unfilter_n<const BPP: usize>(cur: &mut [u8], prev: Option<&[u8]>) {
@@ -892,6 +927,15 @@ mod adaptive_tests {
                         "bpp {bpp}, width {width}, round {round}"
                     );
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn the_narrow_average_equals_the_widening_one() {
+        for l in 0..=255u8 {
+            for t in 0..=255u8 {
+                assert_eq!(average8(l, t), average(l, t), "{l} {t}");
             }
         }
     }
