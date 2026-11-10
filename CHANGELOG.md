@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Allocation-free `PixelSort` (#208)
+
+#### Changed
+- `effects::PixelSort` (`pixel-sort` in a recipe) sorts each row in place with a stable merge sort that uses the scan-line scratch buffer as its other half, instead of collecting the row into a `Vec<Pixel>`. At 8 and 16 bits per sample it makes no heap allocation, so it now follows the live-path allocation rule (#99); packed 1, 2 and 4-bit rows still allocate a pixel list. The order is the same (stable; brightness compares the integer sum `r + g + b`, which orders like `(r + g + b) / 3`), so the output is byte-identical. It is also faster: `effect/pixel-sort` at 1080p, one thread, p50: native 78 ms → 17 ms, wasmtime 55 ms → 21 ms. The benchmark's `--check-live` now covers `effect/pixel-sort`, and the allocation tests of `png-glitch`, `png-glitch-recipe` and the component include it.
+
 ### Allocation-free `rows:` / `rect:` steps in a live loop (#207)
 
 #### Fixed

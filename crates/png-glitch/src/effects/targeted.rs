@@ -311,8 +311,11 @@ pub enum SortCriterion {
 
 /// Sorts the pixels of the listed rows by brightness or hue.
 ///
-/// The sort is stable, so it **allocates** a pixel list for each sorted row. It is the one
-/// built-in [`ScanLinesEffect`] that breaks the allocation rule.
+/// The sort is stable: pixels with the same value keep their order. For 8 and 16 bits per
+/// sample it is a merge sort in place, with the view's scratch buffer (one scan line) as the
+/// other half, so it makes no heap allocation (#208). For 1, 2 and 4 bits per sample (packed
+/// pixels, which the scratch buffer cannot hold one per byte) it still allocates a pixel list
+/// per sorted row.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PixelSort {
     /// Criterion used to compare pixels.
@@ -348,26 +351,202 @@ impl PixelSort {
             }
         }
     }
+
+    /// The brightness order without floating point: `(r + g + b) / 3` as `f64` is exact for
+    /// these sums, so comparing the sums gives the same order (and the same ties).
+    fn brightness_key(p: &Pixel) -> u32 {
+        u32::from(p.r()) + u32::from(p.g()) + u32::from(p.b())
+    }
+
+    /// Sorts the listed rows of `lines`, whose pixels are `BPP` bytes each and decode with
+    /// `decode` (a colour type and bit depth fixed at compile time, so that it inlines).
+    fn sort_rows<const BPP: usize>(
+        &self,
+        lines: &mut ScanLines<'_>,
+        decode: impl Fn(&[u8; BPP]) -> Pixel + Copy,
+    ) {
+        match self.criterion {
+            SortCriterion::Brightness => {
+                self.sort_rows_by(lines, move |c| Self::brightness_key(&decode(c)))
+            }
+            SortCriterion::Hue => self.sort_rows_by(lines, move |c| self.value(&decode(c))),
+        }
+    }
+
+    fn sort_rows_by<const BPP: usize, K: PartialOrd>(
+        &self,
+        lines: &mut ScanLines<'_>,
+        key: impl Fn(&[u8; BPP]) -> K,
+    ) {
+        let width = lines.width() as usize;
+        for &row in &self.rows {
+            let Some((line, scratch)) = lines.row_and_scratch(row as usize) else {
+                continue;
+            };
+            // The pixels the row holds: a malformed row may be shorter than `width` pixels.
+            let start = line.pixel_data_offset();
+            let data = line.data.get_mut(start..).unwrap_or_default();
+            let (pixels, _) = data.as_chunks_mut::<BPP>();
+            let (aux, _) = scratch.as_chunks_mut::<BPP>();
+            let n = width.min(pixels.len());
+            if let (Some(pixels), Some(aux)) = (pixels.get_mut(..n), aux.get_mut(..n)) {
+                stable_sort_by_key(pixels, aux, &key);
+            }
+        }
+    }
+
+    /// The packed (1, 2 and 4 bits per sample) rows: a pixel list per row.
+    fn sort_packed(&self, line: &mut ScanLine) {
+        let mut pixels = Vec::with_capacity(line.pixels_count() as usize);
+        for i in 0..line.pixels_count() as usize {
+            if let Some(p) = line.get_pixel(i) {
+                pixels.push(p);
+            }
+        }
+        pixels.sort_by(|a, b| {
+            self.value(a)
+                .partial_cmp(&self.value(b))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        for (i, p) in pixels.into_iter().enumerate() {
+            line.set_pixel(i, p);
+        }
+    }
 }
 
 impl ScanLinesEffect for PixelSort {
     fn apply_to_scan_lines(&self, lines: &mut ScanLines<'_>) {
-        for_rows(lines, &self.rows, |line| {
-            let mut pixels = Vec::with_capacity(line.pixels_count() as usize);
-            for i in 0..line.pixels_count() as usize {
-                if let Some(p) = line.get_pixel(i) {
-                    pixels.push(p);
+        use ColorType::*;
+        let u16be = |hi: u8, lo: u8| u16::from_be_bytes([hi, lo]);
+        // One instantiation per colour type and bit depth, so that decoding inlines into the
+        // comparisons. The decoders are those of `ScanLine::get_pixel`, written out.
+        match (lines.color_type(), lines.bit_depth()) {
+            (_, 1 | 2 | 4) => for_rows(lines, &self.rows, |line| self.sort_packed(line)),
+            (GrayScale, 8) => self.sort_rows(lines, |&[v]: &[u8; 1]| Pixel::Gray(v.into())),
+            (GrayScale, 16) => {
+                self.sort_rows(lines, move |&[a, b]: &[u8; 2]| Pixel::Gray(u16be(a, b)))
+            }
+            (IndexColor, 8) => self.sort_rows(lines, |&[v]: &[u8; 1]| Pixel::Indexed(v)),
+            (GrayScaleAlpha, 8) => self.sort_rows(lines, |&[v, a]: &[u8; 2]| {
+                Pixel::GrayAlpha(v.into(), a.into())
+            }),
+            (GrayScaleAlpha, 16) => self.sort_rows(lines, move |&[v0, v1, a0, a1]: &[u8; 4]| {
+                Pixel::GrayAlpha(u16be(v0, v1), u16be(a0, a1))
+            }),
+            (TrueColor, 8) => self.sort_rows(lines, |&[r, g, b]: &[u8; 3]| {
+                Pixel::RGB(r.into(), g.into(), b.into())
+            }),
+            (TrueColor, 16) => self.sort_rows(lines, move |&[r0, r1, g0, g1, b0, b1]: &[u8; 6]| {
+                Pixel::RGB(u16be(r0, r1), u16be(g0, g1), u16be(b0, b1))
+            }),
+            (TrueColorAlpha, 8) => self.sort_rows(lines, |&[r, g, b, a]: &[u8; 4]| {
+                Pixel::RGBA(r.into(), g.into(), b.into(), a.into())
+            }),
+            (TrueColorAlpha, 16) => {
+                self.sort_rows(lines, move |&[r0, r1, g0, g1, b0, b1, a0, a1]: &[u8; 8]| {
+                    Pixel::RGBA(u16be(r0, r1), u16be(g0, g1), u16be(b0, b1), u16be(a0, a1))
+                })
+            }
+            // No such pixels: `get_pixel` decodes nothing, so nothing was sorted before either.
+            _ => {}
+        }
+    }
+}
+
+/// Runs shorter than this are sorted by insertion before merging.
+const SORT_RUN: usize = 16;
+
+/// A stable sort of `v` by `key` (ascending, with `<`: incomparable keys count as equal, as with
+/// `sort_by(partial_cmp)` and `unwrap_or(Equal)`), with `aux` (at least as long as `v`) as the
+/// merge buffer: insertion-sorted runs, then bottom-up merges back and forth between `v` and
+/// `aux`. Any stable sort gives the same result for the same order, so this matches
+/// `slice::sort_by`, without its heap buffer.
+fn stable_sort_by_key<T: Copy, K: PartialOrd>(v: &mut [T], aux: &mut [T], key: impl Fn(&T) -> K) {
+    let n = v.len();
+    let Some(aux) = aux.get_mut(..n) else {
+        return;
+    };
+    for run in v.chunks_mut(SORT_RUN) {
+        insertion_sort(run, &key);
+    }
+    let mut width = SORT_RUN;
+    // `true` while the sorted runs are in `aux`.
+    let mut in_aux = false;
+    while width < n {
+        let (src, dst): (&[T], &mut [T]) = if in_aux {
+            (&*aux, &mut *v)
+        } else {
+            (&*v, &mut *aux)
+        };
+        for (src, dst) in src.chunks(2 * width).zip(dst.chunks_mut(2 * width)) {
+            let (left, right) = src.split_at(width.min(src.len()));
+            merge(left, right, dst, &key);
+        }
+        in_aux = !in_aux;
+        width *= 2;
+    }
+    if in_aux {
+        v.copy_from_slice(aux);
+    }
+}
+
+fn insertion_sort<T: Copy, K: PartialOrd>(v: &mut [T], key: &impl Fn(&T) -> K) {
+    for i in 1..v.len() {
+        let Some(item) = v.get(i) else {
+            return;
+        };
+        let k = key(item);
+        let mut j = i;
+        while let Some(prev) = j.checked_sub(1).and_then(|p| v.get(p))
+            && k < key(prev)
+        {
+            j -= 1;
+        }
+        if let Some(part) = v.get_mut(j..=i) {
+            part.rotate_right(1);
+        }
+    }
+}
+
+/// Merges the sorted `left` and `right` into `out` (`left.len() + right.len()` long). On a tie
+/// the element of `left` comes first, which keeps the sort stable. Each element's key is
+/// computed once.
+fn merge<T: Copy, K: PartialOrd>(left: &[T], right: &[T], out: &mut [T], key: &impl Fn(&T) -> K) {
+    // Already in order (common on smooth rows): copy.
+    if let (Some(last), Some(first)) = (left.last(), right.first())
+        && key(first).partial_cmp(&key(last)) != Some(std::cmp::Ordering::Less)
+    {
+        let (a, b) = out.split_at_mut(left.len().min(out.len()));
+        a.copy_from_slice(left.get(..a.len()).unwrap_or_default());
+        b.copy_from_slice(right.get(..b.len()).unwrap_or_default());
+        return;
+    }
+    let (mut l, mut r) = (left.iter(), right.iter());
+    let (mut a, mut b) = (l.next(), r.next());
+    let (mut ka, mut kb) = (a.map(key), b.map(key));
+    for o in out {
+        match (a, b) {
+            (Some(x), Some(y)) => {
+                if kb.as_ref().zip(ka.as_ref()).is_some_and(|(kb, ka)| kb < ka) {
+                    *o = *y;
+                    b = r.next();
+                    kb = b.map(key);
+                } else {
+                    *o = *x;
+                    a = l.next();
+                    ka = a.map(key);
                 }
             }
-            pixels.sort_by(|a, b| {
-                self.value(a)
-                    .partial_cmp(&self.value(b))
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-            for (i, p) in pixels.into_iter().enumerate() {
-                line.set_pixel(i, p);
+            (Some(x), None) => {
+                *o = *x;
+                a = l.next();
             }
-        });
+            (None, Some(y)) => {
+                *o = *y;
+                b = r.next();
+            }
+            (None, None) => return,
+        }
     }
 }
 
@@ -1094,6 +1273,24 @@ mod oracle_tests {
             check(png, PixelSort::new(criterion, rows), reference::pixel_sort)?;
         }
 
+        /// Rows wide enough for several merge passes (`SORT_RUN` is 16), with few distinct byte
+        /// values so that many pixels tie and the stability shows.
+        #[test]
+        fn pixel_sort_wide_rows_with_ties(
+            (f, w, raw) in (0..FORMATS.len(), 1u32..300).prop_flat_map(|(f, w)| {
+                let (color_type, bit_depth) = FORMATS[f];
+                let channels = match color_type { 0 | 3 => 1, 2 => 3, 4 => 2, _ => 4 };
+                let row = (w as usize * channels * bit_depth as usize).div_ceil(8) + 1;
+                (Just(f), Just(w), proptest::collection::vec(0u8..4, row * 3))
+            }),
+            hue in any::<bool>(),
+        ) {
+            let (color_type, bit_depth) = FORMATS[f];
+            let criterion = if hue { SortCriterion::Hue } else { SortCriterion::Brightness };
+            let png = build(w, 3, color_type, bit_depth, &raw);
+            check(png, PixelSort::new(criterion, vec![0, 1, 2, 2, 7]), reference::pixel_sort)?;
+        }
+
         #[test]
         fn bitwise(png in image(), op in 0..3usize, value in any::<u8>(), rows in rows()) {
             let op = [BitOp::And, BitOp::Or, BitOp::Xor][op];
@@ -1134,6 +1331,34 @@ mod oracle_tests {
         ) {
             let swaps = swaps.into_iter().map(|(src, dst)| BlockSwap { src, dst }).collect();
             check(png, SwapBlocks::new(block_size, swaps), reference::swap_blocks)?;
+        }
+    }
+}
+
+#[cfg(test)]
+mod stable_sort_tests {
+    use super::stable_sort_by_key;
+
+    #[test]
+    fn stable_sort_equals_sort_by_with_ties() {
+        let mut state = 0x2545_f491_4f6c_dd1du64;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        for len in 0..=300 {
+            for keys in [1, 3, 50] {
+                // (key, original position): the position shows whether ties kept their order.
+                let v: Vec<(u64, usize)> = (0..len).map(|i| (next() % keys, i)).collect();
+                let mut expected = v.clone();
+                expected.sort_by_key(|a| a.0); // stable
+                let mut got = v.clone();
+                let mut aux = vec![(0, 0); len];
+                stable_sort_by_key(&mut got, &mut aux, |a| a.0);
+                assert_eq!(got, expected, "len {len}, keys {keys}");
+            }
         }
     }
 }

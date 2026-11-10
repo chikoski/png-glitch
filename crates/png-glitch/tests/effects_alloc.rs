@@ -1,5 +1,5 @@
-//! Built-in `ScanLinesEffect`s must not allocate in `apply_to_scan_lines`. `PixelSort` is the
-//! documented exception and is left out. This is the only test in this file because it installs
+//! Built-in `ScanLinesEffect`s must not allocate in `apply_to_scan_lines` (`PixelSort` too, at 8
+//! and 16 bits per sample, since #208). This is the only test in this file because it installs
 //! a counting global allocator; the counter is thread-local, so rayon workers are not counted:
 //! `LineEffect`s run through `for_each_mut` here, and their parallel path is not covered.
 
@@ -103,6 +103,14 @@ fn built_in_scan_lines_effects_do_not_allocate() {
                 line: 4,
                 offsets: vec![[3, -2, 1]; 64],
             }])),
+        ),
+        (
+            "PixelSort (brightness)",
+            Box::new(PixelSort::new(SortCriterion::Brightness, rows.clone())),
+        ),
+        (
+            "PixelSort (hue)",
+            Box::new(PixelSort::new(SortCriterion::Hue, rows.clone())),
         ),
         (
             "HslShift",

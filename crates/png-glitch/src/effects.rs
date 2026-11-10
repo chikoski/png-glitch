@@ -35,8 +35,9 @@ pub trait Effect {
 /// # Allocation rule
 ///
 /// `apply_to_scan_lines` should make **no heap allocation**: the live pipeline calls it once
-/// per frame. All built-in `ScanLinesEffect`s follow the rule except [`PixelSort`], which
-/// allocates a temporary pixel list per sorted row. Use [`ScanLines::scratch`] (or
+/// per frame. All built-in `ScanLinesEffect`s follow the rule ([`PixelSort`] only at 8 and 16
+/// bits per sample; with packed 1, 2 or 4-bit pixels it allocates a pixel list per sorted row).
+/// Use [`ScanLines::scratch`] (or
 /// [`ScanLines::row_and_scratch`]) for temporary rows instead of a `Vec`, and use
 /// [`ScanLines::get_mut`] instead of [`PngGlitch::scan_lines`], which returns a `Vec`. The
 /// scratch buffer is one scan line long; an effect that needs more should not claim the rule.
