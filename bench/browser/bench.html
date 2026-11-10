@@ -1,16 +1,108 @@
 <!doctype html>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>png-glitch browser benchmark</title>
+<style>body{font:16px system-ui;margin:1rem}button{font:inherit;padding:.8rem 1.5rem}pre{white-space:pre-wrap}</style>
 <script type="module">
+  let wakeLock = null;
+  // The device state that the worker cannot see (#222).
+  async function deviceState() {
+    let battery = null;
+    try {
+      if (navigator.getBattery) {
+        const b = await navigator.getBattery();
+        battery = { charging: b.charging, level: b.level };
+      }
+    } catch { /* not available */ }
+    return {
+      screen: {
+        width: screen.width,
+        height: screen.height,
+        device_pixel_ratio: devicePixelRatio,
+        orientation: screen.orientation?.type ?? null,
+        inner_width: innerWidth,
+        inner_height: innerHeight,
+      },
+      battery,
+      cross_origin_isolated: window.crossOriginIsolated === true,
+    };
+  }
+
   // window.runBench(options) -> Promise<report>; the worker does the work so the page's main
   // thread stays free, as it would in a real webcam app.
-  window.runBench = (options) =>
-    new Promise((resolve, reject) => {
-      const worker = new Worker("./bench-worker.mjs", { type: "module" });
-      worker.onmessage = (e) => (e.data.ok ? resolve(e.data.report) : reject(new Error(e.data.error)));
-      worker.onerror = (e) => reject(new Error(e.message));
-      worker.postMessage({ ...options, componentUrl: new URL(`./${options.dist ?? "dist"}/component.js`, location.href).href });
+  window.runBench = async (options) => {
+    // Keep the screen on, so that a phone does not dim and throttle during a long run.
+    try { wakeLock = await navigator.wakeLock?.request("screen"); } catch { /* ignore */ }
+    const message = { ...options, device: await deviceState() };
+    const transfer = [];
+    let track = null;
+    if (options.camera) {
+      // getUserMedia exists only on the main thread (and needs a user gesture on a phone): get
+      // the track here and hand the frames to the worker.
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1920, height: 1080, frameRate: 30 } });
+      track = stream.getVideoTracks()[0];
+      const processor = new MediaStreamTrackProcessor({ track, maxBufferSize: 1 });
+      message.cameraStream = processor.readable;
+      message.cameraSettings = track.getSettings();
+      transfer.push(processor.readable);
+    }
+    try {
+      return await new Promise((resolve, reject) => {
+        const worker = new Worker("./bench-worker.mjs", { type: "module" });
+        worker.onmessage = (e) => (e.data.ok ? resolve(e.data.report) : reject(new Error(e.data.error)));
+        worker.onerror = (e) => reject(new Error(e.message));
+        worker.postMessage({ ...message, componentUrl: new URL(`./${options.dist ?? "dist"}/component.js`, location.href).href }, transfer);
+      });
+    } finally {
+      track?.stop();
+      try { await wakeLock?.release(); } catch { /* ignore */ }
+    }
+  };
+
+  // --device mode: options come from the URL; the Start button is the user gesture that the
+  // camera needs. The report is posted back to run.mjs.
+  const q = new URLSearchParams(location.search);
+  if (q.size) {
+    const num = (k) => (q.has(k) ? Number(q.get(k)) : undefined);
+    const options = {
+      size: q.get("size") ?? "720p",
+      frames: num("frames") ?? 60,
+      warmup: num("warmup") ?? 10,
+      pool: num("pool") ?? 8,
+      recipe: q.get("recipe") ?? "swap",
+      commit: q.get("commit"),
+      dist: q.get("dist") ?? "dist",
+      duration: num("duration"),
+      camera: q.get("camera") === "1",
+      note: q.get("note"),
+    };
+    addEventListener("DOMContentLoaded", () => {
+      const status = document.getElementById("status");
+      const button = document.getElementById("start");
+      status.textContent = JSON.stringify(options);
+      button.hidden = false;
+      button.onclick = async () => {
+        button.disabled = true;
+        status.textContent = "running…";
+        let body;
+        try {
+          body = await runBench(options);
+        } catch (e) {
+          body = { error: String(e?.stack ?? e) };
+        }
+        try {
+          await fetch("/report", { method: "POST", body: JSON.stringify(body) });
+          status.textContent = body.error ? `failed: ${body.error}` : "done, the report was sent";
+        } catch (e) {
+          status.textContent = `could not send the report: ${e}`;
+        }
+      };
     });
+  }
   window.ready = true;
 </script>
-<body>png-glitch browser benchmark: use window.runBench()</body>
+<body>
+  <p>png-glitch browser benchmark: use window.runBench(), or tap Start in the --device mode.</p>
+  <button id="start" hidden>Start</button>
+  <pre id="status"></pre>
+</body>

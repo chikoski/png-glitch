@@ -8,7 +8,7 @@
     "build": "node build.mjs",
     "bench": "node run.mjs",
     "equivalence": "node equivalence.mjs",
-    "test": "node test-generator.mjs"
+    "test": "node test-generator.mjs && node test-pacing.mjs"
   },
   "dependencies": {
     "@bytecodealliance/jco": "1.41.0",

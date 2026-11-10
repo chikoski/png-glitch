@@ -144,7 +144,17 @@ npm run bench -- --size 1080p --frames 300 --browser-channel chrome   # the inst
 
 `--recipe` is `invert`, `swap` (default) or `regenerate`, the same as the native `live/frame/*` stages. The run **fails if the wasm linear memory grows after warm-up**; it never fails on absolute times.
 
-**This is how the 1080p30 budget of #99 is checked on a reference device:** run the second command above on that device with its own Chrome and read `browser/frame` (p50, p99, max, and the share over 33.3 ms). CI numbers are relative only.
+**This is how the 1080p30 budget of #99 is checked on a reference device** (the Pixel 11 Pro Fold with Chrome for Android, 30 fps; #222). A phone cannot reach the host's `127.0.0.1`, and the page must be cross-origin isolated, which needs a secure context, so forward the port with adb: the phone's `localhost:PORT` is a secure context.
+
+```sh
+adb devices
+adb reverse tcp:8123 tcp:8123
+npm run bench -- --device --port 8123 --size 1080p --duration 600 --note "unfolded, battery saver off, plugged in" --json out/pixel.json
+# open the printed http://localhost:8123/bench.html?... in Chrome on the phone and tap Start
+# (or --android instead of --device: Playwright drives Chrome on the phone; experimental)
+```
+
+`--duration S` runs paced at 30 fps for S seconds, dropping late frames (never queueing), and adds `extra.dropped_frames` and `extra.per_minute` (p50, p95, p99, max, share over 33.3 ms for each minute: a trend is thermal throttling); `--camera` takes the frames from `getUserMedia` (1920x1080 at 30 fps requested, what the camera delivered is in `extra.camera`) and reports the step "frame in" as `browser/camera-in`. The device state (user agent, screen, battery, `--note` for folded/unfolded and battery saver) is in `extra`. Read `browser/frame` (p50, p99, max, and the share over 33.3 ms, per minute) and post it in #99. See [bench/browser/README.md](bench/browser/README.md). CI numbers are relative only, and the CI `browser` job keeps running the desktop headless path.
 
 `npm run equivalence` compares `render-rgba` byte for byte with what Chrome's own PNG decoder reads from `snapshot()`, with colour management off (`colorSpaceConversion: "none"`): `createImageBitmap` + canvas for opaque images, and an `ImageBitmap` uploaded to WebGL without premultiplying for images with alpha (a canvas premultiplies, which is lossy for alpha < 255). It exits 1 on a difference. WebCodecs `ImageDecoder` is also tried: in Chrome its `copyTo({format: "RGBA"})` returns alpha that went through premultiplication whatever `premultiplyAlpha` says (colours off by up to `255 / alpha`), which is reported as `premultiplied` and is not a failure. Not covered: files with `gAMA`, `iCCP` or `sRGB` chunks (the component writes none), 16-bit and palette images (not supported by `from-pixels` yet).
 

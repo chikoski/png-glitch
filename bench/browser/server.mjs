@@ -8,9 +8,26 @@ import { fileURLToPath } from "node:url";
 const root = dirname(fileURLToPath(import.meta.url));
 const TYPES = { ".html": "text/html", ".mjs": "text/javascript", ".js": "text/javascript", ".wasm": "application/wasm", ".json": "application/json", ".png": "image/png" };
 
-export function serve(port = 0, extraRoots = {}) {
+const MAX_REPORT_BYTES = 16 * 1024 * 1024;
+
+// `onReport(json)` receives the body of `POST /report` (the --device mode: the page on the
+// phone posts its report back). It is the only route besides the static files.
+export function serve(port = 0, extraRoots = {}, onReport = undefined) {
   const server = createServer(async (req, res) => {
     try {
+      if (req.method === "POST" && onReport && new URL(req.url, "http://localhost").pathname === "/report") {
+        const chunks = [];
+        let size = 0;
+        for await (const c of req) {
+          size += c.length;
+          if (size > MAX_REPORT_BYTES) throw new Error("report too large");
+          chunks.push(c);
+        }
+        onReport(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+        res.writeHead(204);
+        res.end();
+        return;
+      }
       const url = new URL(req.url, "http://localhost");
       const rel = normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, "");
       const base = Object.entries(extraRoots).find(([prefix]) => rel.startsWith(prefix));
