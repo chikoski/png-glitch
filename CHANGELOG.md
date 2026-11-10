@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Allocation-free `rows:` / `rect:` steps in a live loop (#207)
+
+#### Fixed
+- `Recipe::resolve_into` (so `LiveRecipe` in `SeedMode::PerFrame`) re-resolved a step targeted with `rows:` or `rect:` from scratch on every call, which allocated on every frame. It now reuses the step's buffers, the `Rows` box and a masked step's effect and snapshot buffer, like the other built-in steps; the result is unchanged (equal to `resolve`, and the same bytes when run). A step with a `mask:` image still copies the mask on every call.
+
+#### Added
+- `png_glitch::effects::Masked::effect_mut`: the wrapped effect, to change its parameters in place while keeping the mask and the snapshot buffer.
+
 ### Faster `FilterStrategy::Adaptive` on wasm (#154, step 1b)
 
 #### Changed

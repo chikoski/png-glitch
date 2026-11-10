@@ -35,7 +35,7 @@ resource session {
 - `from-pixels` takes 8-bit `gray`, `gray-alpha`, `rgb` or `rgba`; any other bit depth is `unsupported-encoding`. `filter` is `fixed`, `pattern` or `adaptive` (about twice the cost of a fixed filter at 1080p; `fixed` and `pattern` are the cheapest).
 - `reload-pixels` refills the model with the next frame and discards earlier glitches; `reset` restores the model as it was after the last load. Neither allocates.
 - `render-rgba` is always 8-bit RGBA and equals what a PNG decoder reads from `snapshot` (tested byte for byte). `snapshot` is the only call that compresses.
-- Steady state: the Rust `Session` makes no heap allocation in `reload_pixels` -> `apply` -> `render_into` (tested with a counting allocator, for both seed modes). Returning a `list<u8>` allocates in the guest by design of the canonical ABI. The recipe must not use `pixel-sort` (it allocates a pixel list per row) or `rows:` in `per-frame` mode if this matters.
+- Steady state: the Rust `Session` makes no heap allocation in `reload_pixels` -> `apply` -> `render_into` (tested with a counting allocator, for both seed modes). Returning a `list<u8>` allocates in the guest by design of the canonical ABI. The recipe must not use `pixel-sort` (it allocates a pixel list per row) if this matters; steps with `rows:` or `rect:` are fine in both modes.
 
 ```text
 let s = session.from-pixels(w, h, first_frame, { rgba, 8, fixed(paeth) })
