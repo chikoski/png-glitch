@@ -51,10 +51,10 @@ pub const HEAP_GROWTH_TOLERANCE: u64 = 4096;
 /// Stages that must not allocate in steady state: the live path (`Encoding`/`reload_pixels`,
 /// `Renderer`, `LivePipeline`, `LiveRecipe`) and the effects that run on scan lines in place,
 /// which `crates/png-glitch/tests/*_alloc.rs` already cover. `parse`, `serialize` and
-/// `full-frame` (the file workflow) and `from_pixels/*` (builds a model) are report-only, and so
-/// is `effect/pixel-sort`, which still allocates a pixel list per row (#208).
+/// `full-frame` (the file workflow) and `from_pixels/*` (builds a model) are report-only.
+/// `effect/pixel-sort` is live since it sorts in the scratch buffer (#208).
 pub fn is_live_stage(name: &str) -> bool {
-    const LIVE_EFFECTS: [&str; 11] = [
+    const LIVE_EFFECTS: [&str; 12] = [
         "invert",
         "shift-channels",
         "brighten",
@@ -66,6 +66,7 @@ pub fn is_live_stage(name: &str) -> bool {
         "channel-shift",
         "swap-blocks",
         "masked-invert",
+        "pixel-sort",
     ];
     name.starts_with("live/")
         || name.starts_with("reload_pixels/")
@@ -198,6 +199,7 @@ mod tests {
             "render_into/sub",
             "effect/invert",
             "effect/masked-invert",
+            "effect/pixel-sort",
         ] {
             assert!(is_live_stage(live), "{live}");
         }
@@ -206,7 +208,6 @@ mod tests {
             "serialize",
             "full-frame",
             "from_pixels/rgba-paeth",
-            "effect/pixel-sort",
             "tag-only/set_filter_type",
             "unfilter/sub",
         ] {

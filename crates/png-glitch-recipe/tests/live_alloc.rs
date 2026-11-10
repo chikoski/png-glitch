@@ -17,7 +17,7 @@ use png_glitch::{Encoding, FilterStrategy, FilterType, LivePipeline, PixelSource
 use png_glitch_recipe::rand::SeedableRng;
 use png_glitch_recipe::{
     ChaCha8Rng, FilterConfig, FilterEntry, ImageHeader, LiveRecipe, Recipe, RectSpec, RowRange,
-    SeedMode,
+    SeedMode, SortCriterion,
 };
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
@@ -67,9 +67,9 @@ fn allocations_during(f: impl FnOnce()) -> usize {
     ALLOCATIONS.with(Cell::get)
 }
 
-/// No `PixelSort` (it allocates a pixel list per row when it runs); one generation boundary
-/// in the middle. Every other step has an upper bound on its list sizes. Steps targeted with
-/// `rows:` and `rect:` (#207) reuse their buffers too.
+/// One generation boundary in the middle. Every step has an upper bound on its list sizes.
+/// Steps targeted with `rows:` and `rect:` (#207) reuse their buffers too, and `pixel-sort`
+/// sorts in the scan-line scratch buffer (#208).
 fn recipe() -> Recipe {
     Recipe::new()
         .then(FilterConfig::ChangeFilterType { magnitude: 0.2 })
@@ -109,6 +109,14 @@ fn recipe() -> Recipe {
             b_offset: None,
         })
         .then(FilterConfig::Invert)
+        .then(FilterConfig::PixelSort {
+            magnitude: 0.3,
+            criterion: None,
+        })
+        .then(FilterConfig::PixelSort {
+            magnitude: 0.3,
+            criterion: Some(SortCriterion::Hue),
+        })
         .then_rows(FilterConfig::Invert, RowRange::new(5, 20))
         .then_rows(
             FilterConfig::Replace { magnitude: 0.3 },
