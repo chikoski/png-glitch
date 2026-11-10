@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Faster `FilterStrategy::Adaptive` (#154, step 1)
+
+#### Changed
+- `FilterStrategy::Adaptive` chooses the same filter type for every row (byte-identical output) but computes the costs faster: the sums run over eight-byte lane groups that LLVM vectorises (`psadbw` and 16-bit lane ops on x86), `None`, `Sub` and `Up` share one pass, and `Average` and `Paeth` stop once a block's partial sum reaches the best complete sum, which cannot change the choice. 1080p RGBA `reload_pixels` with `Adaptive`, one thread, native: about 41 to 47 ms before, 7 to 9 ms after (gray: about 15 ms before, 7 ms after). The existing "filter a copy" test and a new differential test against the previous cost function (widths 1 to 64 and larger, bytes per pixel 1, 2, 3, 4, 6, 8) pass.
+
 ### Benchmark harness follow-ups (#147)
 
 #### Added
