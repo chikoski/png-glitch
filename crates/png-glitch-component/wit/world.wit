@@ -73,7 +73,7 @@ interface live {
     fixed(filter-type),
     /// Row `y` uses `pattern[y % len]`; must not be empty.
     pattern(list<filter-type>),
-    /// libpng's heuristic. About ten times the cost of a fixed filter: avoid it in a live loop.
+    /// libpng's heuristic (minimum sum of absolute differences, ties to the lowest type). About twice the cost of a fixed filter.
     adaptive,
   }
 

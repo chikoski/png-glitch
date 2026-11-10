@@ -140,7 +140,7 @@ png.reload_pixels(&next_frame)?;
 let bytes = png.to_bytes()?;
 ```
 
-The encoding is part of the glitch: the same frame with the same effect looks different as RGBA/Paeth, RGB with a `Sub, Up, Paeth` pattern, or gray with the adaptive heuristic (`cargo run --example encodings`). Supported: 8-bit `TrueColorAlpha`, `TrueColor` (alpha dropped), `GrayScaleAlpha` and `GrayScale` (`gray = (77R + 150G + 29B + 128) >> 8`). Filter strategies are `Fixed`, `Pattern` (row `y` uses `pattern[y % len]`) and `Adaptive` (libpng's minimum sum of absolute differences, ties to the lowest filter type; about ten times the cost of a fixed filter, so prefer `Fixed` or `Pattern` for live use). Palettes, other bit depths and `PerRow` are not supported yet.
+The encoding is part of the glitch: the same frame with the same effect looks different as RGBA/Paeth, RGB with a `Sub, Up, Paeth` pattern, or gray with the adaptive heuristic (`cargo run --example encodings`). Supported: 8-bit `TrueColorAlpha`, `TrueColor` (alpha dropped), `GrayScaleAlpha` and `GrayScale` (`gray = (77R + 150G + 29B + 128) >> 8`). Filter strategies are `Fixed`, `Pattern` (row `y` uses `pattern[y % len]`) and `Adaptive` (libpng's minimum sum of absolute differences, ties to the lowest filter type; about twice the cost of a fixed filter at 1080p RGBA natively (7 to 9 ms against 4 ms); `Fixed` or `Pattern` are the cheapest for live use). Palettes, other bit depths and `PerRow` are not supported yet.
 
 ## The per-frame loop: `LivePipeline`
 

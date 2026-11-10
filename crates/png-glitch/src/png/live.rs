@@ -109,9 +109,10 @@ pub enum FilterStrategy {
     Pattern(Vec<FilterType>),
     /// libpng's heuristic: for every row, the filter type with the smallest sum of
     /// `|filtered byte as i8|`. Ties go to the lowest type number (None < Sub < Up < Average <
-    /// Paeth). This tries all five filters on every row, so it costs roughly ten times a fixed
-    /// filter (about 40 ms for a 1080p RGBA frame natively); prefer `Fixed` or `Pattern` for
-    /// live use.
+    /// Paeth). This tries all five filters on every row, with vectorised sums and an early exit
+    /// that cannot change the result: about 7 to 9 ms for a 1080p RGBA frame natively on one
+    /// thread (a fixed filter takes about 4 ms), so it fits a 30 fps budget natively; `Fixed`
+    /// or `Pattern` are still the cheapest.
     Adaptive,
 }
 
@@ -204,15 +205,19 @@ pub(crate) fn filter_rows(data: &mut [u8], stride: usize, bpp: usize, filter: &F
                 .get(y % pattern.len().max(1))
                 .copied()
                 .unwrap_or(FilterType::None),
+            // The fast path covers every row but the first; the first row (no row above) is
+            // compared with the plain cost function, which gives the same choice.
             FilterStrategy::Adaptive => {
-                let mut best = (u64::MAX, FilterType::None);
-                for candidate in CANDIDATES {
-                    let cost = kernels::filter_cost(candidate, bpp, cur, prev);
-                    if cost < best.0 {
-                        best = (cost, candidate);
+                kernels::adaptive_filter(bpp, cur, prev).unwrap_or_else(|| {
+                    let mut best = (u64::MAX, FilterType::None);
+                    for candidate in CANDIDATES {
+                        let cost = kernels::filter_cost(candidate, bpp, cur, prev);
+                        if cost < best.0 {
+                            best = (cost, candidate);
+                        }
                     }
-                }
-                best.1
+                    best.1
+                })
             }
         };
         *tag = filter_type.into();
