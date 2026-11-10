@@ -5,7 +5,7 @@
 //! shared kernels of #97) and its colour conversion straight into a caller-owned RGBA8 buffer.
 
 use super::scan_line::bytes_per_pixel;
-use super::scan_line::filter::kernels;
+use super::scan_line::filter::{self, kernels};
 use super::{ColorType, FilterType, PngError};
 use crate::PngGlitch;
 
@@ -138,19 +138,55 @@ impl Renderer {
 
         if self.color_type == ColorType::TrueColorAlpha && depth == 8 {
             // Reconstruct straight into the output: the previous output row is the previous
-            // reconstructed row.
-            for (y, row) in rows.enumerate() {
+            // reconstructed row. Runs of rows with the same filter type go through the multi-row
+            // wavefront kernels where they exist (#220, `filter::remove_rows_untagged`); the
+            // bytes are the same as row by row.
+            let height = self.height as usize;
+            let mut y = 0;
+            while y < height {
+                // The stored rows from `y` on; a model shorter than its header stops here.
+                let stored = model.data.get(y * stride..).unwrap_or_default();
+                let Some(row) = stored.get(..stride) else {
+                    break;
+                };
                 let (ft, bytes) = split_row(row)?;
+                // The rows from `y` on that share the filter type (at most 4 are used).
+                let run = stored
+                    .chunks_exact(stride)
+                    .take(4)
+                    .take_while(|r| r.first() == row.first())
+                    .count();
                 let (done, rest) = out.split_at_mut(y * out_row);
                 let prev = done
                     .len()
                     .checked_sub(out_row)
                     .and_then(|start| done.get(start..));
+                // Only the rows the wavefront takes are copied first; the others go one at a time.
+                let rows = filter::untagged_run(ft, run, bpp);
+                if let Some(prev) = prev
+                    && rows > 0
+                {
+                    let block = rest.get_mut(..rows * out_row).unwrap_or_default();
+                    for (dst, src) in block
+                        .chunks_exact_mut(out_row)
+                        .zip(stored.chunks_exact(stride))
+                    {
+                        if let Some(src) = src.get(1..) {
+                            dst.copy_from_slice(src);
+                        }
+                    }
+                    let n = filter::remove_rows_untagged(ft, rows, block, out_row, bpp, prev);
+                    if n > 0 {
+                        y += n;
+                        continue;
+                    }
+                }
                 let Some(cur) = rest.get_mut(..out_row) else {
                     break;
                 };
                 cur.copy_from_slice(bytes);
                 kernels::unfilter(ft, bpp, cur, prev);
+                y += 1;
             }
             return Ok(());
         }

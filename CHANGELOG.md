@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Faster `Renderer::render_into` on wasm (#220)
+
+#### Changed
+- `Renderer::render_into` reconstructs runs of Paeth or Average rows of an 8-bit RGBA image with the multi-row wavefront kernels of #152 (wasm with `simd128`), writing into the output rows, instead of one row at a time. `PngGlitch::remove_filter` already used them. The output is byte-identical (decoder-equivalence tests against the `png` crate, now also run on wasm with `simd128` in CI). 1080p RGBA, one thread, wasmtime + `simd128`, p50: `render_into/paeth` 16.5 → 7.3 ms, `render_into/average` 6.3 → 3.3 ms, `live/decode` 16.5 → 7.2 ms, a whole live frame (`live/frame/static/swap`) 22.5 → 12.6 ms. Native targets keep the one-row kernels, as for `remove_filter`.
+
 ### No file-level `indexing_slicing` exception left (#140)
 
 #### Changed
