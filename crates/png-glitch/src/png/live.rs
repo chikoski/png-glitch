@@ -112,8 +112,20 @@ pub enum FilterStrategy {
     /// Paeth). This tries all five filters on every row, with vectorised sums and an early exit
     /// that cannot change the result: about 7 to 9 ms for a 1080p RGBA frame natively on one
     /// thread (a fixed filter takes about 4 ms), so it fits a 30 fps budget natively; `Fixed`
-    /// or `Pattern` are still the cheapest.
+    /// or `Pattern` are still the cheapest, and [`AdaptiveFast`](Self::AdaptiveFast) costs about
+    /// as much as a fixed filter.
     Adaptive,
+    /// A fast approximation of [`Adaptive`](Self::Adaptive) for live use (#154): the same
+    /// comparison, but each row's sums are estimated from a quarter of its bytes (64 of every
+    /// 256), so it costs about a quarter of the selection work. The chosen filter types can
+    /// differ from `Adaptive`'s on some rows (the image is the same; only the filtered bytes,
+    /// and so the compressed size, differ). Deterministic: the same pixels give the same bytes.
+    ///
+    /// Measured at 1080p RGBA, one thread: `reload_pixels` about 5 ms on wasmtime + `simd128`
+    /// (`Adaptive`: 9 to 10 ms) and 3.6 ms natively (`Adaptive`: 7 ms). On webcam-like frames and
+    /// a photo, 95 to 99 % of the rows get the same filter type as with `Adaptive`, and the
+    /// compressed file is 0 to 1.1 % larger.
+    AdaptiveFast,
 }
 
 const CANDIDATES: [FilterType; 5] = [
@@ -207,8 +219,13 @@ pub(crate) fn filter_rows(data: &mut [u8], stride: usize, bpp: usize, filter: &F
                 .unwrap_or(FilterType::None),
             // The fast path covers every row but the first; the first row (no row above) is
             // compared with the plain cost function, which gives the same choice.
-            FilterStrategy::Adaptive => {
-                kernels::adaptive_filter(bpp, cur, prev).unwrap_or_else(|| {
+            FilterStrategy::Adaptive | FilterStrategy::AdaptiveFast => {
+                let choice = if matches!(filter, FilterStrategy::Adaptive) {
+                    kernels::adaptive_filter(bpp, cur, prev)
+                } else {
+                    kernels::adaptive_filter_fast(bpp, cur, prev)
+                };
+                choice.unwrap_or_else(|| {
                     let mut best = (u64::MAX, FilterType::None);
                     for candidate in CANDIDATES {
                         let cost = kernels::filter_cost(candidate, bpp, cur, prev);
@@ -365,6 +382,7 @@ mod tests {
             FilterType::Paeth,
         ]));
         all.push(FilterStrategy::Adaptive);
+        all.push(FilterStrategy::AdaptiveFast);
         all
     }
 

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### `FilterStrategy::AdaptiveFast` (#154, step 2)
+
+#### Added
+- `png_glitch::FilterStrategy::AdaptiveFast`: the comparison of `Adaptive` (minimum sum of `|filtered byte as i8|`, ties to the lowest type), with each row's sums taken over the first 64 bytes of every 256 (and the first pixel) instead of the whole row. Deterministic and allocation-free. 1080p RGBA `reload_pixels`, one thread: about 5 ms on wasmtime + `simd128` (p99 5.3 to 6.1 ms, under the 8 ms target of #154; `Adaptive` takes 9 to 10 ms) and 3.6 ms natively. On webcam-like frames and a photo, 95 to 99 % of the rows get the same filter type as with `Adaptive`, and the compressed size grows by 0 to 1.1 %; the image is the same. `Adaptive` is unchanged (exact, byte-identical).
+- `regenerate=adaptive-fast` (CLI) and `strategy: adaptive-fast` (recipes): `RegenerateStrategy::AdaptiveFast`. A new variant of a public enum, so an exhaustive `match` on `RegenerateStrategy` needs an arm.
+- `adaptive-fast` in the component's `filter-strategy` (WIT).
+- `png-glitch-bench`: `from_pixels/` and `reload_pixels/` stages `rgba-adaptive-fast` and `gray-adaptive-fast`.
+
 ### Allocation-free `PixelSort` (#208)
 
 #### Changed

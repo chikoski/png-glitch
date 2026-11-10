@@ -67,6 +67,7 @@ fn reload_pixels_does_not_allocate() {
         FilterStrategy::Fixed(FilterType::Paeth),
         FilterStrategy::Pattern(vec![FilterType::Sub, FilterType::Up, FilterType::Paeth]),
         FilterStrategy::Adaptive,
+        FilterStrategy::AdaptiveFast,
     ];
     for color_type in [
         ColorType::TrueColorAlpha,

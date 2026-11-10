@@ -27,7 +27,10 @@ fn main() {
     println!("cargo::rustc-check-cfg=cfg(has_live_pipeline)");
     println!("cargo::rustc-check-cfg=cfg(has_live_recipe)");
     println!("cargo::rustc-check-cfg=cfg(has_masked)");
+    println!("cargo::rustc-check-cfg=cfg(has_adaptive_fast)");
     for (cfg, krate, needle) in [
+        // `FilterStrategy::AdaptiveFast` (#154) is in the `png::live` module.
+        ("has_adaptive_fast", "png-glitch", "    AdaptiveFast,"),
         // `Masked` (#187) lives in the `effects::masked` module.
         ("has_masked", "png-glitch", "pub struct Masked<"),
         ("has_live_pipeline", "png-glitch", "pub struct LivePipeline"),

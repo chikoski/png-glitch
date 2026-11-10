@@ -738,6 +738,7 @@ fn set_filter_type_and_regenerate_are_different_operations() {
 #[test]
 fn regenerate_accepts_adaptive_and_patterns() {
     run_png(&["-f", "regenerate=adaptive"]);
+    run_png(&["-f", "regenerate=adaptive-fast"]);
     let (a, _, _) = run_png(&["-f", "regenerate=sub,up,paeth"]);
     let (b, _, _) = run_png(&["-f", "regenerate=SUB,Up,paeth"]);
     assert_eq!(a, b);

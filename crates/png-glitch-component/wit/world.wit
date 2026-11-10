@@ -75,6 +75,8 @@ interface live {
     pattern(list<filter-type>),
     /// libpng's heuristic (minimum sum of absolute differences, ties to the lowest type). About twice the cost of a fixed filter.
     adaptive,
+    /// `adaptive` with the sums estimated from a quarter of each row: about the cost of a fixed filter. The chosen types can differ from `adaptive` on some rows; the image is the same.
+    adaptive-fast,
   }
 
   record encoding {

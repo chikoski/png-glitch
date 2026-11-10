@@ -108,6 +108,7 @@ mod live_binding {
                     FilterStrategy::Pattern(p.into_iter().map(filter_type).collect())
                 }
                 lv::FilterStrategy::Adaptive => FilterStrategy::Adaptive,
+                lv::FilterStrategy::AdaptiveFast => FilterStrategy::AdaptiveFast,
             },
         }
     }
