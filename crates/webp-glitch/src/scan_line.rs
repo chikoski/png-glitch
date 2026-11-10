@@ -1,8 +1,3 @@
-// Indexing in this file is guarded: each access follows an explicit length check or is bounded by
-// the scan-line width that parsing guarantees. It is kept as plain indexing because these are the
-// per-pixel / per-byte hot paths (#97). Converting it to checked access is tracked in #140.
-#![allow(clippy::indexing_slicing)]
-
 use crate::pixel::WebpPixel;
 
 /// 1行分のピクセルデータへの可変参照。
@@ -33,41 +28,28 @@ impl<'a> ScanLine<'a> {
         if self.has_alpha { 4 } else { 3 }
     }
 
-    pub fn get_pixel(&self, x: usize) -> Option<WebpPixel> {
+    /// The bytes of pixel `x`, or `None` past the width or past the end of the data.
+    fn pixel_bytes(&self, x: usize) -> Option<&[u8]> {
         if x >= self.width as usize {
             return None;
         }
-        let off = x * self.channels();
-        if self.has_alpha {
-            Some(WebpPixel::RGBA(
-                self.data[off],
-                self.data[off + 1],
-                self.data[off + 2],
-                self.data[off + 3],
-            ))
-        } else {
-            Some(WebpPixel::RGB(
-                self.data[off],
-                self.data[off + 1],
-                self.data[off + 2],
-            ))
-        }
+        let ch = self.channels();
+        self.data.get(x * ch..(x + 1) * ch)
     }
 
+    /// ピクセル `x`。幅の外、またはデータが足りないときは `None`。
+    pub fn get_pixel(&self, x: usize) -> Option<WebpPixel> {
+        decode(self.pixel_bytes(x)?)
+    }
+
+    /// ピクセル `x` を書き換える。幅の外、またはデータが足りないときは何もしない。
     pub fn set_pixel(&mut self, x: usize, pixel: WebpPixel) {
         if x >= self.width as usize {
             return;
         }
-        let off = x * self.channels();
-        if self.has_alpha {
-            self.data[off] = pixel.r();
-            self.data[off + 1] = pixel.g();
-            self.data[off + 2] = pixel.b();
-            self.data[off + 3] = pixel.a();
-        } else {
-            self.data[off] = pixel.r();
-            self.data[off + 1] = pixel.g();
-            self.data[off + 2] = pixel.b();
+        let ch = self.channels();
+        if let Some(bytes) = self.data.get_mut(x * ch..(x + 1) * ch) {
+            encode(bytes, pixel);
         }
     }
 
@@ -88,24 +70,59 @@ impl<'a> ScanLine<'a> {
     {
         let width = self.width as usize;
         let ch = self.channels();
-        for x in 0..width {
-            let off = x * ch;
-            let pixel = if self.has_alpha {
-                WebpPixel::RGBA(
-                    self.data[off],
-                    self.data[off + 1],
-                    self.data[off + 2],
-                    self.data[off + 3],
-                )
-            } else {
-                WebpPixel::RGB(self.data[off], self.data[off + 1], self.data[off + 2])
-            };
-            let out = f(x, pixel);
-            self.data[off] = out.r();
-            self.data[off + 1] = out.g();
-            self.data[off + 2] = out.b();
-            if self.has_alpha {
-                self.data[off + 3] = out.a();
+        // A row shorter than `width` pixels stops at its last whole pixel.
+        for (x, bytes) in self.data.chunks_exact_mut(ch).take(width).enumerate() {
+            if let Some(pixel) = decode(bytes) {
+                encode(bytes, f(x, pixel));
+            }
+        }
+    }
+}
+
+/// A pixel from its 3 (RGB) or 4 (RGBA) bytes.
+fn decode(bytes: &[u8]) -> Option<WebpPixel> {
+    match *bytes {
+        [r, g, b] => Some(WebpPixel::RGB(r, g, b)),
+        [r, g, b, a] => Some(WebpPixel::RGBA(r, g, b, a)),
+        _ => None,
+    }
+}
+
+/// Writes `pixel` into 3 (RGB: alpha is dropped) or 4 (RGBA) bytes.
+fn encode(bytes: &mut [u8], pixel: WebpPixel) {
+    match bytes {
+        [r, g, b] => (*r, *g, *b) = (pixel.r(), pixel.g(), pixel.b()),
+        [r, g, b, a] => (*r, *g, *b, *a) = (pixel.r(), pixel.g(), pixel.b(), pixel.a()),
+        _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Rows shorter or longer than `width` pixels, and indices past the end (#140): nothing
+    /// panics, and a pixel exists exactly where its bytes do.
+    #[test]
+    fn out_of_range_and_short_rows_do_not_panic() {
+        for has_alpha in [false, true] {
+            let ch = if has_alpha { 4 } else { 3 };
+            for width in 0..6u32 {
+                for len in 0..30usize {
+                    let mut data: Vec<u8> = (0..len as u8).collect();
+                    let mut line = ScanLine::new(&mut data, width, has_alpha);
+                    for x in 0..10 {
+                        let fits = x < width as usize && (x + 1) * ch <= len;
+                        assert_eq!(line.get_pixel(x).is_some(), fits, "{width} {len} {x}");
+                        line.set_pixel(x, WebpPixel::RGBA(1, 2, 3, 4));
+                        let _ = line.index(x);
+                        line.update(x, 9);
+                    }
+                    let before = line.data.to_vec();
+                    line.process_pixels(|_, p| p);
+                    assert_eq!(line.data, &before[..]);
+                    line.process_pixels(|_, _| WebpPixel::RGB(5, 6, 7));
+                }
             }
         }
     }

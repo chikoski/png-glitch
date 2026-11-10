@@ -1,7 +1,4 @@
-// Indexing in this file is guarded: each access follows an explicit length check or is bounded by
-// the scan-line width that parsing guarantees. It is kept as plain indexing because these are the
-// per-pixel / per-byte hot paths (#97). Converting it to checked access is tracked in #140.
-#![allow(clippy::indexing_slicing)]
+// The original per-byte code, compiled for tests only (where `indexing_slicing` is not denied).
 
 use crate::ScanLine;
 use crate::png::scan_line::filter::reference::byte::{

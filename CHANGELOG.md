@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### No file-level `indexing_slicing` exception left (#140)
+
+#### Changed
+- `png-glitch` (`png.rs`, `png/scan_line.rs`) and `webp-glitch` (`scan_line.rs`) no longer allow `clippy::indexing_slicing` for the whole file: every access is checked (`get`, slice patterns, `as_chunks`). The only exceptions are `Index` / `IndexMut` for `ScanLine`, whose contract is to panic out of range like a slice; they carry a function-level `#[expect(..., reason = ...)]`. The test-only reference filters lost their (unneeded) allows too.
+- `ScanLine::process_pixels` picks the colour type and bit depth once per row and runs a loop over whole `[u8; N]` pixels, instead of matching the format for every pixel. Byte-identical; much faster for the effects built on it. 1080p, one thread, p50, native / wasmtime: `effect/invert` 4.7 → 2.0 ms / 7.3 → 2.1 ms, `effect/darken` 4.6 → 2.4 / 9.7 → 3.0, `effect/shift-channels` 4.0 → 2.2 / 10.9 → 2.1, `live/frame/static/invert` 21.4 → 19.3 / 29.8 → 23.8. No stage got slower beyond noise.
+
+#### Fixed
+- `webp_glitch::ScanLine::get_pixel`, `set_pixel` and `process_pixels` indexed the row by `x < width` only, so a row shorter than `width` pixels panicked; now a pixel past the end of the data is `None` / left alone.
+- `png_glitch::ScanLine`'s `Read` / `Write` impls no longer panic on an empty row (no filter-type byte).
+
+#### Added
+- Property tests for the public pixel API with out-of-range indices and rows shorter or longer than the header width, for every colour type and bit depth (`png-glitch`), and the same for `webp-glitch`.
+
 ### `FilterStrategy::AdaptiveFast` (#154, step 2)
 
 #### Added
