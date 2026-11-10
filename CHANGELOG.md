@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Faster `FilterStrategy::Adaptive` on wasm (#154, step 1b)
+
+#### Changed
+- The adaptive cost loops keep `u16` accumulators per lane over 32-byte lane groups and reduce them once per 256-byte block, instead of summing each eight-byte group into a `u32`; `Average`'s predictor is computed without widening (`(a & b) + ((a ^ b) >> 1)`), and the lane additions are written as `wrapping_add` (they cannot overflow) so that the release profile's overflow checks no longer stop vectorisation. The choice is unchanged (byte-identical; the differential test passes natively and on `wasm32-wasip1`). 1080p RGBA `reload_pixels` with `Adaptive`, one thread, p50: wasmtime + `simd128` 14 to 18 ms before, 8 to 9 ms after (p99 about 9.5 ms); native 8.3 ms before, 7.1 ms after.
+
 ### Faster `FilterStrategy::Adaptive` (#154, step 1)
 
 #### Changed
