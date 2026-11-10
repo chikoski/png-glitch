@@ -90,8 +90,9 @@ fn write(block: &mut [u8], at: Option<usize>, px: [u8; 4]) {
 /// Reconstructs (`P`: Paeth or Average) `2 * K` consecutive rows of 4-byte pixels in place, as `K` two-row
 /// wavefronts that are one more pixel behind each (row `r` is at pixel `s - r` at step `s`), so
 /// every step runs `K` independent 8-lane chains. `K` is 1 or 2. `block` holds the rows,
-/// `stride` bytes apart, each starting with its filter-type byte (left untouched); `prev` is the
-/// reconstructed row above the first one, `stride - 1` bytes.
+/// `stride` bytes apart; each row's pixels start `off` bytes into it (1 for a stored scan line,
+/// whose filter-type byte is left untouched; 0 for rows of pixels only, as in the output of
+/// `Renderer`). `prev` is the reconstructed row above the first one, `stride - off` bytes.
 ///
 /// Returns `false`, changing nothing, unless `K` is 1 or 2, `block` is exactly `2 * K` rows and
 /// the rows are a whole number of pixels.
@@ -99,10 +100,11 @@ pub(super) fn unfilter_4_rows<P: Predictor, const K: usize>(
     prev: &[u8],
     block: &mut [u8],
     stride: usize,
+    off: usize,
 ) -> bool {
     let len = prev.len();
     if !(K == 1 || K == 2)
-        || stride != len + 1
+        || stride != len + off
         || block.len() != stride * 2 * K
         || !len.is_multiple_of(4)
     {
@@ -120,10 +122,10 @@ pub(super) fn unfilter_4_rows<P: Predictor, const K: usize>(
     let total = n + 2 * K - 1;
     let head = (2 * K - 1).min(total);
     for s in 0..head {
-        edge_step::<P, K>(tops, block, stride, n, s, &mut a, &mut c);
+        edge_step::<P, K>(tops, block, stride, off, n, s, &mut a, &mut c);
     }
     let mut rows = block.chunks_exact_mut(stride).map(|row| {
-        row.get_mut(1..)
+        row.get_mut(off..)
             .map_or(&mut [][..], |px| px.as_chunks_mut::<4>().0)
     });
     match (&mut a[..], &mut c[..]) {
@@ -142,7 +144,7 @@ pub(super) fn unfilter_4_rows<P: Predictor, const K: usize>(
         _ => {}
     }
     for s in head.max(n)..total {
-        edge_step::<P, K>(tops, block, stride, n, s, &mut a, &mut c);
+        edge_step::<P, K>(tops, block, stride, off, n, s, &mut a, &mut c);
     }
     true
 }
@@ -150,17 +152,22 @@ pub(super) fn unfilter_4_rows<P: Predictor, const K: usize>(
 /// Step `s` of [`unfilter_4_rows`] for any `s`: pixels out of range read as zero and are
 /// not written. Before a row reaches pixel 0 its lanes stay zero, which is the zero "pixel -1"
 /// that the PNG specification uses at the left edge.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the step's whole state; a struct would only rename the same eight values"
+)]
 fn edge_step<P: Predictor, const K: usize>(
     tops: &[[u8; 4]],
     block: &mut [u8],
     stride: usize,
+    off: usize,
     n: usize,
     s: usize,
     a: &mut [V; K],
     c: &mut [V; K],
 ) {
     // Byte offset of pixel `j` (if in range) of row `r`.
-    let at = |r: usize, j: Option<usize>| j.filter(|&j| j < n).map(|j| r * stride + 1 + 4 * j);
+    let at = |r: usize, j: Option<usize>| j.filter(|&j| j < n).map(|j| r * stride + off + 4 * j);
     let zero = V::zero();
     // Pair k works on rows 2k (lo, pixel s - 2k) and 2k + 1 (hi, pixel s - 2k - 1). Its "row
     // above" lo is the hi of pair k - 1 from the previous step, which is still in `a[k - 1]`; so

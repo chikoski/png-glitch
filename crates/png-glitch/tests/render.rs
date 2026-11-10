@@ -160,6 +160,54 @@ proptest! {
     }
 }
 
+/// RGBA8 rows in runs of one filter type (#220): `render_into` reconstructs runs of Paeth or
+/// Average rows together (on wasm with `simd128`), so the runs must be long and of every length.
+fn rgba_runs() -> impl Strategy<Value = Case> {
+    (1u32..=40, vec((0u8..=4, 1usize..=5), 1..=5))
+        .prop_flat_map(|(width, runs)| {
+            let types: Vec<u8> = runs
+                .iter()
+                .flat_map(|&(ft, n)| std::iter::repeat_n(ft, n))
+                .collect();
+            let height = types.len() as u32;
+            let len = row_bytes(width, 6, 8);
+            (
+                Just((width, height, types)),
+                vec(vec(any::<u8>(), len), height as usize),
+            )
+        })
+        .prop_map(|((width, height, types), rows)| Case {
+            width,
+            height,
+            color_type: 6,
+            bit_depth: 8,
+            rows: types
+                .iter()
+                .zip(rows)
+                .map(|(&ft, bytes)| std::iter::once(ft).chain(bytes).collect())
+                .collect(),
+            plte: None,
+            trns: None,
+        })
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: 256,
+        failure_persistence: None,
+        ..ProptestConfig::default()
+    })]
+
+    #[test]
+    fn render_into_equals_the_reference_decoder_on_runs_of_one_filter(case in rgba_runs()) {
+        let model = PngGlitch::from_bytes(case.bytes()).expect("the model parses");
+        let expected = reference_decode(&model.to_bytes().expect("serialises"));
+        let mut out = vec![0xAA; case.width as usize * case.height as usize * 4];
+        Renderer::new(&model).render_into(&model, &mut out).expect("renders");
+        prop_assert_eq!(&out, &expected);
+    }
+}
+
 #[test]
 fn the_matrix_is_covered_by_a_plain_example_each() {
     for &(color_type, bit_depth) in FORMATS {

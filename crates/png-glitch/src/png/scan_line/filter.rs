@@ -86,16 +86,40 @@ fn try_remove_rows(block: &mut [u8], stride: usize, bpp: usize, previous: Option
         return 0;
     };
     let filter_type = FilterType::try_from(first).unwrap_or(FilterType::None);
-    if !matches!(filter_type, FilterType::Paeth | FilterType::Average) {
-        return 0;
-    }
     let run = block
         .chunks_exact(stride)
         .take(4)
         .take_while(|row| row.first() == Some(&first))
         .count();
+    let rows = wavefront_rows(filter_type, run, block, stride, 1, prev);
+    let Some(block) = block.get_mut(..rows * stride) else {
+        return 0;
+    };
+    for row in block.chunks_exact_mut(stride) {
+        if let Some(ft) = row.first_mut() {
+            *ft = FilterType::None.into();
+        }
+    }
+    rows
+}
+
+/// Reconstructs the first 4 (if `run >= 4`) or 2 (if `run` is 2 or 3) rows of `block` with the
+/// wavefront kernel for `filter_type`, if there is one (Paeth, Average). The rows are `stride`
+/// bytes apart with their pixels `off` bytes in, and `run` of them, from the first, share
+/// `filter_type`. Returns the number of rows reconstructed: 0, 2 or 4.
+fn wavefront_rows(
+    filter_type: FilterType,
+    run: usize,
+    block: &mut [u8],
+    stride: usize,
+    off: usize,
+    prev: &[u8],
+) -> usize {
+    if !matches!(filter_type, FilterType::Paeth | FilterType::Average) {
+        return 0;
+    }
     let rows = match run {
-        4 => 4,
+        4.. => 4,
         2 | 3 => 2,
         _ => return 0,
     };
@@ -104,20 +128,60 @@ fn try_remove_rows(block: &mut [u8], stride: usize, bpp: usize, previous: Option
     };
     use wavefront::{Average, Paeth, unfilter_4_rows};
     let done = match (filter_type, rows) {
-        (FilterType::Paeth, 4) => unfilter_4_rows::<Paeth, 2>(prev, block, stride),
-        (FilterType::Paeth, _) => unfilter_4_rows::<Paeth, 1>(prev, block, stride),
-        (_, 4) => unfilter_4_rows::<Average, 2>(prev, block, stride),
-        _ => unfilter_4_rows::<Average, 1>(prev, block, stride),
+        (FilterType::Paeth, 4) => unfilter_4_rows::<Paeth, 2>(prev, block, stride, off),
+        (FilterType::Paeth, _) => unfilter_4_rows::<Paeth, 1>(prev, block, stride, off),
+        (_, 4) => unfilter_4_rows::<Average, 2>(prev, block, stride, off),
+        _ => unfilter_4_rows::<Average, 1>(prev, block, stride, off),
     };
-    if !done {
+    if done { rows } else { 0 }
+}
+
+/// How many of `run` rows of `filter_type` (with `bpp`-byte pixels) [`remove_rows_untagged`]
+/// reconstructs together on this target: 0, 2 or 4. Lets a caller prepare exactly those rows.
+pub(crate) fn untagged_run(filter_type: FilterType, run: usize, bpp: usize) -> usize {
+    if !MULTI_ROW || bpp != 4 || !matches!(filter_type, FilterType::Paeth | FilterType::Average) {
         return 0;
     }
-    for row in block.chunks_exact_mut(stride) {
-        if let Some(ft) = row.first_mut() {
-            *ft = FilterType::None.into();
-        }
+    match run {
+        4.. => 4,
+        2 | 3 => 2,
+        _ => 0,
     }
-    rows
+}
+
+/// [`remove_rows`] for rows of pixels without a filter-type byte (the output of `Renderer`,
+/// #220): `block` holds rows `row_len` bytes apart, already holding their *filtered* bytes, the
+/// first `run` of which were stored with `filter_type`; `previous` is the reconstructed row
+/// above the first one. Returns how many rows were reconstructed (0, 2 or 4), with the same
+/// bytes as reconstructing them one at a time; 0 means "reconstruct the first row alone".
+pub(crate) fn remove_rows_untagged(
+    filter_type: FilterType,
+    run: usize,
+    block: &mut [u8],
+    row_len: usize,
+    bpp: usize,
+    previous: &[u8],
+) -> usize {
+    if MULTI_ROW {
+        try_remove_rows_untagged(filter_type, run, block, row_len, bpp, previous)
+    } else {
+        0
+    }
+}
+
+/// [`remove_rows_untagged`] without the target check, so native tests can run it.
+fn try_remove_rows_untagged(
+    filter_type: FilterType,
+    run: usize,
+    block: &mut [u8],
+    row_len: usize,
+    bpp: usize,
+    previous: &[u8],
+) -> usize {
+    if bpp != 4 || row_len == 0 {
+        return 0;
+    }
+    wavefront_rows(filter_type, run, block, row_len, 0, previous)
 }
 
 /// The function applies a filter to a scan line.
@@ -495,5 +559,63 @@ mod tests {
         let mut line = ScanLine::new(&mut data, ColorType::GrayScale, 8, 4);
         remove(&mut line, Some(&prev));
         assert_eq!(&data[1..], [10, 11, 3, 4]);
+    }
+
+    /// #220: the untagged entry point (rows of pixels only, as in `Renderer`'s output)
+    /// reconstructs the same bytes as the per-row kernel, for runs of 1 to 5 rows of each
+    /// filter type, and reports 0, 2 or 4 rows as `remove_rows` does.
+    #[test]
+    fn untagged_rows_equal_row_by_row_reconstruction() {
+        let mut state = 0x2200_0001u64;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state as u8
+        };
+        for ft in FILTER_TYPES {
+            for pixels in [1usize, 2, 3, 7, 16, 33] {
+                let row_len = pixels * 4;
+                for run in 1..=5usize {
+                    let above: Vec<u8> = (0..row_len).map(|_| next()).collect();
+                    let filtered: Vec<u8> = (0..run * row_len).map(|_| next()).collect();
+                    let mut expected = filtered.clone();
+                    let mut prev = above.clone();
+                    for row in expected.chunks_exact_mut(row_len) {
+                        kernels::unfilter(ft, 4, row, Some(&prev));
+                        prev = row.to_vec();
+                    }
+                    let mut block = filtered.clone();
+                    let done = try_remove_rows_untagged(ft, run, &mut block, row_len, 4, &above);
+                    let want = match (ft, run) {
+                        (FilterType::Paeth | FilterType::Average, 4..) => 4,
+                        (FilterType::Paeth | FilterType::Average, 2 | 3) => 2,
+                        _ => 0,
+                    };
+                    assert_eq!(done, want, "{ft:?} pixels {pixels} run {run}");
+                    let n = done * row_len;
+                    assert_eq!(
+                        block[..n],
+                        expected[..n],
+                        "{ft:?} pixels {pixels} run {run}"
+                    );
+                    // Rows past the ones reconstructed are untouched.
+                    assert_eq!(
+                        block[n..],
+                        filtered[n..],
+                        "{ft:?} pixels {pixels} run {run}"
+                    );
+                }
+            }
+        }
+        // Not 4-byte pixels, or no rows: nothing.
+        assert_eq!(
+            try_remove_rows_untagged(FilterType::Paeth, 4, &mut [0; 12], 3, 3, &[0; 3]),
+            0
+        );
+        assert_eq!(
+            try_remove_rows_untagged(FilterType::Paeth, 4, &mut [], 0, 4, &[]),
+            0
+        );
     }
 }
