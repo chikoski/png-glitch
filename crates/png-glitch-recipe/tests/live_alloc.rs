@@ -15,7 +15,10 @@
 
 use png_glitch::{Encoding, FilterStrategy, FilterType, LivePipeline, PixelSource};
 use png_glitch_recipe::rand::SeedableRng;
-use png_glitch_recipe::{ChaCha8Rng, FilterConfig, ImageHeader, LiveRecipe, Recipe, SeedMode};
+use png_glitch_recipe::{
+    ChaCha8Rng, FilterConfig, FilterEntry, ImageHeader, LiveRecipe, Recipe, RectSpec, RowRange,
+    SeedMode,
+};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
@@ -65,7 +68,8 @@ fn allocations_during(f: impl FnOnce()) -> usize {
 }
 
 /// No `PixelSort` (it allocates a pixel list per row when it runs); one generation boundary
-/// in the middle. Every other step has an upper bound on its list sizes.
+/// in the middle. Every other step has an upper bound on its list sizes. Steps targeted with
+/// `rows:` and `rect:` (#207) reuse their buffers too.
 fn recipe() -> Recipe {
     Recipe::new()
         .then(FilterConfig::ChangeFilterType { magnitude: 0.2 })
@@ -105,6 +109,36 @@ fn recipe() -> Recipe {
             b_offset: None,
         })
         .then(FilterConfig::Invert)
+        .then_rows(FilterConfig::Invert, RowRange::new(5, 20))
+        .then_rows(
+            FilterConfig::Replace { magnitude: 0.3 },
+            RowRange::new(10, 40),
+        )
+        .then_entry(FilterEntry {
+            rect: Some(RectSpec {
+                x: 4,
+                y: 6,
+                w: 30,
+                h: 20,
+            }),
+            ..FilterConfig::SetZero { magnitude: 0.3 }.into()
+        })
+        .then_entry(FilterEntry {
+            rows: Some(RowRange::new(8, 50)),
+            rect: Some(RectSpec {
+                x: 10,
+                y: 0,
+                w: 40,
+                h: 30,
+            }),
+            invert_mask: true,
+            ..FilterConfig::Bitwise {
+                magnitude: 0.4,
+                op: None,
+                value: Some(0x33),
+            }
+            .into()
+        })
 }
 
 fn frames_allocations(mode: SeedMode, frames_run: usize) -> usize {

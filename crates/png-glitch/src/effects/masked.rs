@@ -250,6 +250,12 @@ impl<E: ScanLinesEffect> Masked<E> {
     pub fn mask(&self) -> &Mask {
         &self.mask
     }
+
+    /// The wrapped effect, for changing its parameters in place (e.g. once per frame in a live
+    /// loop) while keeping the mask and the snapshot buffer.
+    pub fn effect_mut(&mut self) -> &mut E {
+        &mut self.effect
+    }
 }
 
 impl<E: ScanLinesEffect> ScanLinesEffect for Masked<E> {

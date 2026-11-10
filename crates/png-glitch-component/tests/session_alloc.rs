@@ -51,8 +51,8 @@ fn allocations_during(f: impl FnOnce()) -> usize {
 }
 
 /// The recipe has no `pixel-sort` (it allocates a pixel list per row when it runs; the same
-/// exclusion as `png-glitch-recipe/tests/live_alloc.rs`) and no `rows:` / `rect:` targeting (a
-/// `rows:` step allocates when it is re-resolved on every frame in `PerFrame` mode).
+/// exclusion as `png-glitch-recipe/tests/live_alloc.rs`). Steps targeted with `rows:` and
+/// `rect:` are re-resolved in place in `PerFrame` mode (#207).
 #[test]
 fn a_live_frame_does_not_allocate() {
     let (w, h) = (64u32, 48u32);
@@ -63,7 +63,7 @@ fn a_live_frame_does_not_allocate() {
                 .collect()
         })
         .collect();
-    let recipe = "filters:\n  - type: replace\n    magnitude: 0.2\n  - type: transpose\n    magnitude: 0.2\n  - type: invert\n  - type: sub-filter\n";
+    let recipe = "filters:\n  - type: replace\n    magnitude: 0.2\n  - type: transpose\n    magnitude: 0.2\n  - type: invert\n    rows: 5..20\n  - type: set-zero\n    magnitude: 0.3\n    rect: 4,6,30,20\n  - type: sub-filter\n";
     for mode in [SeedMode::Static, SeedMode::PerFrame] {
         let mut s = Session::from_pixels(
             w,

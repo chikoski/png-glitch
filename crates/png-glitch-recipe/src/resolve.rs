@@ -176,6 +176,99 @@ pub(crate) fn resolve_entry(
     }
 }
 
+/// Like [`resolve_entry`] for a step with `config`, `rows` and `mask` (the mask for the whole
+/// image, from [`entry_mask`]), but writes into `slot` and reuses the buffers already there when
+/// `slot` holds the same kind of step (#207). `slot` afterwards equals what `resolve_entry`
+/// returns, with the same RNG draws.
+///
+/// A masked step keeps two copies of the step (the `step` field and the one inside its
+/// [`MaskedEffect`]). Both are resolved into in place from the same RNG state, so they are equal
+/// and neither allocates once warm. The effect is reused only when it is not shared with a
+/// clone of the recipe and has the same mask; otherwise it is rebuilt, as in `resolve`.
+pub(crate) fn resolve_targeted_into(
+    config: &FilterConfig,
+    rows: Option<RowRange>,
+    mask: Option<Mask>,
+    header: &ImageHeader,
+    rng: &mut ChaCha8Rng,
+    slot: &mut ResolvedStep,
+    scratch: &mut StepScratch,
+) -> Result<()> {
+    let range = match &rows {
+        Some(rows) => rows.resolve(header.height),
+        None => 0..header.height,
+    };
+    let sub = ImageHeader {
+        height: range.end - range.start,
+        ..*header
+    };
+    let filter = filter_from_config(config)?;
+    if rows.is_some() && !matches!(slot, ResolvedStep::Rows { .. }) {
+        *slot = ResolvedStep::Rows {
+            start: 0,
+            end: 0,
+            step: Box::new(ResolvedStep::Noop),
+        };
+    }
+    let target = match slot {
+        ResolvedStep::Rows { start, end, step } if rows.is_some() => {
+            (*start, *end) = (range.start, range.end);
+            &mut **step
+        }
+        other => other,
+    };
+    match mask {
+        None => filter.resolve_into(&sub, rng, target, scratch),
+        Some(mask) => {
+            let mask = mask.crop_rows(range.start, range.end);
+            resolve_masked_into(&filter, &sub, rng, mask, target, scratch)?;
+        }
+    }
+    let base = match &*target {
+        ResolvedStep::Masked { step, .. } => &**step,
+        other => other,
+    };
+    if rows.is_some() && !base.supports_rows() {
+        return Err(RecipeError::InvalidSpec(format!(
+            "`rows` is not supported for this step: {base:?}"
+        )));
+    }
+    Ok(())
+}
+
+/// The masked part of [`resolve_targeted_into`]: `mask` is already cropped to the rows of `sub`.
+fn resolve_masked_into(
+    filter: &Builtin,
+    sub: &ImageHeader,
+    rng: &mut ChaCha8Rng,
+    mask: Mask,
+    target: &mut ResolvedStep,
+    scratch: &mut StepScratch,
+) -> Result<()> {
+    if let ResolvedStep::Masked {
+        step,
+        mask: old,
+        effect,
+    } = target
+        && *old == mask
+        && let Some(masked) = Arc::get_mut(&mut effect.0)
+    {
+        // The effect's copy first, from a copy of the RNG; then the `step` field, from the RNG
+        // itself, which leaves it where `resolve` would.
+        let inner = scratch.masked.get_or_insert_with(Box::default);
+        filter.resolve_into(sub, &mut rng.clone(), &mut masked.effect_mut().0, inner);
+        filter.resolve_into(sub, rng, step, scratch);
+        if !step.supports_mask() {
+            return Err(step.mask_unsupported());
+        }
+        return Ok(());
+    }
+    *target = filter
+        .resolve(sub, rng)
+        .masked(mask, sub.line_size() + 1, sub.height)?;
+    Ok(())
+}
+
 /// A [`GlitchFilter`] that runs a built-in step with a `rows` / `rect` / `mask`.
 pub(crate) struct EntryFilter {
     entry: FilterEntry,
@@ -407,15 +500,8 @@ impl ResolvedStep {
     /// which recompute filtered values and cannot be masked, and for a user-defined effect that
     /// is not a `ScanLinesEffect`.
     pub fn masked(self, mask: Mask, stride: usize, height: u32) -> Result<ResolvedStep> {
-        let supported = match &self {
-            Self::Regenerate(_) | Self::Refilter(_) => false,
-            Self::Custom(e) => e.is_live(),
-            _ => true,
-        };
-        if !supported {
-            return Err(RecipeError::InvalidSpec(format!(
-                "`rect` / `mask` is not supported for this step (it recomputes filtered values): {self:?}"
-            )));
+        if !self.supports_mask() {
+            return Err(self.mask_unsupported());
         }
         let effect = MaskedEffect(Arc::new(Masked::new(
             StepEffect(self.clone()),
@@ -436,12 +522,7 @@ impl ResolvedStep {
     /// [`RecipeError::InvalidSpec`] for `regenerate`, which recomputes the whole image, and
     /// for a user-defined effect that is not a `ScanLinesEffect`.
     pub fn in_rows(self, start: u32, end: u32) -> Result<ResolvedStep> {
-        let supported = match &self {
-            Self::Regenerate(_) => false,
-            Self::Custom(e) => e.is_live(),
-            _ => true,
-        };
-        if !supported {
+        if !self.supports_rows() {
             return Err(RecipeError::InvalidSpec(format!(
                 "`rows` is not supported for this step: {self:?}"
             )));
@@ -451,6 +532,30 @@ impl ResolvedStep {
             end,
             step: Box::new(self),
         })
+    }
+
+    /// Whether [`masked`](Self::masked) accepts this step.
+    fn supports_mask(&self) -> bool {
+        match self {
+            Self::Regenerate(_) | Self::Refilter(_) => false,
+            Self::Custom(e) => e.is_live(),
+            _ => true,
+        }
+    }
+
+    fn mask_unsupported(&self) -> RecipeError {
+        RecipeError::InvalidSpec(format!(
+            "`rect` / `mask` is not supported for this step (it recomputes filtered values): {self:?}"
+        ))
+    }
+
+    /// Whether [`in_rows`](Self::in_rows) accepts this step.
+    fn supports_rows(&self) -> bool {
+        match self {
+            Self::Regenerate(_) => false,
+            Self::Custom(e) => e.is_live(),
+            _ => true,
+        }
     }
 
     /// Applies the step to the scan lines of a live frame. Deterministic; uses no RNG.
@@ -548,6 +653,8 @@ pub(crate) trait Resolve {
 #[derive(Default)]
 pub(crate) struct StepScratch {
     pub(crate) offsets: Vec<Vec<[i16; 3]>>,
+    /// The scratch of the second copy of a masked step (see [`resolve_targeted_into`]).
+    masked: Option<Box<StepScratch>>,
 }
 
 /// Takes the list that `field` finds in `out` (empty, with its capacity), or an empty `Vec`.
@@ -811,6 +918,9 @@ impl Recipe {
     /// `random-copy`, `times`; for `block-scramble`, the number of swaps), so later calls make
     /// no heap allocation for built-in steps, whatever the seed. `color-distortion` also keeps
     /// one spare offset list per image row, allocated on that first call (6 bytes per pixel).
+    /// Steps targeted with `rows` and `rect` (and `invert-mask`) reuse their buffers too (#207);
+    /// a masked step reuses its snapshot buffer unless `out` was cloned, which shares it. A step
+    /// with a `mask:` image copies the mask on every call.
     ///
     /// A user-defined step ([`Step::Custom`]) cannot reuse buffers: it is resolved as in
     /// `resolve`, with whatever allocation its [`RecipeStep::resolve`] makes.
@@ -839,14 +949,26 @@ impl Recipe {
                 Step::Config(config) => {
                     filter_from_config(config)?.resolve_into(header, &mut rng, slot, scratch)
                 }
-                // A step with `rows` is resolved as in `resolve`, with its allocations.
-                Step::Rows(config, rows) => {
-                    let entry = FilterEntry::with_rows(config.clone(), *rows);
-                    *slot = resolve_entry(&entry, header, &mut rng, &self.masks)?
-                }
-                Step::Targeted(entry) => {
-                    *slot = resolve_entry(entry, header, &mut rng, &self.masks)?
-                }
+                Step::Rows(config, rows) => resolve_targeted_into(
+                    config,
+                    Some(*rows),
+                    None,
+                    header,
+                    &mut rng,
+                    slot,
+                    scratch,
+                )?,
+                // `entry_mask` allocates for a `mask:` image (it copies the mask); a `rect:` mask
+                // is a few numbers.
+                Step::Targeted(entry) => resolve_targeted_into(
+                    &entry.config,
+                    entry.rows,
+                    entry_mask(entry, header, &self.masks)?,
+                    header,
+                    &mut rng,
+                    slot,
+                    scratch,
+                )?,
                 Step::Custom(step) => *slot = ResolvedStep::Custom(step.resolve(header, &mut rng)),
             }
         }

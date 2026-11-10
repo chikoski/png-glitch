@@ -2,10 +2,11 @@
 //! `ResolvedRecipe` it writes into held before. This is the oracle for the reproducibility
 //! guarantee (#58): the RNG draws must be the same in number and order.
 
-use png_glitch::ColorType;
+use png_glitch::{ColorType, Encoding, FilterStrategy, FilterType, PixelSource, PngGlitch};
 use png_glitch_recipe::rand::{Rng, SeedableRng};
 use png_glitch_recipe::{
-    BitOp, ChaCha8Rng, FilterConfig, ImageHeader, Invert, Recipe, SortCriterion, SwapTarget,
+    BitOp, ChaCha8Rng, FilterConfig, FilterEntry, ImageHeader, Invert, Recipe, RectSpec, RowRange,
+    SortCriterion, SwapTarget,
 };
 
 /// One random config of every built-in kind, in the order of `kind`.
@@ -99,6 +100,62 @@ fn random_recipe(rng: &mut ChaCha8Rng) -> Recipe {
     recipe
 }
 
+/// The kinds that `rect:` accepts: not the re-encodes (18 and up), which recompute filtered
+/// values.
+const MASKABLE_KINDS: usize = 18;
+
+fn random_rows(rng: &mut ChaCha8Rng) -> RowRange {
+    let (a, b) = (rng.random_range(0..45), rng.random_range(0..45));
+    RowRange::new(a.min(b), a.max(b))
+}
+
+/// Built-in steps targeted with `rows:`, `rect:` (sometimes with `invert-mask`) or both (#207).
+fn random_targeted_recipe(rng: &mut ChaCha8Rng) -> Recipe {
+    let len = rng.random_range(1..6);
+    let mut recipe = Recipe::new();
+    for _ in 0..len {
+        recipe = match rng.random_range(0..4) {
+            0 => {
+                let kind = rng.random_range(0..KINDS);
+                recipe.then_rows(config(kind, rng), random_rows(rng))
+            }
+            1 => recipe.then(config(rng.random_range(0..KINDS), rng)),
+            _ => {
+                let config = config(rng.random_range(0..MASKABLE_KINDS), rng);
+                let rect = RectSpec {
+                    x: rng.random_range(0..40),
+                    y: rng.random_range(0..40),
+                    w: rng.random_range(0..40),
+                    h: rng.random_range(0..40),
+                };
+                recipe.then_entry(FilterEntry {
+                    rows: rng.random_bool(0.5).then(|| random_rows(rng)),
+                    rect: Some(rect),
+                    invert_mask: rng.random_bool(0.3),
+                    ..config.into()
+                })
+            }
+        };
+    }
+    recipe
+}
+
+/// Random RGBA pixels for `header`.
+fn pixels(header: &ImageHeader, rng: &mut ChaCha8Rng) -> Vec<u8> {
+    (0..header.width * header.height * 4)
+        .map(|_| rng.random())
+        .collect()
+}
+
+/// An 8-bit RGBA image of `pixels`, with the size of `header`.
+fn image(header: &ImageHeader, pixels: &[u8]) -> PngGlitch {
+    PngGlitch::from_pixels(
+        PixelSource::rgba8(header.width, header.height, pixels),
+        Encoding::rgba8(FilterStrategy::Fixed(FilterType::Sub)),
+    )
+    .unwrap()
+}
+
 fn random_header(rng: &mut ChaCha8Rng) -> ImageHeader {
     let (color_type, bit_depth) = match rng.random_range(0..5) {
         0 => (ColorType::TrueColorAlpha, 8),
@@ -162,6 +219,75 @@ fn resolve_into_a_reused_recipe_equals_resolve() {
             out = other.resolve(&header, Some(rng.random())).unwrap();
         }
     }
+}
+
+#[test]
+fn targeted_steps_resolve_into_the_same_steps_and_bytes() {
+    let mut rng = ChaCha8Rng::seed_from_u64(207);
+    let mut out = Recipe::new()
+        .resolve(&random_header(&mut rng), Some(0))
+        .unwrap();
+    for _ in 0..150 {
+        let recipe = random_targeted_recipe(&mut rng);
+        let header = ImageHeader {
+            width: rng.random_range(1..40),
+            height: rng.random_range(1..40),
+            color_type: ColorType::TrueColorAlpha,
+            bit_depth: 8,
+        };
+        let pixels = pixels(&header, &mut rng);
+        for _ in 0..6 {
+            let seed = rng.random();
+            let expected = recipe.resolve(&header, Some(seed)).unwrap();
+            recipe.resolve_into(&header, Some(seed), &mut out).unwrap();
+            assert_eq!(out, expected, "{recipe:?} {header:?} seed {seed}");
+            // A masked step runs a second copy of its step, which `==` does not compare: compare
+            // what the two do.
+            let (mut a, mut b) = (image(&header, &pixels), image(&header, &pixels));
+            expected.execute(&mut a).unwrap();
+            out.execute(&mut b).unwrap();
+            assert_eq!(a.data(), b.data(), "{recipe:?} {header:?} seed {seed}");
+        }
+        if rng.random_bool(0.3) {
+            out = random_targeted_recipe(&mut rng)
+                .resolve(&header, Some(rng.random()))
+                .unwrap();
+        }
+    }
+}
+
+#[test]
+fn a_cloned_targeted_result_is_not_changed_by_resolve_into() {
+    // The masked effect of a clone shares its state; resolving into the original must rebuild
+    // it rather than change the clone.
+    let header = ImageHeader {
+        width: 20,
+        height: 20,
+        color_type: ColorType::TrueColorAlpha,
+        bit_depth: 8,
+    };
+    let recipe = Recipe::new().then_entry(FilterEntry {
+        rect: Some(RectSpec {
+            x: 2,
+            y: 2,
+            w: 10,
+            h: 10,
+        }),
+        ..FilterConfig::Replace { magnitude: 0.5 }.into()
+    });
+    let mut out = recipe.resolve(&header, Some(1)).unwrap();
+    let kept = out.clone();
+    recipe.resolve_into(&header, Some(2), &mut out).unwrap();
+    let mut rng = ChaCha8Rng::seed_from_u64(3);
+    let pixels = pixels(&header, &mut rng);
+    let (mut a, mut b) = (image(&header, &pixels), image(&header, &pixels));
+    kept.execute(&mut a).unwrap();
+    recipe
+        .resolve(&header, Some(1))
+        .unwrap()
+        .execute(&mut b)
+        .unwrap();
+    assert_eq!(a.data(), b.data());
 }
 
 #[test]
