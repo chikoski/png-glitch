@@ -201,8 +201,34 @@ fn lane_cost(
 /// Returns `None` when the fast path does not apply (no row above, or rows of different
 /// lengths, or shorter than one pixel); the caller then compares [`filter_cost`] instead.
 pub fn adaptive_filter(bpp: usize, cur: &[u8], prev: Option<&[u8]>) -> Option<FilterType> {
+    adaptive_choice::<COST_BLOCK>(bpp, cur, prev)
+}
+
+/// Bytes of each [`COST_BLOCK`] that [`adaptive_filter_fast`] looks at: one lane group in four.
+pub const FAST_SAMPLE: usize = 64;
+
+/// The fast approximation of [`adaptive_filter`] (`FilterStrategy::AdaptiveFast`, #154): the
+/// same comparison (minimum sum, ties to the lowest type, the same early exit), but each
+/// candidate's sum is taken over the first [`FAST_SAMPLE`] bytes of every [`COST_BLOCK`] of the
+/// row (plus the first pixel) instead of all of it. About a quarter of the work; the choice can
+/// differ from the exact one on rows whose sampled bytes are not typical of the row. Depends
+/// only on the row and the row above, so the same input always gives the same choice.
+///
+/// Returns `None` where [`adaptive_filter`] does, and the caller does the same as there.
+pub fn adaptive_filter_fast(bpp: usize, cur: &[u8], prev: Option<&[u8]>) -> Option<FilterType> {
+    adaptive_choice::<FAST_SAMPLE>(bpp, cur, prev)
+}
+
+/// The adaptive choice, with the sums taken over the first `TAKE` bytes of every block
+/// (`TAKE = COST_BLOCK` for the exact choice).
+#[inline(always)]
+fn adaptive_choice<const TAKE: usize>(
+    bpp: usize,
+    cur: &[u8],
+    prev: Option<&[u8]>,
+) -> Option<FilterType> {
     let row = AdaptiveRow::new(bpp, cur, prev?)?;
-    let (none, sub, up) = row.cost_none_sub_up();
+    let (none, sub, up) = row.cost_none_sub_up::<TAKE>();
     let mut best = (none, FilterType::None);
     if sub < best.0 {
         best = (sub, FilterType::Sub);
@@ -211,15 +237,21 @@ pub fn adaptive_filter(bpp: usize, cur: &[u8], prev: Option<&[u8]>) -> Option<Fi
         best = (up, FilterType::Up);
     }
     // Average and Paeth, with the early exit.
-    let avg = row.cost(best.0, |l, t, _| average8(l, t));
+    let avg = row.cost::<TAKE>(best.0, |l, t, _| average8(l, t));
     if avg < best.0 {
         best = (avg, FilterType::Average);
     }
-    let paeth = row.cost(best.0, paeth16);
+    let paeth = row.cost::<TAKE>(best.0, paeth16);
     if paeth < best.0 {
         best = (paeth, FilterType::Paeth);
     }
     Some(best.1)
+}
+
+/// The first `TAKE` bytes of a block (all of it when it is shorter).
+#[inline(always)]
+fn sample<const TAKE: usize>(block: &[u8]) -> &[u8] {
+    block.get(..TAKE).unwrap_or(block)
 }
 
 /// A row and the row above, split so that the left neighbour of byte `i` of `cur_rest` is byte
@@ -253,7 +285,7 @@ impl<'a> AdaptiveRow<'a> {
 
     /// The costs of `None`, `Sub` and `Up` in one pass: they share the loads of `cur`, its left
     /// neighbour and the row above.
-    fn cost_none_sub_up(&self) -> (u64, u64, u64) {
+    fn cost_none_sub_up<const TAKE: usize>(&self) -> (u64, u64, u64) {
         let (mut none, mut sub, mut up) = (0u64, 0u64, 0u64);
         // The first pixel: `left = 0`, so `Sub` equals `None`.
         for (&c, &t) in self.cur_first.iter().zip(self.top_first) {
@@ -267,6 +299,7 @@ impl<'a> AdaptiveRow<'a> {
             .zip(self.cur_left.chunks(COST_BLOCK))
             .zip(self.top_rest.chunks(COST_BLOCK))
         {
+            let (c, l, t) = (sample::<TAKE>(c), sample::<TAKE>(l), sample::<TAKE>(t));
             let (c_lanes, c_tail) = c.as_chunks::<LANES>();
             let (l_lanes, l_tail) = l.as_chunks::<LANES>();
             let (t_lanes, t_tail) = t.as_chunks::<LANES>();
@@ -296,7 +329,11 @@ impl<'a> AdaptiveRow<'a> {
     /// least `limit` the sum stops growing there, and the value is only known to be `>= limit`.
     /// `predict` is generic so that it inlines into the lane loop.
     #[inline(always)]
-    fn cost(&self, limit: u64, predict: impl Fn(u8, u8, u8) -> u8 + Copy) -> u64 {
+    fn cost<const TAKE: usize>(
+        &self,
+        limit: u64,
+        predict: impl Fn(u8, u8, u8) -> u8 + Copy,
+    ) -> u64 {
         // The first pixel has no left neighbour (`left = top_left = 0`).
         let mut total = 0u64;
         for (&c, &t) in self.cur_first.iter().zip(self.top_first) {
@@ -312,6 +349,8 @@ impl<'a> AdaptiveRow<'a> {
             if total >= limit {
                 return total;
             }
+            let (c, l) = (sample::<TAKE>(c), sample::<TAKE>(l));
+            let (t, tl) = (sample::<TAKE>(t), sample::<TAKE>(tl));
             total += u64::from(lane_cost(c, l, t, tl, predict));
         }
         total
@@ -929,6 +968,53 @@ mod adaptive_tests {
                 }
             }
         }
+    }
+
+    /// The fast choice's oracle: filter a copy of the row with each type (as the "filter a copy"
+    /// tests do) and sum `|b as i8|` over the bytes `adaptive_filter_fast` samples: the first
+    /// pixel, then the first `FAST_SAMPLE` bytes of every `COST_BLOCK` after it.
+    fn fast_oracle(bpp: usize, cur: &[u8], prev: &[u8]) -> FilterType {
+        let mut best = (u64::MAX, FilterType::None);
+        for t in ORDER {
+            let mut row = cur.to_vec();
+            filter(t, bpp, &mut row, Some(prev));
+            let sampled = |i: usize| i < bpp || (i - bpp) % COST_BLOCK < FAST_SAMPLE;
+            let cost: u64 = row
+                .iter()
+                .enumerate()
+                .filter(|&(i, _)| sampled(i))
+                .map(|(_, &b)| u64::from((b as i8).unsigned_abs()))
+                .sum();
+            if cost < best.0 {
+                best = (cost, t);
+            }
+        }
+        best.1
+    }
+
+    #[test]
+    fn the_fast_choice_is_the_minimum_over_the_sampled_bytes() {
+        let mut rng = Rng(0x1540_0002);
+        for bpp in [1, 2, 3, 4, 6, 8] {
+            for width in (1..=64).chain([100, 255, 256, 257, 1000, 1920]) {
+                let len = width * bpp;
+                for round in 0..12 {
+                    let above: Vec<u8> = (0..len).map(|_| rng.next() as u8).collect();
+                    let cur = row(&mut rng, len, round, &above);
+                    let fast = adaptive_filter_fast(bpp, &cur, Some(&above));
+                    assert_eq!(
+                        fast,
+                        Some(fast_oracle(bpp, &cur, &above)),
+                        "bpp {bpp}, width {width}, round {round}"
+                    );
+                    // A row that fits in the sample is not approximated at all.
+                    if len - bpp <= FAST_SAMPLE {
+                        assert_eq!(fast, adaptive_filter(bpp, &cur, Some(&above)));
+                    }
+                }
+            }
+        }
+        assert_eq!(adaptive_filter_fast(4, &[1, 2, 3, 4], None), None);
     }
 
     #[test]

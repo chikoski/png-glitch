@@ -45,6 +45,7 @@ fn strategies() -> Vec<FilterStrategy> {
         FilterType::None,
     ]));
     all.push(FilterStrategy::Adaptive);
+    all.push(FilterStrategy::AdaptiveFast);
     all
 }
 

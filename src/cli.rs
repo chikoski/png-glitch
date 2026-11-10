@@ -161,7 +161,7 @@ fn parse_filter_type(value: &str) -> Result<PreProcess, String> {
     }
 }
 
-/// Parses the value of `regenerate=`: `adaptive`, one filter type (`Fixed`), or a comma-separated
+/// Parses the value of `regenerate=`: `adaptive`, `adaptive-fast`, one filter type (`Fixed`), or a comma-separated
 /// list (`Pattern`; a trailing comma makes a one-element pattern).
 fn parse_regenerate_strategy(value: &str) -> Result<RegenerateStrategy, String> {
     let value = value.trim();
@@ -170,6 +170,9 @@ fn parse_regenerate_strategy(value: &str) -> Result<RegenerateStrategy, String> 
     }
     if value.eq_ignore_ascii_case("adaptive") {
         return Ok(RegenerateStrategy::Adaptive);
+    }
+    if value.eq_ignore_ascii_case("adaptive-fast") {
+        return Ok(RegenerateStrategy::AdaptiveFast);
     }
     if !value.contains(',') {
         return Ok(RegenerateStrategy::Fixed(parse_filter_type(value)?));

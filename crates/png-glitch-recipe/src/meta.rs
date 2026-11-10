@@ -565,8 +565,16 @@ const REGENERATE: FilterInfo = f(
         None,
         None,
         None,
-        &["none", "sub", "up", "average", "paeth", "adaptive"],
-        "A filter type, `adaptive`, or a comma-separated pattern such as `sub,up,paeth` (in YAML: `adaptive`, `{ fixed: paeth }` or `{ pattern: [sub, up] }`)",
+        &[
+            "none",
+            "sub",
+            "up",
+            "average",
+            "paeth",
+            "adaptive",
+            "adaptive-fast",
+        ],
+        "A filter type, `adaptive`, `adaptive-fast` (estimated from a quarter of each row; faster), or a comma-separated pattern such as `sub,up,paeth` (in YAML: `adaptive`, `adaptive-fast`, `{ fixed: paeth }` or `{ pattern: [sub, up] }`)",
     )],
 );
 

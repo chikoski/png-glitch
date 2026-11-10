@@ -120,7 +120,7 @@ These options force the PNG decoder to misinterpret pixels by manipulating inter
 Two different operations:
 
 - `-f set-filter-type=paeth` overwrites the filter-type tag of every row and leaves the filtered bytes as they are, so the decoder misreads them.
-- `-f regenerate=paeth` recomputes every filtered value (a new generation); the image looks the same but its bytes change. Also `regenerate=adaptive` and `regenerate=sub,up,paeth` (row `i` uses `pattern[i % len]`).
+- `-f regenerate=paeth` recomputes every filtered value (a new generation); the image looks the same but its bytes change. Also `regenerate=adaptive`, `regenerate=adaptive-fast` (estimated from a quarter of each row: faster, and the filter types can differ on some rows) and `regenerate=sub,up,paeth` (row `i` uses `pattern[i % len]`).
 
 `--remove-filter`, `--sub`, `--up`, `--average` and `--paeth` are **deprecated** aliases of `regenerate=<type>` (same output; they print a warning to stderr).
 

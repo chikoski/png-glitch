@@ -219,6 +219,7 @@ impl PreProcess {
 ///
 /// ```yaml
 /// strategy: adaptive
+/// strategy: adaptive-fast
 /// strategy: { fixed: paeth }
 /// strategy: { pattern: [sub, up, paeth] }
 /// ```
@@ -231,6 +232,9 @@ pub enum RegenerateStrategy {
     Pattern(Vec<PreProcess>),
     /// Each row gets the filter type with the smallest sum of absolute filtered values.
     Adaptive,
+    /// Like `Adaptive`, with the sums estimated from a quarter of each row (faster, for live
+    /// use; the choice can differ on some rows). See `png_glitch::FilterStrategy::AdaptiveFast`.
+    AdaptiveFast,
 }
 
 impl RegenerateStrategy {
@@ -248,6 +252,7 @@ impl RegenerateStrategy {
                 png_glitch::FilterStrategy::Pattern(p.iter().map(|t| t.filter_type()).collect())
             }
             Self::Adaptive => png_glitch::FilterStrategy::Adaptive,
+            Self::AdaptiveFast => png_glitch::FilterStrategy::AdaptiveFast,
         })
     }
 }
@@ -676,6 +681,7 @@ impl std::fmt::Display for FilterConfig {
             Self::Regenerate { strategy } => match strategy {
                 RegenerateStrategy::Fixed(t) => write!(f, "regenerate={t}"),
                 RegenerateStrategy::Adaptive => f.write_str("regenerate=adaptive"),
+                RegenerateStrategy::AdaptiveFast => f.write_str("regenerate=adaptive-fast"),
                 RegenerateStrategy::Pattern(p) => {
                     f.write_str("regenerate=")?;
                     for (i, t) in p.iter().enumerate() {

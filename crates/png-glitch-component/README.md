@@ -32,7 +32,7 @@ resource session {
 
 - `set-recipe` parses the recipe once (the same YAML or JSON as `glitch`); `apply` runs it and parses nothing, so it can run every frame. `apply` without a recipe is `no-recipe`.
 - `seed-mode`: `fixed` uses the seed for every frame, `per-frame` derives frame n's seed from it (`frame_seed` in `png-glitch-recipe`). Record the seed and mode with a snapshot.
-- `from-pixels` takes 8-bit `gray`, `gray-alpha`, `rgb` or `rgba`; any other bit depth is `unsupported-encoding`. `filter` is `fixed`, `pattern` or `adaptive` (about twice the cost of a fixed filter at 1080p; `fixed` and `pattern` are the cheapest).
+- `from-pixels` takes 8-bit `gray`, `gray-alpha`, `rgb` or `rgba`; any other bit depth is `unsupported-encoding`. `filter` is `fixed`, `pattern`, `adaptive` (about twice the cost of a fixed filter at 1080p) or `adaptive-fast` (the same comparison on a quarter of each row, about the cost of a fixed filter; for live use).
 - `reload-pixels` refills the model with the next frame and discards earlier glitches; `reset` restores the model as it was after the last load. Neither allocates.
 - `render-rgba` is always 8-bit RGBA and equals what a PNG decoder reads from `snapshot` (tested byte for byte). `snapshot` is the only call that compresses.
 - Steady state: the Rust `Session` makes no heap allocation in `reload_pixels` -> `apply` -> `render_into` (tested with a counting allocator, for both seed modes). Returning a `list<u8>` allocates in the guest by design of the canonical ABI. This holds for every built-in step, including `pixel-sort` and steps with `rows:` or `rect:`, in both modes.

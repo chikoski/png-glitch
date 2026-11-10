@@ -53,6 +53,10 @@ fn regenerate_strategies_match_png_glitch() {
     let strategies = [
         (RegenerateStrategy::Adaptive, FilterStrategy::Adaptive),
         (
+            RegenerateStrategy::AdaptiveFast,
+            FilterStrategy::AdaptiveFast,
+        ),
+        (
             RegenerateStrategy::Pattern(vec![PreProcess::SubFilter, PreProcess::PaethFilter]),
             FilterStrategy::Pattern(vec![FilterType::Sub, FilterType::Paeth]),
         ),

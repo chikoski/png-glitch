@@ -304,7 +304,8 @@ pub fn run_all(cfg: &Config) -> Report {
     // Absent when benchmarking a library without `from_pixels` (see build.rs).
     #[cfg(has_from_pixels)]
     {
-        let encodings: [(&str, Encoding); 4] = [
+        #[allow(unused_mut)]
+        let mut encodings: Vec<(&str, Encoding)> = vec![
             (
                 "rgba-paeth",
                 Encoding::rgba8(FilterStrategy::Fixed(FilterType::Paeth)),
@@ -331,6 +332,22 @@ pub fn run_all(cfg: &Config) -> Report {
                 },
             ),
         ];
+        // The fast adaptive strategy (#154); absent from libraries that predate it.
+        #[cfg(has_adaptive_fast)]
+        {
+            encodings.push((
+                "rgba-adaptive-fast",
+                Encoding::rgba8(FilterStrategy::AdaptiveFast),
+            ));
+            encodings.push((
+                "gray-adaptive-fast",
+                Encoding {
+                    color_type: ColorType::GrayScale,
+                    bit_depth: 8,
+                    filter: FilterStrategy::AdaptiveFast,
+                },
+            ));
+        }
         for (name, encoding) in &encodings {
             let stage = format!("from_pixels/{name}");
             if wanted(&stage) {
