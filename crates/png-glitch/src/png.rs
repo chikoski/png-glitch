@@ -1,8 +1,3 @@
-// Indexing in this file is guarded: each access follows an explicit length check or is bounded by
-// the scan-line width that parsing guarantees. It is kept as plain indexing because these are the
-// per-pixel / per-byte hot paths (#97). Converting it to checked access is tracked in #140.
-#![allow(clippy::indexing_slicing)]
-
 use crate::operation::{Encode, Scan, Transpose};
 pub use crate::png::live::{Encoding, FilterStrategy, PixelSource};
 pub use crate::png::live_pipeline::LivePipeline;
@@ -154,12 +149,21 @@ impl Png {
         while i < end_index {
             let current_start = i * scan_line_width;
             let (prev_part, current_part) = self.data.split_at_mut(current_start);
-            let prev_line_data = (i > 0).then(|| {
-                let prev_start = (i - 1) * scan_line_width;
-                &mut prev_part[prev_start..prev_start + scan_line_width]
-            });
-
-            let block = &mut current_part[..(end_index - i) * scan_line_width];
+            // `data` is `height * scan_line_width` bytes, so these ranges exist; if it were ever
+            // shorter, the rows past its end are left as they are.
+            let prev_line_data = match i.checked_sub(1) {
+                Some(prev) => {
+                    let prev_start = prev * scan_line_width;
+                    match prev_part.get_mut(prev_start..prev_start + scan_line_width) {
+                        Some(row) => Some(row),
+                        None => return,
+                    }
+                }
+                None => None,
+            };
+            let Some(block) = current_part.get_mut(..(end_index - i) * scan_line_width) else {
+                return;
+            };
             let rows = scan_line::filter::remove_rows(
                 block,
                 scan_line_width,
@@ -171,12 +175,10 @@ impl Png {
                 continue;
             }
 
-            let mut current_line = ScanLine::new(
-                &mut block[..scan_line_width],
-                color_type,
-                bit_depth,
-                image_width,
-            );
+            let Some(row) = block.get_mut(..scan_line_width) else {
+                return;
+            };
+            let mut current_line = ScanLine::new(row, color_type, bit_depth, image_width);
             match prev_line_data {
                 Some(prev_line_data) => {
                     let prev_line =
@@ -210,18 +212,27 @@ impl Png {
         for i in (start_index..end_index).rev() {
             let current_start = i * scan_line_width;
             let (prev_part, current_part) = self.data.split_at_mut(current_start);
-            let current_line_data = &mut current_part[..scan_line_width];
+            // `data` is `height * scan_line_width` bytes; rows past a shorter buffer are skipped.
+            let Some(current_line_data) = current_part.get_mut(..scan_line_width) else {
+                continue;
+            };
 
             let mut current_line =
                 ScanLine::new(current_line_data, color_type, bit_depth, image_width);
 
-            if i > 0 {
-                let prev_start = (i - 1) * scan_line_width;
-                let prev_line_data = &mut prev_part[prev_start..prev_start + scan_line_width];
-                let prev_line = ScanLine::new(prev_line_data, color_type, bit_depth, image_width);
-                current_line.apply_filter(filter_type, Some(&prev_line));
-            } else {
-                current_line.apply_filter(filter_type, None);
+            match i.checked_sub(1) {
+                Some(prev) => {
+                    let prev_start = prev * scan_line_width;
+                    let Some(prev_line_data) =
+                        prev_part.get_mut(prev_start..prev_start + scan_line_width)
+                    else {
+                        continue;
+                    };
+                    let prev_line =
+                        ScanLine::new(prev_line_data, color_type, bit_depth, image_width);
+                    current_line.apply_filter(filter_type, Some(&prev_line));
+                }
+                None => current_line.apply_filter(filter_type, None),
             }
         }
     }
@@ -242,10 +253,14 @@ impl Png {
         }
         let width = self.scan_line_width();
         // Rows above the range are decoded in place to serve as context, then put back.
-        let above = self.data[..start * width].to_vec();
+        let Some(above) = self.data.get(..start * width).map(<[u8]>::to_vec) else {
+            return;
+        };
         self.remove_filter_from(0, end as u32);
         self.apply_filter_from(filter_type, start as u32, (end - start) as u32);
-        self.data[..start * width].copy_from_slice(&above);
+        if let Some(rows) = self.data.get_mut(..above.len()) {
+            rows.copy_from_slice(&above);
+        }
     }
 
     /// The method changes the filter type of all scan lines.
@@ -277,10 +292,17 @@ impl Transpose for Png {
         let src_range = self.scan_line_range(src, actual_lines);
         let dest_range = self.scan_line_range(dest, actual_lines);
 
-        let mut tmp = vec![0; src_range.len()];
-        tmp.copy_from_slice(&self.data[src_range.clone()]);
+        // Both ranges are inside `data` (`height * scan_line_width` bytes); if not, nothing moves.
+        let Some(tmp) = self.data.get(src_range.clone()).map(<[u8]>::to_vec) else {
+            return;
+        };
+        if self.data.get(dest_range.clone()).is_none() {
+            return;
+        }
         self.data.copy_within(dest_range.clone(), src_range.start);
-        self.data[dest_range].copy_from_slice(&tmp);
+        if let Some(dest) = self.data.get_mut(dest_range) {
+            dest.copy_from_slice(&tmp);
+        }
     }
 }
 
@@ -358,7 +380,9 @@ impl Scan for Png {
         let start = start_line * scan_line_width;
         let end = end_line * scan_line_width;
 
-        self.data[start..end]
+        self.data
+            .get_mut(start..end)
+            .unwrap_or_default()
             .chunks_exact_mut(scan_line_width)
             .map(|chunk| ScanLine::new(chunk, color_type, bit_depth, image_width))
             .collect()
