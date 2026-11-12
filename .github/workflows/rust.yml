@@ -56,7 +56,7 @@ jobs:
     steps:
     - uses: actions/checkout@v7
     # Keep this version in sync with `rust-version` in the root Cargo.toml.
-    - uses: dtolnay/rust-toolchain@1.89
+    - uses: dtolnay/rust-toolchain@1.120
     - uses: Swatinem/rust-cache@v2
     - name: Check workspace with the minimum supported Rust version
       run: cargo check --workspace
