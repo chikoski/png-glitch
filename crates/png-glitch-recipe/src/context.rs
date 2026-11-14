@@ -5,7 +5,7 @@ use crate::*;
 /// A trait for glitch filters (effects) operating on PNG images.
 pub trait GlitchFilter {
     /// Applies the filter to the [`PngGlitch`] context using the provided RNG.
-    fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore);
+    fn apply(&self, png: &mut PngGlitch, rng: &mut dyn Rng);
 }
 
 /// A pixel-level filter that operates on normalized RGBA `u8` values.
@@ -34,7 +34,7 @@ pub(crate) fn rng_from_seed(seed: Option<u64>) -> Result<ChaCha8Rng> {
     match seed {
         Some(s) => Ok(ChaCha8Rng::seed_from_u64(s)),
         #[cfg(feature = "os-rng")]
-        None => Ok(ChaCha8Rng::from_os_rng()),
+        None => Ok(rand::make_rng()),
         #[cfg(not(feature = "os-rng"))]
         None => Err(RecipeError::SeedRequired),
     }
@@ -107,10 +107,10 @@ impl GlitchContext {
     /// Queues a closure as a filter, for quick experiments.
     ///
     /// The closure receives the image and the context's RNG, like [`GlitchFilter::apply`].
-    pub fn add_fn(&mut self, f: impl Fn(&mut PngGlitch, &mut dyn RngCore) + 'static) {
+    pub fn add_fn(&mut self, f: impl Fn(&mut PngGlitch, &mut dyn Rng) + 'static) {
         struct FnFilter<F>(F);
-        impl<F: Fn(&mut PngGlitch, &mut dyn RngCore)> GlitchFilter for FnFilter<F> {
-            fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
+        impl<F: Fn(&mut PngGlitch, &mut dyn Rng)> GlitchFilter for FnFilter<F> {
+            fn apply(&self, png: &mut PngGlitch, rng: &mut dyn Rng) {
                 (self.0)(png, rng)
             }
         }
@@ -124,7 +124,7 @@ impl GlitchContext {
         match seed {
             Some(s) => self.rng = ChaCha8Rng::seed_from_u64(s),
             #[cfg(feature = "os-rng")]
-            None => self.rng = ChaCha8Rng::from_os_rng(),
+            None => self.rng = rand::make_rng(),
             #[cfg(not(feature = "os-rng"))]
             None => {}
         }
@@ -263,7 +263,7 @@ impl PixelFilter for ShiftChannels {
 }
 
 impl<F: PixelFilter> GlitchFilter for PixelFilterAdapter<F> {
-    fn apply(&self, png: &mut PngGlitch, _rng: &mut dyn RngCore) {
+    fn apply(&self, png: &mut PngGlitch, _rng: &mut dyn Rng) {
         png.foreach_scanline(|line| {
             let max_val = ((1u32 << line.bit_depth() as u32) - 1) as u16;
             line.process_pixels(|_, pixel| {

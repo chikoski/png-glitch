@@ -62,7 +62,7 @@ use png_glitch::effects as fx;
 pub use png_glitch::effects::{Brighten, Darken, Invert, ShiftChannels};
 pub use png_glitch::{FilterType, Limits, ParseOptions, Pixel, PngError, PngGlitch, PngWarning};
 pub use rand;
-use rand::{Rng, RngCore, SeedableRng};
+use rand::{Rng, RngExt, SeedableRng};
 pub use rand_chacha;
 pub use rand_chacha::ChaCha8Rng;
 use serde::{Deserialize, Serialize};

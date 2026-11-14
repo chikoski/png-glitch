@@ -5,7 +5,7 @@ use png_glitch_recipe::{
     FilterConfig, ImageHeader, LiveRecipe, Recipe, RecipeError, ResolvedEffect, SeedMode,
     frame_seed,
 };
-use rand::RngCore;
+use rand::Rng;
 
 const W: u32 = 37;
 const H: u32 = 29;
@@ -109,7 +109,7 @@ fn a_non_live_custom_step_is_rejected_at_build_time() {
         assert!(matches!(err, RecipeError::NotLive { .. }), "{err}");
     }
     // A live custom step is accepted and equals the file workflow.
-    let live_recipe = Recipe::new().then_step(|_: &ImageHeader, rng: &mut dyn RngCore| {
+    let live_recipe = Recipe::new().then_step(|_: &ImageHeader, rng: &mut dyn Rng| {
         ResolvedEffect::new_live(png_glitch::effects::Brighten::new(
             (rng.next_u32() % 64) as u16,
         ))
@@ -125,7 +125,7 @@ fn a_per_frame_step_that_turns_non_live_later_fails_in_run() {
     let seed = 7u64;
     // Live on frame 0, non-live on frame 1: decided by the drawn number.
     let want_live_at_0 = rand_first(frame_seed(seed, 0)).is_multiple_of(2);
-    let recipe = Recipe::new().then_step(move |_: &ImageHeader, rng: &mut dyn RngCore| {
+    let recipe = Recipe::new().then_step(move |_: &ImageHeader, rng: &mut dyn Rng| {
         if rng.next_u32().is_multiple_of(2) {
             ResolvedEffect::new_live(png_glitch::effects::Invert)
         } else {

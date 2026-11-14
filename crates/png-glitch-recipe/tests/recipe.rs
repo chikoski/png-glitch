@@ -118,11 +118,11 @@ impl png_glitch::effects::Effect for BlankFirstByte {
 #[test]
 fn custom_steps_resolve_with_the_seeded_rng_and_replay() {
     use png_glitch_recipe::ResolvedEffect;
-    use png_glitch_recipe::rand::{Rng, RngCore};
+    use png_glitch_recipe::rand::{Rng, RngExt};
 
     let recipe = Recipe::new()
         .then(FilterConfig::Invert)
-        .then_step(|header: &ImageHeader, rng: &mut dyn RngCore| {
+        .then_step(|header: &ImageHeader, rng: &mut dyn Rng| {
             let rows = (0..header.height)
                 .filter(|_| rng.random_bool(0.5))
                 .collect();

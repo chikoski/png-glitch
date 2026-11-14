@@ -20,4 +20,4 @@ rayon.workspace = true
 webp.workspace = true
 rand = { workspace = true, features = ["default"] }
 image.workspace = true
-rand_chacha = { workspace = true, features = ["std", "os_rng"] }
+rand_chacha = { workspace = true, features = ["std"] }

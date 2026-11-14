@@ -12,7 +12,7 @@ use crate::{
 use png_glitch::effects as fx;
 use png_glitch::effects::{Effect, Mask, Masked, ScanLinesEffect};
 use png_glitch::{ColorType, PngGlitch, ScanLines};
-use rand::{RngCore, SeedableRng};
+use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use std::fmt;
 use std::sync::Arc;
@@ -149,7 +149,7 @@ fn entry_mask(entry: &FilterEntry, header: &ImageHeader, masks: &MaskSet) -> Res
 pub(crate) fn resolve_entry(
     entry: &FilterEntry,
     header: &ImageHeader,
-    rng: &mut dyn RngCore,
+    rng: &mut dyn Rng,
     masks: &MaskSet,
 ) -> Result<ResolvedStep> {
     let range = match &entry.rows {
@@ -276,7 +276,7 @@ pub(crate) struct EntryFilter {
 }
 
 impl GlitchFilter for EntryFilter {
-    fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
+    fn apply(&self, png: &mut PngGlitch, rng: &mut dyn Rng) {
         let header = ImageHeader::of(png);
         // The entry was checked when the filter was made; `Err` cannot happen here.
         if let Ok(step) = resolve_entry(&self.entry, &header, rng, &self.masks) {
@@ -309,18 +309,18 @@ pub(crate) fn entry_filter(entry: FilterEntry, masks: &MaskSet) -> Result<EntryF
 /// A user-defined recipe step: draws its random choices from the RNG and returns a
 /// deterministic `png-glitch` effect.
 ///
-/// Closures `Fn(&ImageHeader, &mut dyn RngCore) -> ResolvedEffect` implement this trait, which is
+/// Closures `Fn(&ImageHeader, &mut dyn Rng) -> ResolvedEffect` implement this trait, which is
 /// handy for quick experiments. Add a step with [`Recipe::then_step`].
 pub trait RecipeStep: Send + Sync {
     /// Draws the choices for an image with the given header and returns the effect to run.
-    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedEffect;
+    fn resolve(&self, header: &ImageHeader, rng: &mut dyn Rng) -> ResolvedEffect;
 }
 
 impl<F> RecipeStep for F
 where
-    F: Fn(&ImageHeader, &mut dyn RngCore) -> ResolvedEffect + Send + Sync,
+    F: Fn(&ImageHeader, &mut dyn Rng) -> ResolvedEffect + Send + Sync,
 {
-    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedEffect {
+    fn resolve(&self, header: &ImageHeader, rng: &mut dyn Rng) -> ResolvedEffect {
         self(header, rng)
     }
 }
@@ -329,7 +329,7 @@ where
 struct FixedStep(ResolvedEffect);
 
 impl RecipeStep for FixedStep {
-    fn resolve(&self, _header: &ImageHeader, _rng: &mut dyn RngCore) -> ResolvedEffect {
+    fn resolve(&self, _header: &ImageHeader, _rng: &mut dyn Rng) -> ResolvedEffect {
         self.0.clone()
     }
 }
@@ -629,7 +629,7 @@ impl ResolvedStep {
 
 /// Turns a built-in filter's parameters and random specification into a concrete step.
 pub(crate) trait Resolve {
-    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep;
+    fn resolve(&self, header: &ImageHeader, rng: &mut dyn Rng) -> ResolvedStep;
 
     /// Writes into `out` exactly what [`resolve`](Self::resolve) returns, with the same RNG
     /// draws in the same order, but reuses the buffers already in `out` (and `scratch`) when
@@ -639,7 +639,7 @@ pub(crate) trait Resolve {
     fn resolve_into(
         &self,
         header: &ImageHeader,
-        rng: &mut dyn RngCore,
+        rng: &mut dyn Rng,
         out: &mut ResolvedStep,
         _scratch: &mut StepScratch,
     ) {
@@ -684,7 +684,7 @@ macro_rules! builtin_filters {
         )*
 
         impl Resolve for Builtin {
-            fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
+            fn resolve(&self, header: &ImageHeader, rng: &mut dyn Rng) -> ResolvedStep {
                 match self {
                     $(Self::$name(f) => f.resolve(header, rng),)*
                 }
@@ -693,7 +693,7 @@ macro_rules! builtin_filters {
             fn resolve_into(
                 &self,
                 header: &ImageHeader,
-                rng: &mut dyn RngCore,
+                rng: &mut dyn Rng,
                 out: &mut ResolvedStep,
                 scratch: &mut StepScratch,
             ) {
@@ -737,7 +737,7 @@ builtin_filters!(
 );
 
 impl GlitchFilter for Builtin {
-    fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
+    fn apply(&self, png: &mut PngGlitch, rng: &mut dyn Rng) {
         let header = ImageHeader::of(png);
         self.resolve(&header, rng).execute(png);
     }
@@ -747,7 +747,7 @@ macro_rules! impl_glitch_filter_via_resolve {
     ($($t:ty),* $(,)?) => {
         $(
             impl GlitchFilter for $t {
-                fn apply(&self, png: &mut PngGlitch, rng: &mut dyn RngCore) {
+                fn apply(&self, png: &mut PngGlitch, rng: &mut dyn Rng) {
                     let header = ImageHeader::of(png);
                     $crate::Resolve::resolve(self, &header, rng).execute(png);
                 }
