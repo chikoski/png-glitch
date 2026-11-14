@@ -3,7 +3,7 @@
 //! guarantee (#58): the RNG draws must be the same in number and order.
 
 use png_glitch::{ColorType, Encoding, FilterStrategy, FilterType, PixelSource, PngGlitch};
-use png_glitch_recipe::rand::{Rng, SeedableRng};
+use png_glitch_recipe::rand::{RngExt, SeedableRng};
 use png_glitch_recipe::{
     BitOp, ChaCha8Rng, FilterConfig, FilterEntry, ImageHeader, Invert, Recipe, RectSpec, RowRange,
     SortCriterion, SwapTarget,

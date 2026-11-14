@@ -30,5 +30,5 @@ rayon.workspace = true
 default = ["clap", "os-rng", "parallel"]
 clap = ["dep:clap"]
 # Seeding from the OS when no seed is given. Without it every constructor needs a seed.
-os-rng = ["rand/default", "rand_chacha/os_rng"]
+os-rng = ["rand/sys_rng"]
 parallel = ["png-glitch/parallel"]

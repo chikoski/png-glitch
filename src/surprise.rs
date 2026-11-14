@@ -9,7 +9,7 @@ use crate::{
 use anyhow::{Context, bail};
 use png_glitch_recipe::{FilterConfig, ParseOptions};
 use rand::seq::SliceRandom;
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use std::fs;
 use std::path::Path;

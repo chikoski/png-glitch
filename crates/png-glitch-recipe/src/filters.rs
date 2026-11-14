@@ -7,7 +7,7 @@ use crate::*;
 /// pushes the selected rows to `rows` (reserving the bound, the image height, first).
 pub(crate) fn draw_rows(
     header: &ImageHeader,
-    rng: &mut dyn RngCore,
+    rng: &mut dyn Rng,
     magnitude: f64,
     rows: &mut Vec<u32>,
 ) {
@@ -22,14 +22,14 @@ pub(crate) fn draw_rows(
 macro_rules! resolve_via_build {
     ($t:ty, $variant:ident, $field:ident) => {
         impl Resolve for $t {
-            fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
+            fn resolve(&self, header: &ImageHeader, rng: &mut dyn Rng) -> ResolvedStep {
                 self.build(header, rng, Vec::new())
             }
 
             fn resolve_into(
                 &self,
                 header: &ImageHeader,
-                rng: &mut dyn RngCore,
+                rng: &mut dyn Rng,
                 out: &mut ResolvedStep,
                 _scratch: &mut StepScratch,
             ) {
@@ -73,7 +73,7 @@ impl ChangeFilterType {
     fn build(
         &self,
         header: &ImageHeader,
-        rng: &mut dyn RngCore,
+        rng: &mut dyn Rng,
         mut filter_types: Vec<Option<FilterType>>,
     ) -> ResolvedStep {
         let magnitude = clamp_magnitude(self.magnitude);
@@ -100,7 +100,7 @@ resolve_via_build!(ChangeFilterType, SetFilterTypes, filter_types);
 pub(crate) struct Reencode(pub(crate) FilterType);
 
 impl Resolve for Reencode {
-    fn resolve(&self, _header: &ImageHeader, _rng: &mut dyn RngCore) -> ResolvedStep {
+    fn resolve(&self, _header: &ImageHeader, _rng: &mut dyn Rng) -> ResolvedStep {
         ResolvedStep::Refilter(fx::Refilter::new(self.0))
     }
 }
@@ -133,14 +133,14 @@ impl SetFilterType {
 }
 
 impl Resolve for SetFilterType {
-    fn resolve(&self, header: &ImageHeader, _rng: &mut dyn RngCore) -> ResolvedStep {
+    fn resolve(&self, header: &ImageHeader, _rng: &mut dyn Rng) -> ResolvedStep {
         self.build(header, Vec::new())
     }
 
     fn resolve_into(
         &self,
         header: &ImageHeader,
-        _rng: &mut dyn RngCore,
+        _rng: &mut dyn Rng,
         out: &mut ResolvedStep,
         _scratch: &mut StepScratch,
     ) {
@@ -173,7 +173,7 @@ impl Regenerate {
 }
 
 impl Resolve for Regenerate {
-    fn resolve(&self, _header: &ImageHeader, _rng: &mut dyn RngCore) -> ResolvedStep {
+    fn resolve(&self, _header: &ImageHeader, _rng: &mut dyn Rng) -> ResolvedStep {
         match self.strategy.to_filter_strategy() {
             Ok(strategy) => ResolvedStep::Regenerate(strategy),
             // An empty pattern: rejected by `filter_from_config`; here it does nothing.
@@ -205,7 +205,7 @@ impl RemoveFilter {
 
 #[allow(deprecated)]
 impl Resolve for RemoveFilter {
-    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
+    fn resolve(&self, header: &ImageHeader, rng: &mut dyn Rng) -> ResolvedStep {
         Reencode(FilterType::None).resolve(header, rng)
     }
 }
@@ -233,7 +233,7 @@ impl SubFilter {
 
 #[allow(deprecated)]
 impl Resolve for SubFilter {
-    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
+    fn resolve(&self, header: &ImageHeader, rng: &mut dyn Rng) -> ResolvedStep {
         Reencode(FilterType::Sub).resolve(header, rng)
     }
 }
@@ -261,7 +261,7 @@ impl UpFilter {
 
 #[allow(deprecated)]
 impl Resolve for UpFilter {
-    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
+    fn resolve(&self, header: &ImageHeader, rng: &mut dyn Rng) -> ResolvedStep {
         Reencode(FilterType::Up).resolve(header, rng)
     }
 }
@@ -289,7 +289,7 @@ impl AverageFilter {
 
 #[allow(deprecated)]
 impl Resolve for AverageFilter {
-    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
+    fn resolve(&self, header: &ImageHeader, rng: &mut dyn Rng) -> ResolvedStep {
         Reencode(FilterType::Average).resolve(header, rng)
     }
 }
@@ -317,7 +317,7 @@ impl PaethFilter {
 
 #[allow(deprecated)]
 impl Resolve for PaethFilter {
-    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
+    fn resolve(&self, header: &ImageHeader, rng: &mut dyn Rng) -> ResolvedStep {
         Reencode(FilterType::Paeth).resolve(header, rng)
     }
 }
@@ -348,7 +348,7 @@ impl Replace {
     fn build(
         &self,
         header: &ImageHeader,
-        rng: &mut dyn RngCore,
+        rng: &mut dyn Rng,
         mut edits: Vec<fx::ByteEdit>,
     ) -> ResolvedStep {
         let magnitude = clamp_magnitude(self.magnitude);
@@ -399,7 +399,7 @@ impl Transpose {
     fn build(
         &self,
         header: &ImageHeader,
-        rng: &mut dyn RngCore,
+        rng: &mut dyn Rng,
         mut swaps: Vec<(u32, u32)>,
     ) -> ResolvedStep {
         let magnitude = clamp_magnitude(self.magnitude);
@@ -444,7 +444,7 @@ impl RandomCopy {
     fn build(
         &self,
         header: &ImageHeader,
-        rng: &mut dyn RngCore,
+        rng: &mut dyn Rng,
         mut copies: Vec<(u32, u32)>,
     ) -> ResolvedStep {
         let height = header.height;
@@ -481,7 +481,7 @@ impl Substitute {
 }
 
 impl Resolve for Substitute {
-    fn resolve(&self, _header: &ImageHeader, _rng: &mut dyn RngCore) -> ResolvedStep {
+    fn resolve(&self, _header: &ImageHeader, _rng: &mut dyn Rng) -> ResolvedStep {
         ResolvedStep::Substitute(fx::Substitute::new(self.index, self.value))
     }
 }
@@ -512,7 +512,7 @@ impl SetZero {
     fn build(
         &self,
         header: &ImageHeader,
-        rng: &mut dyn RngCore,
+        rng: &mut dyn Rng,
         mut edits: Vec<fx::ByteEdit>,
     ) -> ResolvedStep {
         let magnitude = clamp_magnitude(self.magnitude);
@@ -585,12 +585,7 @@ impl PixelSort {
 }
 
 impl PixelSort {
-    fn build(
-        &self,
-        header: &ImageHeader,
-        rng: &mut dyn RngCore,
-        mut rows: Vec<u32>,
-    ) -> ResolvedStep {
+    fn build(&self, header: &ImageHeader, rng: &mut dyn Rng, mut rows: Vec<u32>) -> ResolvedStep {
         draw_rows(header, rng, self.magnitude, &mut rows);
         let criterion = match self.criterion {
             SortCriterion::Brightness => fx::SortCriterion::Brightness,
@@ -663,12 +658,7 @@ impl Bitwise {
 }
 
 impl Bitwise {
-    fn build(
-        &self,
-        header: &ImageHeader,
-        rng: &mut dyn RngCore,
-        mut rows: Vec<u32>,
-    ) -> ResolvedStep {
+    fn build(&self, header: &ImageHeader, rng: &mut dyn Rng, mut rows: Vec<u32>) -> ResolvedStep {
         draw_rows(header, rng, self.magnitude, &mut rows);
         let op = match self.op {
             BitOp::And => fx::BitOp::And,
@@ -733,12 +723,7 @@ impl ChannelSwap {
 }
 
 impl ChannelSwap {
-    fn build(
-        &self,
-        header: &ImageHeader,
-        rng: &mut dyn RngCore,
-        mut rows: Vec<u32>,
-    ) -> ResolvedStep {
+    fn build(&self, header: &ImageHeader, rng: &mut dyn Rng, mut rows: Vec<u32>) -> ResolvedStep {
         draw_rows(header, rng, self.magnitude, &mut rows);
         let target = match self.target {
             SwapTarget::Rg => fx::SwapTarget::Rg,
@@ -777,7 +762,7 @@ impl HorizontalShift {
     fn build(
         &self,
         header: &ImageHeader,
-        rng: &mut dyn RngCore,
+        rng: &mut dyn Rng,
         mut shifts: Vec<fx::LineShift>,
     ) -> ResolvedStep {
         let magnitude = clamp_magnitude(self.magnitude);
@@ -835,7 +820,7 @@ impl BlockScramble {
     fn build(
         &self,
         header: &ImageHeader,
-        rng: &mut dyn RngCore,
+        rng: &mut dyn Rng,
         mut swaps: Vec<fx::BlockSwap>,
     ) -> ResolvedStep {
         let width = header.width;
@@ -922,7 +907,7 @@ impl ColorDistortion {
     fn build(
         &self,
         header: &ImageHeader,
-        rng: &mut dyn RngCore,
+        rng: &mut dyn Rng,
         mut lines: Vec<fx::LineOffsets>,
         spare: &mut Vec<Vec<[i16; 3]>>,
     ) -> ResolvedStep {
@@ -949,7 +934,7 @@ impl ColorDistortion {
 }
 
 impl Resolve for ColorDistortion {
-    fn resolve(&self, header: &ImageHeader, rng: &mut dyn RngCore) -> ResolvedStep {
+    fn resolve(&self, header: &ImageHeader, rng: &mut dyn Rng) -> ResolvedStep {
         self.build(header, rng, Vec::new(), &mut Vec::new())
     }
 
@@ -959,7 +944,7 @@ impl Resolve for ColorDistortion {
     fn resolve_into(
         &self,
         header: &ImageHeader,
-        rng: &mut dyn RngCore,
+        rng: &mut dyn Rng,
         out: &mut ResolvedStep,
         scratch: &mut StepScratch,
     ) {
@@ -1035,12 +1020,7 @@ impl ColorSpaceGlitch {
 }
 
 impl ColorSpaceGlitch {
-    fn build(
-        &self,
-        header: &ImageHeader,
-        rng: &mut dyn RngCore,
-        mut rows: Vec<u32>,
-    ) -> ResolvedStep {
+    fn build(&self, header: &ImageHeader, rng: &mut dyn Rng, mut rows: Vec<u32>) -> ResolvedStep {
         draw_rows(header, rng, self.magnitude, &mut rows);
         ResolvedStep::HslShift(fx::HslShift::new(
             self.hue_shift,
@@ -1096,12 +1076,7 @@ impl ChromaticAberration {
 }
 
 impl ChromaticAberration {
-    fn build(
-        &self,
-        header: &ImageHeader,
-        rng: &mut dyn RngCore,
-        mut rows: Vec<u32>,
-    ) -> ResolvedStep {
+    fn build(&self, header: &ImageHeader, rng: &mut dyn Rng, mut rows: Vec<u32>) -> ResolvedStep {
         if header.width == 0 {
             return ResolvedStep::Noop;
         }
@@ -1118,25 +1093,25 @@ impl ChromaticAberration {
 resolve_via_build!(ChromaticAberration, ChannelShift, rows);
 
 impl Resolve for Invert {
-    fn resolve(&self, __header: &ImageHeader, _rng: &mut dyn RngCore) -> ResolvedStep {
+    fn resolve(&self, __header: &ImageHeader, _rng: &mut dyn Rng) -> ResolvedStep {
         ResolvedStep::Invert(*self)
     }
 }
 
 impl Resolve for Brighten {
-    fn resolve(&self, __header: &ImageHeader, _rng: &mut dyn RngCore) -> ResolvedStep {
+    fn resolve(&self, __header: &ImageHeader, _rng: &mut dyn Rng) -> ResolvedStep {
         ResolvedStep::Brighten(*self)
     }
 }
 
 impl Resolve for Darken {
-    fn resolve(&self, __header: &ImageHeader, _rng: &mut dyn RngCore) -> ResolvedStep {
+    fn resolve(&self, __header: &ImageHeader, _rng: &mut dyn Rng) -> ResolvedStep {
         ResolvedStep::Darken(*self)
     }
 }
 
 impl Resolve for ShiftChannels {
-    fn resolve(&self, __header: &ImageHeader, _rng: &mut dyn RngCore) -> ResolvedStep {
+    fn resolve(&self, __header: &ImageHeader, _rng: &mut dyn Rng) -> ResolvedStep {
         ResolvedStep::ShiftChannels(*self)
     }
 }

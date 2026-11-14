@@ -1,7 +1,7 @@
 //! A minimal Rust host for the png-glitch component, and the helpers its smoke test uses.
 //!
 //! ```no_run
-//! # fn main() -> anyhow::Result<()> {
+//! # fn main() -> wasmtime::Result<()> {
 //! let mut host = png_glitch_component_host_test::Host::load(
 //!     "target/wasm32-wasip2/release/png_glitch_component.wasm",
 //! )?;
@@ -51,11 +51,13 @@ pub struct Host {
 
 impl Host {
     /// Loads and instantiates the component at `path`.
-    pub fn load(path: &str) -> anyhow::Result<Self> {
+    pub fn load(path: &str) -> wasmtime::Result<Self> {
         let engine = Engine::default();
         let component = Component::from_file(&engine, path)?;
         let mut linker = Linker::new(&engine);
-        wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
+        let mut options = wasmtime_wasi::p2::bindings::sync::LinkOptions::default();
+        options.cli_exit_with_code(true);
+        wasmtime_wasi::p2::add_to_linker_with_options_sync(&mut linker, &options)?;
         let mut store = Store::new(
             &engine,
             State {
@@ -68,14 +70,14 @@ impl Host {
     }
 
     /// `list-filters`.
-    pub fn list_filters(&mut self) -> anyhow::Result<Vec<FilterInfo>> {
+    pub fn list_filters(&mut self) -> wasmtime::Result<Vec<FilterInfo>> {
         self.bindings
             .chikoski_png_glitch_glitch()
             .call_list_filters(&mut self.store)
     }
 
     /// `validate-recipe`.
-    pub fn validate_recipe(&mut self, recipe: &str) -> anyhow::Result<Result<(), GlitchError>> {
+    pub fn validate_recipe(&mut self, recipe: &str) -> wasmtime::Result<Result<(), GlitchError>> {
         self.bindings
             .chikoski_png_glitch_glitch()
             .call_validate_recipe(&mut self.store, recipe)
@@ -87,7 +89,7 @@ impl Host {
         image: &[u8],
         recipe: &str,
         seed: u64,
-    ) -> anyhow::Result<Result<Vec<u8>, GlitchError>> {
+    ) -> wasmtime::Result<Result<Vec<u8>, GlitchError>> {
         self.bindings
             .chikoski_png_glitch_glitch()
             .call_glitch(&mut self.store, image, recipe, seed)
@@ -100,7 +102,7 @@ impl Host {
         height: u32,
         rgba: &[u8],
         enc: &Encoding,
-    ) -> anyhow::Result<Result<Session, GlitchError>> {
+    ) -> wasmtime::Result<Result<Session, GlitchError>> {
         let r = self
             .bindings
             .chikoski_png_glitch_live()
@@ -110,7 +112,10 @@ impl Host {
     }
 
     /// `session.from-png`.
-    pub fn session_from_png(&mut self, png: &[u8]) -> anyhow::Result<Result<Session, GlitchError>> {
+    pub fn session_from_png(
+        &mut self,
+        png: &[u8],
+    ) -> wasmtime::Result<Result<Session, GlitchError>> {
         let r = self
             .bindings
             .chikoski_png_glitch_live()
@@ -124,7 +129,7 @@ impl Host {
         &mut self,
         s: &Session,
         rgba: &[u8],
-    ) -> anyhow::Result<Result<(), GlitchError>> {
+    ) -> wasmtime::Result<Result<(), GlitchError>> {
         self.bindings
             .chikoski_png_glitch_live()
             .session()
@@ -138,7 +143,7 @@ impl Host {
         recipe: &str,
         seed: u64,
         mode: SeedMode,
-    ) -> anyhow::Result<Result<(), GlitchError>> {
+    ) -> wasmtime::Result<Result<(), GlitchError>> {
         self.bindings
             .chikoski_png_glitch_live()
             .session()
@@ -146,7 +151,7 @@ impl Host {
     }
 
     /// `session.apply`.
-    pub fn apply(&mut self, s: &Session) -> anyhow::Result<Result<(), GlitchError>> {
+    pub fn apply(&mut self, s: &Session) -> wasmtime::Result<Result<(), GlitchError>> {
         self.bindings
             .chikoski_png_glitch_live()
             .session()
@@ -154,7 +159,7 @@ impl Host {
     }
 
     /// `session.reset`.
-    pub fn reset(&mut self, s: &Session) -> anyhow::Result<Result<(), GlitchError>> {
+    pub fn reset(&mut self, s: &Session) -> wasmtime::Result<Result<(), GlitchError>> {
         self.bindings
             .chikoski_png_glitch_live()
             .session()
@@ -162,7 +167,7 @@ impl Host {
     }
 
     /// `session.render-rgba`.
-    pub fn render_rgba(&mut self, s: &Session) -> anyhow::Result<Result<Vec<u8>, GlitchError>> {
+    pub fn render_rgba(&mut self, s: &Session) -> wasmtime::Result<Result<Vec<u8>, GlitchError>> {
         self.bindings
             .chikoski_png_glitch_live()
             .session()
@@ -170,7 +175,7 @@ impl Host {
     }
 
     /// `session.snapshot`.
-    pub fn snapshot(&mut self, s: &Session) -> anyhow::Result<Result<Vec<u8>, GlitchError>> {
+    pub fn snapshot(&mut self, s: &Session) -> wasmtime::Result<Result<Vec<u8>, GlitchError>> {
         self.bindings
             .chikoski_png_glitch_live()
             .session()

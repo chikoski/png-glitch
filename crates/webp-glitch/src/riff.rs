@@ -1,5 +1,5 @@
 use crate::error::WebpError;
-use rand::Rng;
+use rand::{Rng, RngExt};
 
 const RIFF_SIGNATURE: &[u8; 4] = b"RIFF";
 const WEBP_FORM_TYPE: &[u8; 4] = b"WEBP";

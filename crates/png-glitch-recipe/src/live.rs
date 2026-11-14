@@ -8,7 +8,7 @@
 
 use crate::{ImageHeader, Recipe, RecipeError, ResolvedRecipe, Result};
 use png_glitch::LivePipeline;
-use rand::RngCore;
+use rand::Rng;
 
 /// The `frame`-th output (0-based) of SplitMix64 started at `seed`: the seed of one frame in
 /// [`SeedMode::PerFrame`].

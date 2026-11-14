@@ -224,22 +224,22 @@ PNG Prediction Filter Re-encoding:
       --sub
           [deprecated: use `-f regenerate=sub`] Re-encode all PNG scanlines with PNG prediction filter `Sub` (pipeline step, PNG only)
           
-          [aliases: --sub-filter]
+          [alias: --sub-filter]
 
       --up
           [deprecated: use `-f regenerate=up`] Re-encode all PNG scanlines with PNG prediction filter `Up` (pipeline step, PNG only)
           
-          [aliases: --up-filter]
+          [alias: --up-filter]
 
       --average
           [deprecated: use `-f regenerate=average`] Re-encode all PNG scanlines with PNG prediction filter `Average` (pipeline step, PNG only)
           
-          [aliases: --average-filter]
+          [alias: --average-filter]
 
       --paeth
           [deprecated: use `-f regenerate=paeth`] Re-encode all PNG scanlines with PNG prediction filter `Paeth` (pipeline step, PNG only)
           
-          [aliases: --paeth-filter]
+          [alias: --paeth-filter]
 
 WebP Filters:
       --macroblock-glitch <MAG>

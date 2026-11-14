@@ -4,7 +4,7 @@
 //! RNG and returns it. The same pieces work in a `GlitchContext` and in a reusable `Recipe`.
 
 use png_glitch::effects::{Effect, SwapLines};
-use png_glitch_recipe::rand::{Rng, RngCore};
+use png_glitch_recipe::rand::{Rng, RngExt};
 use png_glitch_recipe::{
     FilterConfig, GlitchContext, ImageHeader, PngGlitch, Recipe, ResolvedEffect,
 };
@@ -44,7 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 2. In a recipe: reusable for any image and seed.
     let recipe = Recipe::new()
         .then(FilterConfig::Replace { magnitude: 0.05 })
-        .then_step(|header: &ImageHeader, rng: &mut dyn RngCore| {
+        .then_step(|header: &ImageHeader, rng: &mut dyn Rng| {
             let rows = (0..header.height)
                 .filter(|_| rng.random_bool(0.1))
                 .collect();

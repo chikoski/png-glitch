@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Updated dependencies (`rand` 0.10, `clap` 4.6, `wasmtime` 43)
+
+#### Changed
+- **Breaking**: Updated `rand` (including the `pub use rand` re-exports) and `rand_chacha` from `0.9` to `0.10`. Because `rand 0.10` renamed `RngCore` to `Rng` and `Rng` to `RngExt`, `GlitchFilter::apply`, `GlitchContext::add_fn`, `RecipeStep::resolve`, and `WebpGlitchFilter::apply` now take `&mut dyn rand::Rng` instead of `&mut dyn rand::RngCore`. Seeded outputs are unchanged.
+- Updated `crates/png-glitch-component/host-test` to `wasmtime` / `wasmtime-wasi` 43 (returning `wasmtime::Result` instead of `anyhow::Result`) and enabled `LinkOptions::cli_exit_with_code(true)` to support WASI `0.2.12` components built with newer Rust toolchains.
+
 ### Faster `Renderer::render_into` on wasm (#220)
 
 #### Changed

@@ -21,7 +21,7 @@
 )]
 
 use anyhow::{Context, bail};
-use png_glitch_recipe::rand::{Rng, RngCore, SeedableRng};
+use png_glitch_recipe::rand::{Rng, RngExt, SeedableRng};
 pub use png_glitch_recipe::{
     AlphaGlitchStrategy, BitOp, Bitwise, Brighten, ChannelSwap, ChromaticAberration,
     ColorDistortion, Darken, FilterConfig, HorizontalShift, Invert, PixelFilter,
@@ -57,7 +57,7 @@ impl WebpGlitchContext {
             .with_context(|| format!("failed to open '{}'", path.display()))?;
         let rng = match seed {
             Some(s) => ChaCha8Rng::seed_from_u64(s),
-            None => ChaCha8Rng::from_os_rng(),
+            None => rand::make_rng(),
         };
         Ok(Self {
             webp,
@@ -71,7 +71,7 @@ impl WebpGlitchContext {
         let webp = WebpGlitch::new(data.to_vec())?;
         let rng = match seed {
             Some(s) => ChaCha8Rng::seed_from_u64(s),
-            None => ChaCha8Rng::from_os_rng(),
+            None => rand::make_rng(),
         };
         Ok(Self {
             webp,
@@ -84,7 +84,7 @@ impl WebpGlitchContext {
     pub fn set_seed(&mut self, seed: Option<u64>) {
         self.rng = match seed {
             Some(s) => ChaCha8Rng::seed_from_u64(s),
-            None => ChaCha8Rng::from_os_rng(),
+            None => rand::make_rng(),
         };
     }
 
@@ -242,7 +242,7 @@ impl WebpGlitchContext {
 // PixelFilterAdapter: applies a PixelFilter to WebP images
 
 impl<F: PixelFilter> WebpGlitchFilter for ForWebp<PixelFilterAdapter<F>> {
-    fn apply(&self, webp: &mut WebpGlitch, _rng: &mut dyn RngCore) {
+    fn apply(&self, webp: &mut WebpGlitch, _rng: &mut dyn Rng) {
         webp.foreach_scanline(|line| {
             line.process_pixels(|_, p| match p {
                 WebpPixel::RGB(r, g, b) => {
@@ -265,7 +265,7 @@ pub struct WebpInvert;
 
 #[allow(deprecated)]
 impl WebpGlitchFilter for WebpInvert {
-    fn apply(&self, webp: &mut WebpGlitch, _rng: &mut dyn RngCore) {
+    fn apply(&self, webp: &mut WebpGlitch, _rng: &mut dyn Rng) {
         webp.foreach_scanline(|line| {
             line.process_pixels(|_, p| match p {
                 WebpPixel::RGB(r, g, b) => WebpPixel::RGB(255 - r, 255 - g, 255 - b),
@@ -287,7 +287,7 @@ pub struct WebpBrighten {
 
 #[allow(deprecated)]
 impl WebpGlitchFilter for WebpBrighten {
-    fn apply(&self, webp: &mut WebpGlitch, _rng: &mut dyn RngCore) {
+    fn apply(&self, webp: &mut WebpGlitch, _rng: &mut dyn Rng) {
         let s = self.strength;
         webp.foreach_scanline(|line| {
             line.process_pixels(|_, p| match p {
@@ -323,7 +323,7 @@ pub struct WebpShiftChannels {
 
 #[allow(deprecated)]
 impl WebpGlitchFilter for WebpShiftChannels {
-    fn apply(&self, webp: &mut WebpGlitch, _rng: &mut dyn RngCore) {
+    fn apply(&self, webp: &mut WebpGlitch, _rng: &mut dyn Rng) {
         let r_off = self.r;
         let g_off = self.g;
         let b_off = self.b;
@@ -344,7 +344,7 @@ impl WebpGlitchFilter for WebpShiftChannels {
 }
 
 impl WebpGlitchFilter for ForWebp<PixelSort> {
-    fn apply(&self, webp: &mut WebpGlitch, rng: &mut dyn RngCore) {
+    fn apply(&self, webp: &mut WebpGlitch, rng: &mut dyn Rng) {
         let this = &self.0;
         let magnitude = clamp_magnitude(this.magnitude);
         webp.foreach_scanline(|line| {
@@ -387,7 +387,7 @@ impl WebpGlitchFilter for ForWebp<PixelSort> {
 }
 
 impl WebpGlitchFilter for ForWebp<Bitwise> {
-    fn apply(&self, webp: &mut WebpGlitch, rng: &mut dyn RngCore) {
+    fn apply(&self, webp: &mut WebpGlitch, rng: &mut dyn Rng) {
         let this = &self.0;
         let magnitude = clamp_magnitude(this.magnitude);
         webp.foreach_scanline(|line| {
@@ -408,7 +408,7 @@ impl WebpGlitchFilter for ForWebp<Bitwise> {
 }
 
 impl WebpGlitchFilter for ForWebp<ChannelSwap> {
-    fn apply(&self, webp: &mut WebpGlitch, rng: &mut dyn RngCore) {
+    fn apply(&self, webp: &mut WebpGlitch, rng: &mut dyn Rng) {
         let this = &self.0;
         let magnitude = clamp_magnitude(this.magnitude);
         webp.foreach_scanline(|line| {
@@ -431,7 +431,7 @@ impl WebpGlitchFilter for ForWebp<ChannelSwap> {
 }
 
 impl WebpGlitchFilter for ForWebp<HorizontalShift> {
-    fn apply(&self, webp: &mut WebpGlitch, rng: &mut dyn RngCore) {
+    fn apply(&self, webp: &mut WebpGlitch, rng: &mut dyn Rng) {
         let this = &self.0;
         let magnitude = clamp_magnitude(this.magnitude);
         webp.foreach_scanline(|line| {
@@ -452,7 +452,7 @@ impl WebpGlitchFilter for ForWebp<HorizontalShift> {
 }
 
 impl WebpGlitchFilter for ForWebp<ColorDistortion> {
-    fn apply(&self, webp: &mut WebpGlitch, rng: &mut dyn RngCore) {
+    fn apply(&self, webp: &mut WebpGlitch, rng: &mut dyn Rng) {
         let this = &self.0;
         let strength = this.strength.saturating_abs().min(255);
         let magnitude = clamp_magnitude(this.magnitude);
@@ -478,7 +478,7 @@ impl WebpGlitchFilter for ForWebp<ColorDistortion> {
 }
 
 impl WebpGlitchFilter for ForWebp<ChromaticAberration> {
-    fn apply(&self, webp: &mut WebpGlitch, rng: &mut dyn RngCore) {
+    fn apply(&self, webp: &mut WebpGlitch, rng: &mut dyn Rng) {
         let this = &self.0;
         let width = webp.width() as usize;
         if width == 0 {
@@ -546,7 +546,7 @@ impl MacroblockGlitch {
 }
 
 impl WebpGlitchFilter for MacroblockGlitch {
-    fn apply(&self, webp: &mut WebpGlitch, rng: &mut dyn RngCore) {
+    fn apply(&self, webp: &mut WebpGlitch, rng: &mut dyn Rng) {
         const MB: u32 = 16;
         let width = webp.width();
         let height = webp.height();
@@ -654,7 +654,7 @@ impl AlphaGlitch {
 }
 
 impl WebpGlitchFilter for AlphaGlitch {
-    fn apply(&self, webp: &mut WebpGlitch, rng: &mut dyn RngCore) {
+    fn apply(&self, webp: &mut WebpGlitch, rng: &mut dyn Rng) {
         if !webp.has_alpha() {
             return;
         }
@@ -699,7 +699,7 @@ impl LossyArtifact {
 }
 
 impl WebpGlitchFilter for LossyArtifact {
-    fn apply(&self, webp: &mut WebpGlitch, _rng: &mut dyn RngCore) {
+    fn apply(&self, webp: &mut WebpGlitch, _rng: &mut dyn Rng) {
         webp.set_quality(self.quality);
     }
 }

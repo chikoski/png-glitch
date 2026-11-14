@@ -82,7 +82,7 @@ A recipe that contains user-defined steps cannot be serialized, because code can
 
 ### Custom steps
 
-Add a deterministic `png-glitch` effect with `Recipe::then_effect`, or a step that draws its parameters from the RNG with `Recipe::then_step` (a closure `Fn(&ImageHeader, &mut dyn RngCore) -> ResolvedEffect` works). In a `GlitchContext`, use `add_fn` for a closure, and `png()` / `png_mut()` / `into_inner()` to mix in direct `PngGlitch` calls. See [`examples/custom_effect.rs`](examples/custom_effect.rs):
+Add a deterministic `png-glitch` effect with `Recipe::then_effect`, or a step that draws its parameters from the RNG with `Recipe::then_step` (a closure `Fn(&ImageHeader, &mut dyn Rng) -> ResolvedEffect` works). In a `GlitchContext`, use `add_fn` for a closure, and `png()` / `png_mut()` / `into_inner()` to mix in direct `PngGlitch` calls. See [`examples/custom_effect.rs`](examples/custom_effect.rs):
 
 ```bash
 cargo run -p png-glitch-recipe --example custom_effect
