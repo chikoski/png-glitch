@@ -31,7 +31,7 @@ mod scan_lines;
 pub type DecodedData = Vec<u8>;
 
 /// A struct representing a PNG image.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Png {
     pub(crate) header: Header,
     pub(crate) terminator: Terminator,

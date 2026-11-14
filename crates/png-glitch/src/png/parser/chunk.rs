@@ -21,7 +21,7 @@ const MAX_CHUNK_LENGTH: usize = 0x7FFF_FFFF;
 /// payload (currently only the rebuilt IDAT) must construct the chunk via
 /// [`Chunk::with_recomputed_crc`], which calculates the CRC from
 /// `chunk_type || data` so a stale CRC cannot be observed externally.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Chunk {
     /// The type of the chunk.
     pub(crate) chunk_type: ChunkType,

@@ -101,6 +101,10 @@ interface live {
     from-pixels: static func(width: u32, height: u32, rgba: list<u8>, enc: encoding) -> result<session, glitch-error>;
     /// Refills the model with the next frame and discards earlier glitches.
     reload-pixels: func(rgba: list<u8>) -> result<_, glitch-error>;
+    /// Reloads `rgba`, applies the current recipe, and renders the resulting RGBA8 frame in one
+    /// call without updating the `reset` baseline. Returns `invalid-image` if this session came
+    /// from `from-png` or `rgba` has the wrong length, and `no-recipe` if no recipe is set.
+    process-frame: func(rgba: list<u8>) -> result<list<u8>, glitch-error>;
 
     /// Parses `recipe` (the format of `glitch`) once and keeps it. `apply` runs it.
     set-recipe: func(recipe: string, seed: u64, mode: seed-mode) -> result<_, glitch-error>;

@@ -160,6 +160,10 @@ fn live_session_matches_the_native_session() {
         host.apply(&session).unwrap(),
         Err(GlitchError::NoRecipe)
     ));
+    assert!(matches!(
+        host.process_frame(&session, &frame(0)).unwrap(),
+        Err(GlitchError::NoRecipe)
+    ));
     host.set_recipe(
         &session,
         recipe,
@@ -202,12 +206,49 @@ fn live_session_matches_the_native_session() {
         local.reset().unwrap();
         local.render_rgba().unwrap()
     });
+
+    // Establish a clean baseline with `reload_pixels`, then verify `process_frame` matches native
+    // across multiple frames without overwriting the `reset` baseline.
+    host.reload_pixels(&session, &frame(1)).unwrap().unwrap();
+    local.reload_pixels(&frame(1)).unwrap();
+    let baseline = local.render_rgba().unwrap();
+
+    for k in 0..3 {
+        let from_wasm = host.process_frame(&session, &frame(k)).unwrap().unwrap();
+        let from_native = local.process_frame(&frame(k)).unwrap();
+        assert_eq!(from_wasm, from_native, "process_frame {k}");
+        assert_eq!(
+            host.snapshot(&session).unwrap().unwrap(),
+            local.snapshot().unwrap(),
+            "snapshot after process_frame {k}"
+        );
+    }
+    host.reset(&session).unwrap().unwrap();
+    assert_eq!(host.render_rgba(&session).unwrap().unwrap(), baseline);
+
     assert!(matches!(
         host.reload_pixels(&session, &[0; 8]).unwrap(),
         Err(GlitchError::InvalidImage(_))
     ));
     assert!(matches!(
+        host.process_frame(&session, &[0; 8]).unwrap(),
+        Err(GlitchError::InvalidImage(_))
+    ));
+    assert!(matches!(
         host.session_from_png(b"nope").unwrap(),
         Err(GlitchError::UnsupportedFormat)
+    ));
+    let png_session = host.session_from_png(&image()).unwrap().unwrap();
+    host.set_recipe(
+        &png_session,
+        recipe,
+        1,
+        png_glitch_component_host_test::SeedMode::Fixed,
+    )
+    .unwrap()
+    .unwrap();
+    assert!(matches!(
+        host.process_frame(&png_session, &frame(0)).unwrap(),
+        Err(GlitchError::InvalidImage(_))
     ));
 }

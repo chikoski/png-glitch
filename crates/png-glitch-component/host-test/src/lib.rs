@@ -136,6 +136,18 @@ impl Host {
             .call_reload_pixels(&mut self.store, s.0, rgba)
     }
 
+    /// `session.process-frame`.
+    pub fn process_frame(
+        &mut self,
+        s: &Session,
+        rgba: &[u8],
+    ) -> wasmtime::Result<Result<Vec<u8>, GlitchError>> {
+        self.bindings
+            .chikoski_png_glitch_live()
+            .session()
+            .call_process_frame(&mut self.store, s.0, rgba)
+    }
+
     /// `session.set-recipe`.
     pub fn set_recipe(
         &mut self,

@@ -91,5 +91,21 @@ fn a_live_frame_does_not_allocate() {
             }
         });
         assert_eq!(n, 0, "{mode:?}: a live frame allocated {n} time(s)");
+
+        let mut buf = frames[0].clone();
+        s.process_frame_into(&frames[0], &mut out).unwrap();
+        s.process_frame_in_place(&mut buf).unwrap();
+
+        let m = allocations_during(|| {
+            for f in &frames {
+                s.process_frame_into(f, &mut out).unwrap();
+                buf.copy_from_slice(f);
+                s.process_frame_in_place(&mut buf).unwrap();
+            }
+        });
+        assert_eq!(
+            m, 0,
+            "{mode:?}: streaming process_frame allocated {m} time(s)"
+        );
     }
 }
