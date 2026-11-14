@@ -625,8 +625,60 @@ impl SwapChannels {
     }
 }
 
+/// Applies `f` to every decoded pixel slice (of at most `width` pixels) in each listed row.
+///
+/// Callers must ensure the image has bit depth 8 so pixels align with `[u8; N]`.
+fn for_rows_8bit_pixels<const N: usize>(
+    lines: &mut ScanLines<'_>,
+    rows: &[u32],
+    width: usize,
+    mut f: impl FnMut(&mut [u8; N]),
+) {
+    for &row in rows {
+        let Some(line) = lines.get_mut(row as usize) else {
+            continue;
+        };
+        let offset = line.pixel_data_offset();
+        let Some(data) = line.data.get_mut(offset..) else {
+            continue;
+        };
+        let (pixels, _) = data.as_chunks_mut::<N>();
+        for px in pixels.iter_mut().take(width) {
+            f(px);
+        }
+    }
+}
+
+#[inline(always)]
+fn swap_rgb(target: SwapTarget, r: u8, g: u8, b: u8) -> [u8; 3] {
+    match target {
+        SwapTarget::Rg => [g, r, b],
+        SwapTarget::Gb => [r, b, g],
+        SwapTarget::Br => [b, g, r],
+    }
+}
+
 impl ScanLinesEffect for SwapChannels {
     fn apply_to_scan_lines(&self, lines: &mut ScanLines<'_>) {
+        if lines.bit_depth() == 8 {
+            let width = lines.width() as usize;
+            let target = self.target;
+            match lines.color_type() {
+                ColorType::TrueColor => for_rows_8bit_pixels::<3>(lines, &self.rows, width, |px| {
+                    let [r, g, b] = *px;
+                    *px = swap_rgb(target, r, g, b);
+                }),
+                ColorType::TrueColorAlpha => {
+                    for_rows_8bit_pixels::<4>(lines, &self.rows, width, |px| {
+                        let [r, g, b, a] = *px;
+                        let [r, g, b] = swap_rgb(target, r, g, b);
+                        *px = [r, g, b, a];
+                    });
+                }
+                _ => {}
+            }
+            return;
+        }
         for_rows(lines, &self.rows, |line| {
             line.process_pixels(|_, p| match p {
                 Pixel::RGB(r, g, b) => match self.target {
@@ -670,8 +722,69 @@ impl OffsetColors {
     }
 }
 
+fn apply_8bit_offsets<const N: usize>(
+    lines: &mut ScanLines<'_>,
+    entries: &[LineOffsets],
+    width: usize,
+    mut apply: impl FnMut(&mut [u8; N], [i16; 3]),
+) {
+    for entry in entries {
+        let Some(line) = lines.get_mut(entry.line as usize) else {
+            continue;
+        };
+        let offset = line.pixel_data_offset();
+        let Some(data) = line.data.get_mut(offset..) else {
+            continue;
+        };
+        let (pixels, _) = data.as_chunks_mut::<N>();
+        for (px, &off) in pixels.iter_mut().take(width).zip(&entry.offsets) {
+            apply(px, off);
+        }
+    }
+}
+
 impl ScanLinesEffect for OffsetColors {
     fn apply_to_scan_lines(&self, lines: &mut ScanLines<'_>) {
+        if lines.bit_depth() == 8 {
+            let width = lines.width() as usize;
+            match lines.color_type() {
+                ColorType::TrueColor => {
+                    apply_8bit_offsets::<3>(lines, &self.lines, width, |px, [ro, go, bo]| {
+                        let [r, g, b] = *px;
+                        *px = [
+                            r.wrapping_add(ro as u8),
+                            g.wrapping_add(go as u8),
+                            b.wrapping_add(bo as u8),
+                        ];
+                    });
+                }
+                ColorType::TrueColorAlpha => {
+                    apply_8bit_offsets::<4>(lines, &self.lines, width, |px, [ro, go, bo]| {
+                        let [r, g, b, a] = *px;
+                        *px = [
+                            r.wrapping_add(ro as u8),
+                            g.wrapping_add(go as u8),
+                            b.wrapping_add(bo as u8),
+                            a,
+                        ];
+                    });
+                }
+                ColorType::GrayScale => {
+                    apply_8bit_offsets::<1>(lines, &self.lines, width, |px, [ro, _, _]| {
+                        let [v] = *px;
+                        *px = [v.wrapping_add(ro as u8)];
+                    });
+                }
+                ColorType::GrayScaleAlpha => {
+                    apply_8bit_offsets::<2>(lines, &self.lines, width, |px, [ro, _, _]| {
+                        let [v, a] = *px;
+                        *px = [v.wrapping_add(ro as u8), a];
+                    });
+                }
+                ColorType::IndexColor => {}
+            }
+            return;
+        }
         for entry in &self.lines {
             let Some(mut line) = lines.get_mut(entry.line as usize) else {
                 continue;
@@ -737,6 +850,12 @@ impl HslShift {
 
 impl ScanLinesEffect for HslShift {
     fn apply_to_scan_lines(&self, lines: &mut ScanLines<'_>) {
+        if !matches!(
+            lines.color_type(),
+            ColorType::TrueColor | ColorType::TrueColorAlpha
+        ) {
+            return;
+        }
         let hue_shift = if self.hue_shift.is_finite() {
             self.hue_shift
         } else {
@@ -759,6 +878,43 @@ impl ScanLinesEffect for HslShift {
             let l = (l * light_mult).clamp(0.0, 1.0);
             hsl_to_rgb(h, s, l)
         };
+        if lines.bit_depth() == 8 {
+            let width = lines.width() as usize;
+            // Direct-mapped cache avoids redundant f64 HSL conversions on filtered rows while
+            // staying IEEE-754 bit-exact with calling `transform` per pixel.
+            let mut cache = [(u32::MAX, [0u8; 3]); 64];
+            let mut transform_8bit = |r: u8, g: u8, b: u8| -> [u8; 3] {
+                let key = (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b);
+                let idx = ((key.wrapping_mul(0x9E37_79B9)) >> 26) as usize;
+                let entry = cache.get_mut(idx);
+                if let Some((cached_key, cached_out)) = entry
+                    && *cached_key == key
+                {
+                    return *cached_out;
+                }
+                let (nr, ng, nb) = transform(u16::from(r), u16::from(g), u16::from(b));
+                let out = [nr as u8, ng as u8, nb as u8];
+                if let Some(slot) = cache.get_mut(idx) {
+                    *slot = (key, out);
+                }
+                out
+            };
+            match lines.color_type() {
+                ColorType::TrueColor => for_rows_8bit_pixels::<3>(lines, &self.rows, width, |px| {
+                    let [r, g, b] = *px;
+                    *px = transform_8bit(r, g, b);
+                }),
+                ColorType::TrueColorAlpha => {
+                    for_rows_8bit_pixels::<4>(lines, &self.rows, width, |px| {
+                        let [r, g, b, a] = *px;
+                        let [nr, ng, nb] = transform_8bit(r, g, b);
+                        *px = [nr, ng, nb, a];
+                    });
+                }
+                _ => {}
+            }
+            return;
+        }
         for_rows(lines, &self.rows, |line| {
             line.process_pixels(|_, p| match p {
                 Pixel::RGB(r, g, b) => {
@@ -883,6 +1039,52 @@ impl ChannelShift {
     }
 }
 
+#[inline(always)]
+fn copy_shifted_channel<const N: usize>(
+    dst_head: &mut [[u8; N]],
+    dst_tail: &mut [[u8; N]],
+    src_head: &[[u8; N]],
+    src_tail: &[[u8; N]],
+    ch: usize,
+) {
+    for (dst, src) in dst_head.iter_mut().zip(src_tail) {
+        if let (Some(d), Some(&sv)) = (dst.get_mut(ch), src.get(ch)) {
+            *d = sv;
+        }
+    }
+    for (dst, src) in dst_tail.iter_mut().zip(src_head) {
+        if let (Some(d), Some(&sv)) = (dst.get_mut(ch), src.get(ch)) {
+            *d = sv;
+        }
+    }
+}
+
+fn shift_8bit_channels<const N: usize>(
+    src_bytes: &[u8],
+    dst_bytes: &mut [u8],
+    width: usize,
+    shifts: [usize; 3],
+) {
+    let (src_px, _) = src_bytes.as_chunks::<N>();
+    let (dst_px, _) = dst_bytes.as_chunks_mut::<N>();
+    for (c, &s) in shifts.iter().enumerate() {
+        if s == 0 {
+            continue;
+        }
+        let split = width - s;
+        let (Some((dst_head, dst_tail)), Some(src_tail), Some(src_head)) = (
+            dst_px
+                .get_mut(..width)
+                .and_then(|d| d.split_at_mut_checked(split)),
+            src_px.get(s..width),
+            src_px.get(..s),
+        ) else {
+            continue;
+        };
+        copy_shifted_channel(dst_head, dst_tail, src_head, src_tail, c);
+    }
+}
+
 impl ScanLinesEffect for ChannelShift {
     fn apply_to_scan_lines(&self, lines: &mut ScanLines<'_>) {
         let width = lines.width() as usize;
@@ -897,6 +1099,16 @@ impl ScanLinesEffect for ChannelShift {
             return;
         }
         let offsets = [self.r_offset, self.g_offset, self.b_offset];
+        let shifts = offsets.map(|o| i64::from(o).rem_euclid(width as i64) as usize);
+        if shifts == [0, 0, 0] {
+            return;
+        }
+        let Some(row_bytes) = width
+            .checked_mul(channels)
+            .and_then(|n| n.checked_mul(sample))
+        else {
+            return;
+        };
         for &row in &self.rows {
             let Some((line, scratch)) = lines.row_and_scratch(row as usize) else {
                 continue;
@@ -907,9 +1119,22 @@ impl ScanLinesEffect for ChannelShift {
             };
             original.copy_from_slice(line.data);
             let start = line.pixel_data_offset();
+            if sample == 1
+                && let Some(end) = start.checked_add(row_bytes)
+                && let (Some(src_bytes), Some(dst_bytes)) =
+                    (original.get(start..end), line.data.get_mut(start..end))
+            {
+                if channels == 3 {
+                    shift_8bit_channels::<3>(src_bytes, dst_bytes, width, shifts);
+                } else {
+                    shift_8bit_channels::<4>(src_bytes, dst_bytes, width, shifts);
+                }
+                continue;
+            }
             for x in 0..width {
-                for (channel, offset) in offsets.iter().enumerate() {
-                    let nx = (x as i64 + i64::from(*offset)).rem_euclid(width as i64) as usize;
+                for (channel, &shift) in shifts.iter().enumerate() {
+                    let split = width - shift;
+                    let nx = if x < split { x + shift } else { x - split };
                     let from = start + (nx * channels + channel) * sample;
                     let to = start + (x * channels + channel) * sample;
                     if let (Some(src), Some(dst)) = (
@@ -975,6 +1200,8 @@ impl ScanLinesEffect for SwapBlocks {
         if num_blocks_x == 0 || num_blocks_y == 0 {
             return;
         }
+        let bit_depth = lines.bit_depth();
+        let bpp = lines.get_mut(0).map_or(0, |l| l.bytes_per_pixel());
 
         for swap in &self.swaps {
             let (src_bx, src_by) = swap.src;
@@ -988,22 +1215,46 @@ impl ScanLinesEffect for SwapBlocks {
                 continue;
             }
 
+            let byte_span = (bit_depth >= 8)
+                .then(|| {
+                    let span = (block_size as usize).checked_mul(bpp)?;
+                    let a_start = 1usize.checked_add((src_bx as usize).checked_mul(span)?)?;
+                    let b_start = 1usize.checked_add((dst_bx as usize).checked_mul(span)?)?;
+                    Some((span, a_start, b_start))
+                })
+                .flatten();
+
             for y_off in 0..block_size {
                 let src_y = src_by * block_size + y_off;
                 let dst_y = dst_by * block_size + y_off;
                 if src_y >= height || dst_y >= height {
                     continue;
                 }
-                let columns = (0..block_size).filter_map(|x_off| {
-                    let src_x = (src_bx * block_size + x_off) as usize;
-                    let dst_x = (dst_bx * block_size + x_off) as usize;
-                    (src_x < width as usize && dst_x < width as usize).then_some((src_x, dst_x))
-                });
 
                 if src_y == dst_y {
                     let Some(mut line) = lines.get_mut(src_y as usize) else {
                         continue;
                     };
+                    if let Some((span, a_start, b_start)) = byte_span {
+                        let (lo, hi) = if a_start < b_start {
+                            (a_start, b_start)
+                        } else {
+                            (b_start, a_start)
+                        };
+                        if let Some(lo_end) = lo.checked_add(span)
+                            && let Some((head, tail)) = line.data.split_at_mut_checked(hi)
+                            && let (Some(a), Some(b)) =
+                                (head.get_mut(lo..lo_end), tail.get_mut(..span))
+                        {
+                            a.swap_with_slice(b);
+                            continue;
+                        }
+                    }
+                    let columns = (0..block_size).filter_map(|x_off| {
+                        let src_x = (src_bx * block_size + x_off) as usize;
+                        let dst_x = (dst_bx * block_size + x_off) as usize;
+                        (src_x < width as usize && dst_x < width as usize).then_some((src_x, dst_x))
+                    });
                     for (src_x, dst_x) in columns {
                         if let (Some(ps), Some(pd)) = (line.get_pixel(src_x), line.get_pixel(dst_x))
                         {
@@ -1017,6 +1268,22 @@ impl ScanLinesEffect for SwapBlocks {
                     else {
                         continue;
                     };
+                    if let Some((span, a_start, b_start)) = byte_span
+                        && let (Some(a_end), Some(b_end)) =
+                            (a_start.checked_add(span), b_start.checked_add(span))
+                        && let (Some(a), Some(b)) = (
+                            src_line.data.get_mut(a_start..a_end),
+                            dst_line.data.get_mut(b_start..b_end),
+                        )
+                    {
+                        a.swap_with_slice(b);
+                        continue;
+                    }
+                    let columns = (0..block_size).filter_map(|x_off| {
+                        let src_x = (src_bx * block_size + x_off) as usize;
+                        let dst_x = (dst_bx * block_size + x_off) as usize;
+                        (src_x < width as usize && dst_x < width as usize).then_some((src_x, dst_x))
+                    });
                     for (src_x, dst_x) in columns {
                         if let (Some(ps), Some(pd)) =
                             (src_line.get_pixel(src_x), dst_line.get_pixel(dst_x))
@@ -1121,6 +1388,126 @@ mod tests {
         assert_eq!(out[..stride], original[..stride]);
         assert_eq!(out[stride], 4);
         assert_eq!(out[stride + 1..], original[stride + 1..]);
+    }
+
+    fn sample_rgba() -> PngGlitch {
+        let (w, h) = (8u32, 8u32);
+        let data: Vec<u8> = (0..w * h * 4).map(|i| (i * 11 % 251) as u8).collect();
+        let mut out = Vec::new();
+        PngEncoder::new(&mut out)
+            .write_image(&data, w, h, image::ExtendedColorType::Rgba8)
+            .unwrap();
+        PngGlitch::from_bytes(out).unwrap()
+    }
+
+    #[test]
+    fn fast_paths_match_reference_on_rgba8_and_rgb8() {
+        for make_fresh in [
+            sample as fn() -> PngGlitch,
+            sample_rgba as fn() -> PngGlitch,
+        ] {
+            let fresh_pair = || {
+                let mut png = make_fresh();
+                let mut ref_png = make_fresh();
+                png.remove_filter();
+                ref_png.remove_filter();
+                (png, ref_png)
+            };
+
+            let cs1 = ChannelShift::new(11, -3, 0, vec![0, 3, 7, 99]);
+            let (mut png, mut ref_png) = fresh_pair();
+            cs1.apply_to(&mut png);
+            reference::channel_shift(&cs1, &mut ref_png);
+            assert_eq!(png.data(), ref_png.data(), "channel_shift_wrap");
+
+            let cs2 = ChannelShift::new(0, 8, -8, vec![1]);
+            let (mut png, mut ref_png) = fresh_pair();
+            cs2.apply_to(&mut png);
+            reference::channel_shift(&cs2, &mut ref_png);
+            assert_eq!(png.data(), ref_png.data(), "channel_shift_zero");
+
+            for target in [SwapTarget::Rg, SwapTarget::Gb, SwapTarget::Br] {
+                let sc = SwapChannels::new(target, vec![0, 1, 2, 5]);
+                let (mut png, mut ref_png) = fresh_pair();
+                sc.apply_to(&mut png);
+                reference::swap_channels(&sc, &mut ref_png);
+                assert_eq!(png.data(), ref_png.data(), "swap_channels_{target:?}");
+            }
+
+            let oc = OffsetColors::new(vec![LineOffsets {
+                line: 4,
+                offsets: vec![[10, -20, 300], [-300, 128, -1]],
+            }]);
+            let (mut png, mut ref_png) = fresh_pair();
+            oc.apply_to(&mut png);
+            reference::offset_colors(&oc, &mut ref_png);
+            assert_eq!(png.data(), ref_png.data(), "offset_colors");
+
+            let sb = SwapBlocks::new(
+                2,
+                vec![
+                    BlockSwap {
+                        src: (0, 0),
+                        dst: (3, 0),
+                    },
+                    BlockSwap {
+                        src: (1, 1),
+                        dst: (2, 3),
+                    },
+                ],
+            );
+            let (mut png, mut ref_png) = fresh_pair();
+            sb.apply_to(&mut png);
+            reference::swap_blocks(&sb, &mut ref_png);
+            assert_eq!(png.data(), ref_png.data(), "swap_blocks");
+
+            for hsl in [
+                HslShift::new(120.0, 1.5, 0.9, vec![0, 1, 6]),
+                HslShift::new(f64::NAN, -1.0, f64::INFINITY, vec![0, 2]),
+            ] {
+                let (mut png, mut ref_png) = fresh_pair();
+                hsl.apply_to(&mut png);
+                reference::hsl_shift(&hsl, &mut ref_png);
+                assert_eq!(png.data(), ref_png.data(), "hsl_shift {hsl:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn hsl_shift_cache_hits_evictions_and_collisions_match_reference() {
+        let bucket = |rgb: [u8; 3]| -> usize {
+            let key = (u32::from(rgb[0]) << 16) | (u32::from(rgb[1]) << 8) | u32::from(rgb[2]);
+            ((key.wrapping_mul(0x9E37_79B9)) >> 26) as usize
+        };
+        // Find two distinct RGB colors that collide on the same cache slot.
+        let c0 = [10u8, 20, 30];
+        let b0 = bucket(c0);
+        let c1 = (11u8..=255)
+            .map(|r| [r, 40, 50])
+            .find(|&rgb| bucket(rgb) == b0)
+            .expect("64-entry hash must collide within 245 candidates");
+
+        let mut pixels = Vec::new();
+        // More than 64 distinct colors repeated, plus alternating colliding colors.
+        for i in 0..80u8 {
+            pixels.extend_from_slice(&[i, i.wrapping_mul(3), i.wrapping_mul(5), 200]);
+            pixels.extend_from_slice(&[i, i.wrapping_mul(3), i.wrapping_mul(5), 255]);
+        }
+        for _ in 0..4 {
+            pixels.extend_from_slice(&[c0[0], c0[1], c0[2], 180]);
+            pixels.extend_from_slice(&[c1[0], c1[1], c1[2], 220]);
+        }
+        let width = (pixels.len() / 4) as u32;
+        let mut out = Vec::new();
+        PngEncoder::new(&mut out)
+            .write_image(&pixels, width, 1, image::ExtendedColorType::Rgba8)
+            .unwrap();
+        let mut fast = PngGlitch::from_bytes(out.clone()).unwrap();
+        let mut direct = PngGlitch::from_bytes(out).unwrap();
+        let hsl = HslShift::new(45.0, 1.25, 1.1, vec![0]);
+        hsl.apply_to(&mut fast);
+        reference::hsl_shift(&hsl, &mut direct);
+        assert_eq!(fast.data(), direct.data());
     }
 }
 
