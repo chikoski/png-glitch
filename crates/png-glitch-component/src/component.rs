@@ -143,6 +143,14 @@ mod live_binding {
                 .map_err(to_wit_error)
         }
 
+        fn process_frame(&self, mut rgba: Vec<u8>) -> Result<Vec<u8>, wit::GlitchError> {
+            self.0
+                .borrow_mut()
+                .process_frame_in_place(&mut rgba)
+                .map_err(to_wit_error)?;
+            Ok(rgba)
+        }
+
         fn set_recipe(
             &self,
             recipe: String,

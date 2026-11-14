@@ -1,7 +1,7 @@
 use crate::png::parser::header::color_type::ColorType;
 
 /// A struct representing the metadata of a PNG image.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct MetaData {
     /// The width of the PNG image.
     pub width: u32,

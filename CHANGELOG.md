@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Single-call component frame processing and shared clean model clones (#237)
+
+#### Added
+- `Clone` derives on `PngGlitch`, `png::Png`, `Chunk`, `ChunkType`, `Header`, `MetaData`, and `Terminator`.
+- `Session::process_frame_into`, `Session::process_frame_in_place`, and `Session::process_frame` in `png-glitch-component`, executing encode, recipe application, and RGBA8 decode in one step without copying scan lines into the `reset` baseline.
+- `live.session.process-frame: func(rgba: list<u8>) -> result<list<u8>, glitch-error>` in the component WIT interface (`crates/png-glitch-component/wit/world.wit`), reusing the guest input buffer in place via Canonical ABI.
+
+#### Changed
+- `Session::from_png` and `Session::from_pixels` parse or encode the initial frame once and clone the resulting `PngGlitch` for `reset` instead of parsing or encoding twice.
+
 ### Updated dependencies (`rand` 0.10, `clap` 4.6, `wasmtime` 43)
 
 #### Changed

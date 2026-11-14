@@ -107,6 +107,7 @@ pub mod presets {
 /// # let _ = std::fs::remove_file(out_path);
 /// ```
 ///
+#[derive(Clone)]
 pub struct PngGlitch {
     png: Png,
     /// The encoding a model built by [`from_pixels`](PngGlitch::from_pixels) was created with.

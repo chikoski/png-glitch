@@ -6,14 +6,19 @@ use png_glitch_recipe::{ImageHeader, LiveRecipe, Recipe, SeedMode};
 
 /// A resident PNG model for a live loop.
 ///
-/// `reload_pixels`, `apply`, `reset` and `render_into` make no heap allocation in steady state
-/// (after the recipe is set, and one warm-up frame). `set_recipe`, `render_rgba` and `snapshot`
-/// allocate by design: parsing happens once, and compression happens off the real-time path.
+/// `reload_pixels`, `apply`, `reset`, `render_into`, `process_frame_into`, and
+/// `process_frame_in_place` make no heap allocation in steady state (after the recipe is set, and
+/// one warm-up frame). `set_recipe`, `process_frame`, `render_rgba`, and `snapshot` allocate by
+/// design: parsing happens once, and compression happens off the real-time path.
+///
+/// `process_frame*` skips copying scan lines into the `reset` baseline, so `reset` restores the
+/// model as it was after `from_png`, `from_pixels`, or the last `reload_pixels`.
 ///
 /// Each frame is a PNG: `render_into` shows exactly what a decoder reads from `snapshot`.
 pub struct Session {
     live: LivePipeline,
-    /// The model as it was after the last load; `reset` copies it back.
+    /// The model as it was after the last load (`from_png`, `from_pixels`, or `reload_pixels`);
+    /// `reset` copies it back.
     clean: PngGlitch,
     recipe: Option<LiveRecipe>,
     from_pixels: bool,
@@ -27,7 +32,7 @@ impl Session {
     /// From the bytes of a PNG file. The default decode limits apply.
     pub fn from_png(png: &[u8]) -> Result<Self, GlitchError> {
         let model = PngGlitch::from_bytes_with_options(png, Default::default()).map_err(map)?;
-        let clean = PngGlitch::from_bytes_with_options(png, Default::default()).map_err(map)?;
+        let clean = model.clone();
         Ok(Self {
             live: LivePipeline::from_png(model),
             clean,
@@ -43,10 +48,9 @@ impl Session {
         rgba: &[u8],
         encoding: Encoding,
     ) -> Result<Self, GlitchError> {
-        let live = LivePipeline::new(PixelSource::rgba8(width, height, rgba), encoding.clone())
-            .map_err(map)?;
-        let clean = PngGlitch::from_pixels(PixelSource::rgba8(width, height, rgba), encoding)
-            .map_err(map)?;
+        let live =
+            LivePipeline::new(PixelSource::rgba8(width, height, rgba), encoding).map_err(map)?;
+        let clean = live.model().clone();
         Ok(Self {
             live,
             clean,
@@ -65,6 +69,66 @@ impl Session {
         }
         self.live.encode(rgba).map_err(map)?;
         self.clean.copy_data_from(self.live.model()).map_err(map)
+    }
+
+    fn check_streaming_ready(&self) -> Result<(), GlitchError> {
+        if !self.from_pixels {
+            return Err(GlitchError::InvalidImage(
+                "this session was created from a PNG file; process-frame needs from-pixels".into(),
+            ));
+        }
+        if self.recipe.is_none() {
+            return Err(GlitchError::NoRecipe);
+        }
+        Ok(())
+    }
+
+    fn encode_and_apply(&mut self, rgba: &[u8]) -> Result<(), GlitchError> {
+        self.live.encode(rgba).map_err(map)?;
+        let Some(runner) = self.recipe.as_mut() else {
+            return Err(GlitchError::NoRecipe);
+        };
+        runner.run(&mut self.live).map_err(recipe_error)
+    }
+
+    /// Encodes `rgba`, runs the current recipe, and writes the resulting RGBA8 frame into `out`
+    /// without copying scan lines into the `reset` baseline. No heap allocation in steady state.
+    ///
+    /// Validates session mode, recipe presence, `out.len()`, and `rgba.len()` before modifying
+    /// the live model. If a recipe step fails partway through execution, the live model retains the
+    /// partial update (matching [`apply`](Self::apply)) while the `reset` baseline stays
+    /// unchanged.
+    pub fn process_frame_into(&mut self, rgba: &[u8], out: &mut [u8]) -> Result<(), GlitchError> {
+        self.check_streaming_ready()?;
+        let expected = self.rgba_byte_len()?;
+        if out.len() != expected {
+            return Err(map(PngError::PixelDataLength {
+                expected,
+                actual: out.len(),
+            }));
+        }
+        self.encode_and_apply(rgba)?;
+        self.live.decode_into(out).map_err(map)
+    }
+
+    /// Encodes `rgba`, runs the current recipe, and writes the resulting RGBA8 frame back into
+    /// `rgba` without copying scan lines into the `reset` baseline. No heap allocation in steady
+    /// state.
+    ///
+    /// If a recipe step fails partway through execution, the live model retains the partial update
+    /// while the `reset` baseline stays unchanged.
+    pub fn process_frame_in_place(&mut self, rgba: &mut [u8]) -> Result<(), GlitchError> {
+        self.check_streaming_ready()?;
+        self.encode_and_apply(rgba)?;
+        self.live.decode_into(rgba).map_err(map)
+    }
+
+    /// Encodes `rgba`, runs the current recipe, and returns the resulting RGBA8 frame in a new
+    /// buffer without updating the `reset` baseline.
+    pub fn process_frame(&mut self, rgba: &[u8]) -> Result<Vec<u8>, GlitchError> {
+        let mut out = vec![0u8; self.rgba_byte_len()?];
+        self.process_frame_into(rgba, &mut out)?;
+        Ok(out)
     }
 
     /// Parses `recipe` once and keeps it for [`apply`](Self::apply). The frame counter of
@@ -108,6 +172,13 @@ impl Session {
         ImageHeader::of(self.live.model()).height
     }
 
+    fn rgba_byte_len(&self) -> Result<usize, GlitchError> {
+        (self.width() as usize)
+            .checked_mul(self.height() as usize)
+            .and_then(|n| n.checked_mul(4))
+            .ok_or(GlitchError::TooLarge)
+    }
+
     /// Writes the current frame as RGBA8 into `out` (`width * height * 4` bytes). No heap
     /// allocation.
     pub fn render_into(&mut self, out: &mut [u8]) -> Result<(), GlitchError> {
@@ -116,11 +187,7 @@ impl Session {
 
     /// The current frame as a new RGBA8 buffer.
     pub fn render_rgba(&mut self) -> Result<Vec<u8>, GlitchError> {
-        let len = (self.width() as usize)
-            .checked_mul(self.height() as usize)
-            .and_then(|n| n.checked_mul(4))
-            .ok_or(GlitchError::TooLarge)?;
-        let mut out = vec![0u8; len];
+        let mut out = vec![0u8; self.rgba_byte_len()?];
         self.render_into(&mut out)?;
         Ok(out)
     }

@@ -3,7 +3,7 @@ use crate::png::png_error::PngError;
 use std::fmt::{Debug, Formatter};
 
 /// An enum representing the type of a PNG chunk.
-#[derive(PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum ChunkType {
     /// The IHDR chunk.
     Start,

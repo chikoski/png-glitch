@@ -3,7 +3,7 @@ use crate::png::parser::chunk::{Chunk, ChunkType};
 use crate::png::png_error::PngError;
 
 /// A struct representing the IEND chunk of a PNG file.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Terminator {
     /// The inner chunk of the terminator.
     pub inner: Chunk,

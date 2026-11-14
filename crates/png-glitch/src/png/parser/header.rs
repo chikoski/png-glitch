@@ -13,6 +13,7 @@ mod meta_data;
 const MAX_PNG_DIMENSION: u32 = 0x7FFF_FFFF;
 
 /// A struct representing the IHDR chunk of a PNG file.
+#[derive(Clone)]
 pub struct Header {
     #[doc(hidden)]
     pub(crate) inner: Chunk, // for test
