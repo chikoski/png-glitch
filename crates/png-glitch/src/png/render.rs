@@ -132,7 +132,6 @@ impl Renderer {
         let stride = header.scan_line_width();
         let bpp = bytes_per_pixel(self.color_type, self.bit_depth);
         let depth = self.bit_depth;
-        let lookup = Lookup::new(model, self.color_type, depth);
         let out_row = width * 4;
         let rows = model.data.chunks_exact(stride);
 
@@ -191,6 +190,34 @@ impl Renderer {
             return Ok(());
         }
 
+        if self.color_type == ColorType::TrueColor && depth == 8 {
+            let key = trns_key(model, self.color_type, depth).map(|[r, g, b, ..]| [r, g, b]);
+            for (y, (row, out_line)) in rows.zip(out.chunks_exact_mut(out_row)).enumerate() {
+                let (ft, bytes) = split_row(row)?;
+                self.cur.copy_from_slice(bytes);
+                let prev = (y > 0).then_some(self.prev.as_slice());
+                kernels::unfilter(ft, 3, &mut self.cur, prev);
+                let src_pixels = self.cur.as_chunks::<3>().0.iter();
+                let dst_pixels = out_line.as_chunks_mut::<4>().0.iter_mut().take(width);
+                match key {
+                    None => {
+                        for (&[r, g, b], dst) in src_pixels.zip(dst_pixels) {
+                            *dst = [r, g, b, 255];
+                        }
+                    }
+                    Some(key_rgb) => {
+                        for (&px @ [r, g, b], dst) in src_pixels.zip(dst_pixels) {
+                            let a = if px == key_rgb { 0 } else { 255 };
+                            *dst = [r, g, b, a];
+                        }
+                    }
+                }
+                std::mem::swap(&mut self.prev, &mut self.cur);
+            }
+            return Ok(());
+        }
+
+        let lookup = Lookup::new(model, self.color_type, depth);
         for (y, (row, out_line)) in rows.zip(out.chunks_exact_mut(out_row)).enumerate() {
             let (ft, bytes) = split_row(row)?;
             self.cur.copy_from_slice(bytes);
@@ -207,6 +234,39 @@ impl Renderer {
 fn split_row(row: &[u8]) -> Result<(FilterType, &[u8]), PngError> {
     let (tag, bytes) = row.split_first().ok_or(PngError::InvalidFilterType)?;
     Ok((FilterType::try_from(*tag)?, bytes))
+}
+
+/// Extracts the `tRNS` transparency key colour for [`ColorType::GrayScale`] and
+/// [`ColorType::TrueColor`], returning `None` for other colour types or malformed chunks.
+fn trns_key(model: &super::Png, color_type: ColorType, depth: u8) -> Option<[u8; 6]> {
+    let channels = match color_type {
+        ColorType::GrayScale => 1,
+        ColorType::TrueColor => 3,
+        _ => return None,
+    };
+    let trns = model
+        .pre_idat_chunks
+        .iter()
+        .find(|chunk| chunk.chunk_type.as_bytes() == b"tRNS")
+        .map(|chunk| chunk.data.as_slice())?;
+    let mut k = [0u8; 6];
+    if depth == 16 {
+        if trns.len() != channels * 2 {
+            return None;
+        }
+        for (dst, src) in k.iter_mut().zip(trns) {
+            *dst = *src;
+        }
+    } else {
+        if trns.len() < channels * 2 {
+            return None;
+        }
+        // Below 16 bits the decoder keeps only the low byte of each sample.
+        for (dst, &[_, low]) in k.iter_mut().zip(trns.as_chunks::<2>().0.iter()) {
+            *dst = low;
+        }
+    }
+    Some(k)
 }
 
 /// The palette and transparency key of an image, in the form the conversion needs.
@@ -229,7 +289,6 @@ impl Lookup {
         };
         let mut palette = [[0, 0, 0, 255]; 256];
         let mut key = None;
-        let trns = find(b"tRNS");
         match color_type {
             ColorType::IndexColor => {
                 let plte = find(b"PLTE").unwrap_or(&[]);
@@ -240,7 +299,7 @@ impl Lookup {
                     }
                 }
                 // Longer than the palette: ignored as a whole.
-                if let Some(trns) = trns.filter(|t| t.len() <= entries) {
+                if let Some(trns) = find(b"tRNS").filter(|t| t.len() <= entries) {
                     for (slot, alpha) in palette.iter_mut().zip(trns) {
                         if let Some(a) = slot.get_mut(3) {
                             *a = *alpha;
@@ -249,28 +308,7 @@ impl Lookup {
                 }
             }
             ColorType::GrayScale | ColorType::TrueColor => {
-                let channels = if color_type == ColorType::GrayScale {
-                    1
-                } else {
-                    3
-                };
-                if let Some(trns) = trns {
-                    let mut k = [0u8; 6];
-                    if depth == 16 {
-                        if trns.len() == channels * 2 {
-                            for (dst, src) in k.iter_mut().zip(trns) {
-                                *dst = *src;
-                            }
-                            key = Some(k);
-                        }
-                    } else if trns.len() >= channels * 2 {
-                        // Below 16 bits the decoder keeps only the low byte of each sample.
-                        for (dst, pair) in k.iter_mut().zip(trns.as_chunks::<2>().0.iter()) {
-                            *dst = pair.get(1).copied().unwrap_or(0);
-                        }
-                        key = Some(k);
-                    }
-                }
+                key = trns_key(model, color_type, depth);
             }
             ColorType::GrayScaleAlpha | ColorType::TrueColorAlpha => {}
         }
@@ -421,5 +459,106 @@ mod tests {
         model.png.data[0] = 7;
         let err = renderer.render_into(&model, &mut out).unwrap_err();
         assert!(matches!(err, PngError::InvalidFilterType), "{err:?}");
+    }
+
+    #[test]
+    fn truecolor_8bit_render_into_with_and_without_trns() {
+        use super::super::parser::{Chunk, ChunkType};
+
+        let width = 10usize;
+        let height = 4usize;
+        let mut rgba = Vec::with_capacity(width * height * 4);
+        let mut rgb = Vec::with_capacity(width * height * 3);
+        let key = [0x12u8, 0x34u8, 0x56u8];
+        for y in 0..height {
+            for x in 0..width {
+                let [r, g, b] = if (x + y) % 3 == 0 {
+                    key
+                } else {
+                    [
+                        (x * 23 + y * 11) as u8,
+                        (x * 7 + y * 41) as u8,
+                        (x * 53 + y * 3) as u8,
+                    ]
+                };
+                rgb.extend_from_slice(&[r, g, b]);
+                rgba.extend_from_slice(&[r, g, b, 255]);
+            }
+        }
+
+        let assert_trns = |out: &[u8], kind: &str, ft: FilterType| {
+            for (px, out_px) in rgb.as_chunks::<3>().0.iter().zip(out.as_chunks::<4>().0) {
+                let expected_a = if *px == key { 0 } else { 255 };
+                assert_eq!(
+                    *out_px,
+                    [px[0], px[1], px[2], expected_a],
+                    "{kind} mismatch for {ft:?}"
+                );
+            }
+        };
+
+        for ft in [
+            FilterType::None,
+            FilterType::Sub,
+            FilterType::Up,
+            FilterType::Average,
+            FilterType::Paeth,
+        ] {
+            let mut model = PngGlitch::from_pixels(
+                PixelSource::rgba8(width as u32, height as u32, &rgba),
+                Encoding {
+                    color_type: ColorType::TrueColor,
+                    bit_depth: 8,
+                    filter: FilterStrategy::Fixed(ft),
+                },
+            )
+            .expect("rgb8 model");
+
+            let mut renderer = Renderer::new(&model);
+            let mut out = vec![0u8; width * height * 4];
+            renderer.render_into(&model, &mut out).expect("render rgb8");
+            assert_eq!(out, rgba, "no-tRNS mismatch for {ft:?}");
+
+            // A tRNS chunk shorter than 6 bytes for TrueColor must be ignored.
+            model.png.pre_idat_chunks.push(Chunk::with_recomputed_crc(
+                ChunkType::Other(*b"tRNS"),
+                vec![0, key[0], 0, key[1], 0],
+            ));
+            renderer
+                .render_into(&model, &mut out)
+                .expect("render rgb8 with short tRNS");
+            assert_eq!(out, rgba, "short tRNS should be ignored for {ft:?}");
+
+            // Attach a 16-bit-per-channel tRNS chunk matching `key`.
+            let trns_idx = model.png.pre_idat_chunks.len() - 1;
+            model.png.pre_idat_chunks[trns_idx] = Chunk::with_recomputed_crc(
+                ChunkType::Other(*b"tRNS"),
+                vec![0, key[0], 0, key[1], 0, key[2]],
+            );
+            renderer
+                .render_into(&model, &mut out)
+                .expect("render rgb8 with tRNS");
+            assert_trns(&out, "6-byte tRNS", ft);
+
+            // Below 16-bit depth, non-zero high bytes in tRNS samples must be ignored.
+            model.png.pre_idat_chunks[trns_idx] = Chunk::with_recomputed_crc(
+                ChunkType::Other(*b"tRNS"),
+                vec![0xAB, key[0], 0xCD, key[1], 0xEF, key[2]],
+            );
+            renderer
+                .render_into(&model, &mut out)
+                .expect("render rgb8 with high-byte tRNS");
+            assert_trns(&out, "non-zero high-byte tRNS", ft);
+
+            // Trailing bytes past the 6-byte RGB key must still match the key.
+            model.png.pre_idat_chunks[trns_idx] = Chunk::with_recomputed_crc(
+                ChunkType::Other(*b"tRNS"),
+                vec![0xAB, key[0], 0xCD, key[1], 0xEF, key[2], 0x01, 0x02],
+            );
+            renderer
+                .render_into(&model, &mut out)
+                .expect("render rgb8 with overlong tRNS");
+            assert_trns(&out, ">6-byte tRNS", ft);
+        }
     }
 }

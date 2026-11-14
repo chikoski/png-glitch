@@ -12,6 +12,10 @@
 
 use crate::FilterType;
 
+/// True on `wasm32` when compiled without `simd128` (e.g. Chicory Wasm-to-JVM): skips
+/// SIMD-oriented stack staging and `[i32; 4]` lane arrays that rely on `v128` vectorisation.
+const SCALAR_WASM: bool = cfg!(all(target_arch = "wasm32", not(target_feature = "simd128")));
+
 /// Picks the const-generic instantiation once per row. Valid PNG headers only give 1, 2, 3, 4,
 /// 6 or 8 bytes per pixel; anything else (or a row that is not a whole number of pixels) takes
 /// the slower generic loop.
@@ -148,6 +152,25 @@ fn reduce(acc: [u16; LANES]) -> u32 {
     acc.iter().map(|&a| u32::from(a)).sum()
 }
 
+/// Scalar fallback for [`lane_cost`] on targets without `simd128`.
+#[inline(always)]
+fn lane_cost_scalar(
+    cur: &[u8],
+    left: &[u8],
+    top: &[u8],
+    top_left: &[u8],
+    predict: impl Fn(u8, u8, u8) -> u8,
+) -> u32 {
+    debug_assert_eq!(cur.len(), left.len());
+    debug_assert_eq!(cur.len(), top.len());
+    debug_assert_eq!(cur.len(), top_left.len());
+    let mut sum = 0u32;
+    for (((&c, &l), &t), &tl) in cur.iter().zip(left).zip(top).zip(top_left) {
+        sum = sum.wrapping_add(abs_cost(c, predict(l, t, tl)));
+    }
+    sum
+}
+
 /// Sum of `|c - predict(left, top, top_left) as i8|` over equally long slices of at most
 /// [`COST_BLOCK`] bytes. Each lane group is first filtered into a byte array, then its costs
 /// are added lane by lane into `u16` accumulators that are reduced once per block. A horizontal
@@ -162,6 +185,9 @@ fn lane_cost(
     predict: impl Fn(u8, u8, u8) -> u8,
 ) -> u32 {
     debug_assert!(cur.len() <= COST_BLOCK);
+    if SCALAR_WASM {
+        return lane_cost_scalar(cur, left, top, top_left, predict);
+    }
     let (cur, cur_tail) = cur.as_chunks::<LANES>();
     let (left, left_tail) = left.as_chunks::<LANES>();
     let (top, top_tail) = top.as_chunks::<LANES>();
@@ -241,7 +267,11 @@ fn adaptive_choice<const TAKE: usize>(
     if avg < best.0 {
         best = (avg, FilterType::Average);
     }
-    let paeth = row.cost::<TAKE>(best.0, paeth16);
+    let paeth = if SCALAR_WASM {
+        row.cost::<TAKE>(best.0, paeth)
+    } else {
+        row.cost::<TAKE>(best.0, paeth16)
+    };
     if paeth < best.0 {
         best = (paeth, FilterType::Paeth);
     }
@@ -300,24 +330,11 @@ impl<'a> AdaptiveRow<'a> {
             .zip(self.top_rest.chunks(COST_BLOCK))
         {
             let (c, l, t) = (sample::<TAKE>(c), sample::<TAKE>(l), sample::<TAKE>(t));
-            let (c_lanes, c_tail) = c.as_chunks::<LANES>();
-            let (l_lanes, l_tail) = l.as_chunks::<LANES>();
-            let (t_lanes, t_tail) = t.as_chunks::<LANES>();
-            let (mut an, mut as_, mut au) = ([0u16; LANES], [0u16; LANES], [0u16; LANES]);
-            for ((c, l), t) in c_lanes.iter().zip(l_lanes).zip(t_lanes) {
-                let accs = an.iter_mut().zip(as_.iter_mut()).zip(au.iter_mut());
-                for (((n, s), u), ((&c, &l), &t)) in accs.zip(c.iter().zip(l).zip(t)) {
-                    *n = n.wrapping_add(abs_cost16(c, 0));
-                    *s = s.wrapping_add(abs_cost16(c, l));
-                    *u = u.wrapping_add(abs_cost16(c, t));
-                }
-            }
-            let (mut n, mut s, mut u) = (reduce(an), reduce(as_), reduce(au));
-            for ((&c, &l), &t) in c_tail.iter().zip(l_tail).zip(t_tail) {
-                n += abs_cost(c, 0);
-                s += abs_cost(c, l);
-                u += abs_cost(c, t);
-            }
+            let (n, s, u) = if SCALAR_WASM {
+                cost_none_sub_up_block_scalar(c, l, t)
+            } else {
+                cost_none_sub_up_block_simd(c, l, t)
+            };
             none += u64::from(n);
             sub += u64::from(s);
             up += u64::from(u);
@@ -437,8 +454,59 @@ fn cost_sum(
 
 // ---- Up -------------------------------------------------------------------------------------
 
+const LOW7_64: u64 = 0x7f7f_7f7f_7f7f_7f7f;
+const HIGH_64: u64 = 0x8080_8080_8080_8080;
+
+/// Lane-wise `x + y` modulo 256 across eight bytes.
+#[inline(always)]
+fn swar_add_64(x: u64, y: u64) -> u64 {
+    ((x & LOW7_64).wrapping_add(y & LOW7_64)) ^ ((x ^ y) & HIGH_64)
+}
+
+/// Lane-wise `x - y` modulo 256 across eight bytes.
+#[inline(always)]
+fn swar_sub_64(x: u64, y: u64) -> u64 {
+    ((x | HIGH_64).wrapping_sub(y & LOW7_64)) ^ (!(x ^ y) & HIGH_64)
+}
+
+#[inline(always)]
+fn up_swar(
+    cur: &mut [u8],
+    prev: &[u8],
+    word_op: impl Fn(u64, u64) -> u64,
+    byte_op: impl Fn(u8, u8) -> u8,
+) {
+    let len = cur.len().min(prev.len());
+    let Some(cur) = cur.get_mut(..len) else {
+        return;
+    };
+    let Some(prev) = prev.get(..len) else {
+        return;
+    };
+    let (c_chunks, c_tail) = cur.as_chunks_mut::<8>();
+    let (p_chunks, p_tail) = prev.as_chunks::<8>();
+    for (c, p) in c_chunks.iter_mut().zip(p_chunks) {
+        *c = word_op(u64::from_le_bytes(*c), u64::from_le_bytes(*p)).to_le_bytes();
+    }
+    for (c, p) in c_tail.iter_mut().zip(p_tail) {
+        *c = byte_op(*c, *p);
+    }
+}
+
+fn up_unfilter_swar(cur: &mut [u8], prev: &[u8]) {
+    up_swar(cur, prev, swar_add_64, u8::wrapping_add);
+}
+
+fn up_filter_swar(cur: &mut [u8], prev: &[u8]) {
+    up_swar(cur, prev, swar_sub_64, u8::wrapping_sub);
+}
+
 fn up_unfilter(cur: &mut [u8], prev: Option<&[u8]>) {
     if let Some(prev) = prev {
+        if SCALAR_WASM {
+            up_unfilter_swar(cur, prev);
+            return;
+        }
         for (c, p) in cur.iter_mut().zip(prev) {
             *c = c.wrapping_add(*p);
         }
@@ -447,6 +515,10 @@ fn up_unfilter(cur: &mut [u8], prev: Option<&[u8]>) {
 
 fn up_filter(cur: &mut [u8], prev: Option<&[u8]>) {
     if let Some(prev) = prev {
+        if SCALAR_WASM {
+            up_filter_swar(cur, prev);
+            return;
+        }
         for (c, p) in cur.iter_mut().zip(prev) {
             *c = c.wrapping_sub(*p);
         }
@@ -546,11 +618,53 @@ fn average_filter_n<const BPP: usize>(cur: &mut [u8], prev: Option<&[u8]>) {
     }
 }
 
+/// Scalar block accumulator for `None`, `Sub` and `Up` costs on targets without `simd128`.
+#[inline(always)]
+fn cost_none_sub_up_block_scalar(c: &[u8], l: &[u8], t: &[u8]) -> (u32, u32, u32) {
+    debug_assert_eq!(c.len(), l.len());
+    debug_assert_eq!(c.len(), t.len());
+    let (mut n, mut s, mut u) = (0u32, 0u32, 0u32);
+    for ((&c, &l), &t) in c.iter().zip(l).zip(t) {
+        n = n.wrapping_add(abs_cost(c, 0));
+        s = s.wrapping_add(abs_cost(c, l));
+        u = u.wrapping_add(abs_cost(c, t));
+    }
+    (n, s, u)
+}
+
+/// Lane-accumulated `None`, `Sub` and `Up` costs for one block of at most [`COST_BLOCK`] bytes.
+#[inline(always)]
+fn cost_none_sub_up_block_simd(c: &[u8], l: &[u8], t: &[u8]) -> (u32, u32, u32) {
+    debug_assert!(c.len() <= COST_BLOCK);
+    debug_assert_eq!(c.len(), l.len());
+    debug_assert_eq!(c.len(), t.len());
+    let (c_lanes, c_tail) = c.as_chunks::<LANES>();
+    let (l_lanes, l_tail) = l.as_chunks::<LANES>();
+    let (t_lanes, t_tail) = t.as_chunks::<LANES>();
+    let (mut an, mut as_, mut au) = ([0u16; LANES], [0u16; LANES], [0u16; LANES]);
+    for ((c, l), t) in c_lanes.iter().zip(l_lanes).zip(t_lanes) {
+        let accs = an.iter_mut().zip(as_.iter_mut()).zip(au.iter_mut());
+        for (((n, s), u), ((&c, &l), &t)) in accs.zip(c.iter().zip(l).zip(t)) {
+            *n = n.wrapping_add(abs_cost16(c, 0));
+            *s = s.wrapping_add(abs_cost16(c, l));
+            *u = u.wrapping_add(abs_cost16(c, t));
+        }
+    }
+    let (mut n, mut s, mut u) = (reduce(an), reduce(as_), reduce(au));
+    for ((&c, &l), &t) in c_tail.iter().zip(l_tail).zip(t_tail) {
+        n = n.wrapping_add(abs_cost(c, 0));
+        s = s.wrapping_add(abs_cost(c, l));
+        u = u.wrapping_add(abs_cost(c, t));
+    }
+    (n, s, u)
+}
+
 // ---- Paeth ----------------------------------------------------------------------------------
 
 /// Arithmetic type of the Paeth predictor when reconstructing. `a + b - 2c` needs 10 bits, so
 /// `i16` is enough; wasm measured faster with 32-bit lanes for reconstruction (four of them fill
-/// a `v128`), native with 16-bit lanes. Filtering always uses `i16` (see [`paeth_filter_n`]).
+/// a `v128`), native with 16-bit lanes. Filtering uses `i16` on SIMD targets (see
+/// [`paeth_filter_n`]) and `Lane` on scalar wasm.
 #[cfg(target_arch = "wasm32")]
 type Lane = i32;
 #[cfg(not(target_arch = "wasm32"))]
@@ -623,8 +737,9 @@ fn paeth_filter_n<const BPP: usize>(cur: &mut [u8], prev: Option<&[u8]>) {
     let Some(prev) = prev else {
         return sub_filter_n::<BPP>(cur, None);
     };
-    if prev.len() != cur.len() {
-        // Not reachable through `filter::apply`, which pads the previous row.
+    if SCALAR_WASM || prev.len() != cur.len() {
+        // Without `simd128` the 384-byte stack staging arrays only add byte-copy overhead;
+        // mismatched row lengths are also not reachable through `filter::apply`.
         return paeth_filter_pixels::<BPP>(cur, prev);
     }
     // Original bytes of the last pixel before the current block, in the current and the
@@ -664,8 +779,8 @@ fn copy(dst: &mut [u8], src: &[u8]) {
     }
 }
 
-/// Per-pixel Paeth filtering for a previous row of another length: pixels past the shorter
-/// row are left unchanged, as in the other kernels.
+/// Per-pixel Paeth filtering, used on targets without `simd128` and when the previous row has
+/// another length: pixels past the shorter row are left unchanged, as in the other kernels.
 fn paeth_filter_pixels<const BPP: usize>(cur: &mut [u8], prev: &[u8]) {
     let (pixels, _) = cur.as_chunks_mut::<BPP>();
     let (tops, _) = prev.as_chunks::<BPP>();
@@ -771,11 +886,12 @@ fn average_filter_4(cur: &mut [u8], prev: Option<&[u8]>) {
     }
 }
 
-/// Paeth reconstruction for 4-byte pixels. On wasm this uses [`paeth_unfilter_4_lanes`]. Other
-/// targets keep the per-channel loop: on x86-64, baseline SSE2 has no 32-bit `abs` / `min` and
-/// the lane form measured several times slower; other native targets were not measured.
+/// Paeth reconstruction for 4-byte pixels. On wasm with `simd128` this uses
+/// [`paeth_unfilter_4_lanes`]. Scalar `wasm32` and other targets keep the per-channel loop: on
+/// scalar wasm `[i32; 4]` widening adds array overhead without `v128`, and on x86-64 baseline
+/// SSE2 has no 32-bit `abs` / `min`.
 fn paeth_unfilter_4(cur: &mut [u8], prev: Option<&[u8]>) {
-    if cfg!(target_arch = "wasm32") {
+    if cfg!(all(target_arch = "wasm32", target_feature = "simd128")) {
         paeth_unfilter_4_lanes(cur, prev)
     } else {
         paeth_unfilter_n::<4>(cur, prev)
@@ -1031,5 +1147,88 @@ mod adaptive_tests {
         assert_eq!(adaptive_filter(4, &[1, 2, 3, 4], None), None);
         assert_eq!(adaptive_filter(4, &[1, 2, 3, 4], Some(&[1, 2, 3])), None);
         assert_eq!(adaptive_filter(4, &[1, 2], Some(&[1, 2])), None);
+    }
+
+    #[test]
+    fn scalar_wasm_helpers_match_simd_paths() {
+        let mut rng = Rng(0x5CA1_A400_2380);
+        for len in (0..=64).chain(255..=260) {
+            let cur: Vec<u8> = (0..len).map(|_| rng.next() as u8).collect();
+            let left: Vec<u8> = (0..len).map(|_| rng.next() as u8).collect();
+            let top: Vec<u8> = (0..len).map(|_| rng.next() as u8).collect();
+            let top_left: Vec<u8> = (0..len).map(|_| rng.next() as u8).collect();
+            if len <= COST_BLOCK {
+                assert_eq!(
+                    lane_cost_scalar(&cur, &left, &top, &top_left, |l, t, _| average8(l, t)),
+                    lane_cost(&cur, &left, &top, &top_left, |l, t, _| average8(l, t)),
+                    "average cost mismatch at len {len}"
+                );
+                assert_eq!(
+                    lane_cost_scalar(&cur, &left, &top, &top_left, |l, t, tl| {
+                        paeth_i32(i32::from(l), i32::from(t), i32::from(tl)) as u8
+                    }),
+                    lane_cost(&cur, &left, &top, &top_left, paeth16),
+                    "paeth cost mismatch at len {len}"
+                );
+                assert_eq!(
+                    cost_none_sub_up_block_scalar(&cur, &left, &top),
+                    cost_none_sub_up_block_simd(&cur, &left, &top),
+                    "cost_none_sub_up mismatch at len {len}"
+                );
+            }
+
+            let mut filtered_ref = cur.clone();
+            for (c, p) in filtered_ref.iter_mut().zip(&top) {
+                *c = c.wrapping_sub(*p);
+            }
+            let mut filtered_swar = cur.clone();
+            up_filter_swar(&mut filtered_swar, &top);
+            assert_eq!(filtered_swar, filtered_ref, "up_filter_swar at len {len}");
+
+            let mut unfiltered_ref = filtered_ref.clone();
+            for (c, p) in unfiltered_ref.iter_mut().zip(&top) {
+                *c = c.wrapping_add(*p);
+            }
+            let mut unfiltered_swar = filtered_swar.clone();
+            up_unfilter_swar(&mut unfiltered_swar, &top);
+            assert_eq!(
+                unfiltered_swar, unfiltered_ref,
+                "up_unfilter_swar at len {len}"
+            );
+        }
+
+        // Mismatched row lengths must stop at min(cur.len(), prev.len()).
+        let prev = vec![17u8; 10];
+        let mut cur_swar = vec![42u8; 20];
+        let mut cur_ref = cur_swar.clone();
+        up_filter_swar(&mut cur_swar, &prev);
+        for (c, p) in cur_ref.iter_mut().zip(&prev) {
+            *c = c.wrapping_sub(*p);
+        }
+        assert_eq!(cur_swar, cur_ref);
+        up_unfilter_swar(&mut cur_swar, &prev);
+        for (c, p) in cur_ref.iter_mut().zip(&prev) {
+            *c = c.wrapping_add(*p);
+        }
+        assert_eq!(cur_swar, cur_ref);
+
+        fn check_paeth_multi_block<const BPP: usize>(len: usize, rng: &mut Rng) {
+            let cur_init: Vec<u8> = (0..len).map(|_| rng.next() as u8).collect();
+            let prev: Vec<u8> = (0..len).map(|_| rng.next() as u8).collect();
+            let mut cur_simd = cur_init.clone();
+            let mut cur_pixels = cur_init;
+            paeth_filter_n::<BPP>(&mut cur_simd, Some(&prev));
+            paeth_filter_pixels::<BPP>(&mut cur_pixels, &prev);
+            assert_eq!(
+                cur_simd, cur_pixels,
+                "paeth_filter::<{BPP}> mismatch at len {len}"
+            );
+        }
+        for len in [450usize, 600] {
+            check_paeth_multi_block::<3>(len, &mut rng);
+        }
+        for len in [452usize, 600] {
+            check_paeth_multi_block::<4>(len, &mut rng);
+        }
     }
 }
