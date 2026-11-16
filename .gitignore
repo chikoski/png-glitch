@@ -14,3 +14,4 @@ PngSuite
 **/.idea
 .claude
 !crates/png-glitch-component/src/probe.png
+.tmp/
