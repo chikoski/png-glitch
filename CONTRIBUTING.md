@@ -40,6 +40,12 @@ cargo doc --workspace --no-deps
 cargo run -p png-glitch --example glitch
 cargo run -p png-glitch-recipe --example simple_glitch
 cargo run -p webp-glitch --example glitch
+
+# 6. Run differential mutation testing on PR changes (optional, requires cargo-mutants)
+mkdir -p .tmp
+# For new untracked files, run `git add -N <path>` first so they appear in the diff.
+git diff --no-ext-diff --no-color "$(git merge-base origin/master HEAD)" > .tmp/mutants.diff
+cargo mutants --workspace --in-diff .tmp/mutants.diff -o .tmp/mutants
 ```
 
 ## Design Principles and Decisions
@@ -103,6 +109,10 @@ cargo insta review          # inspect and accept the new hashes
 ```
 
 Then add an entry under a **"Seeded output changes"** heading in `CHANGELOG.md` naming the affected filters. Filters that use the RNG must stay sequential (or derive a per-line RNG from `(seed, line_index)`); do not use the shared RNG inside `par_foreach_scanline`.
+
+### Differential mutation testing
+
+We configure `cargo-mutants` in [`.cargo/mutants.toml`](.cargo/mutants.toml) to check boundary assertions on changed lines (`--in-diff`). It targets pure parsing, scan-line reconstruction, bit-depth pixel math, `frame_seed` determinism, recipe resolution, mask bounds, and CLI parsing/config helpers (`src/`), while excluding benchmark (`png-glitch-bench`), component-wrapper (`png-glitch-component`), interactive CLI heuristic modules (`src/surprise.rs`, `src/watch.rs`), `main`, floating-point HSL color conversions (`rgb_to_hsl` / `hsl_to_rgb` / `hue_to_rgb`), and heuristic WebP glitch effects (`MacroblockGlitch`, `AlphaGlitch`, `LossyArtifact`). Surviving mutants (`MISSED`) are used during review to spot missing boundary tests rather than acting as a hard numeric score gate.
 
 ---
 
