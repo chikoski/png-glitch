@@ -1,0 +1,17 @@
+# Mutation testing configuration for png-glitch (#244).
+# Focuses on PNG/WebP parsing, header validation, scanline filter reconstruction/application,
+# bit-depth pixel operations, deterministic `frame_seed`, recipe resolution, mask bounds,
+# and non-interactive CLI parsing (`src/cli.rs`, `src/recipe_io.rs`, `src/masks.rs`, etc.).
+exclude_globs = [
+    "crates/png-glitch-bench/**",
+    "crates/png-glitch-component/**",
+    "src/surprise.rs",
+    "src/watch.rs",
+]
+exclude_re = [
+    ": replace main ",
+    "\\b(rgb_to_hsl|hsl_to_rgb|hue_to_rgb)\\b",
+    "<impl WebpGlitchFilter for (MacroblockGlitch|AlphaGlitch|LossyArtifact)>::apply",
+]
+timeout_multiplier = 3.0
+minimum_test_timeout = 20

@@ -230,3 +230,20 @@ cargo +nightly fuzz run png_parse -- -max_total_time=300
 A `cargo-fuzz` installed from a prebuilt musl binary (as `taiki-e/install-action` does in CI) defaults to `--target x86_64-unknown-linux-musl`, where AddressSanitizer does not work; pass `--target x86_64-unknown-linux-gnu` to every `cargo +nightly fuzz` command (CI does).
 
 Crashing inputs are written to `fuzz/artifacts/<target>/`; reproduce one with `cargo +nightly fuzz run <target> <file>`. CI builds every target on each pull request, and `.github/workflows/fuzz.yml` fuzzes each target on a schedule (or on demand via *Run workflow*) and uploads any crashes as workflow artifacts. Contributors modifying a parser or filter should run the relevant target locally. When `FilterConfig` gains a variant, `fuzz_targets/glitch_context_pipeline.rs` (and, for WebP-capable variants, `webp_pipeline.rs`) stops compiling until the new variant is added to its filter list.
+
+### Differential Mutation Testing
+
+To verify that unit and property tests catch boundary conditions, off-by-one errors, and arithmetic regressions on changed core logic, we use `cargo-mutants` scoped to pull-request diffs (`.cargo/mutants.toml`).
+
+- **Targeted**: `crates/png-glitch` (chunk parsing, header validation, scan-line filter reconstruction/application, bit-depth conversions), `crates/png-glitch-recipe` (`frame_seed`, recipe resolution, mask/row bounds), `crates/webp-glitch`, `crates/webp-glitch-context` core operations, and non-interactive CLI parsing/recipe/variation helpers (`src/`).
+- **Excluded**: `crates/png-glitch-bench`, `crates/png-glitch-component`, interactive CLI heuristic modules (`src/surprise.rs`, `src/watch.rs`), `main`, floating-point HSL color conversions (`rgb_to_hsl` / `hsl_to_rgb` / `hue_to_rgb`), and heuristic WebP glitch effects (`MacroblockGlitch`, `AlphaGlitch`, `LossyArtifact`), which are covered by golden, property, and fuzzing suites instead. Examples are skipped automatically by `cargo-mutants`.
+
+```zsh
+cargo install cargo-mutants --locked   # once (or brew install cargo-mutants)
+mkdir -p .tmp
+# Stage intent-to-add for any brand-new files (`git add -N <path>`) before diffing.
+git diff --no-ext-diff --no-color "$(git merge-base origin/master HEAD)" > .tmp/mutants.diff
+cargo mutants --workspace --in-diff .tmp/mutants.diff -o .tmp/mutants
+```
+
+Surviving mutants (`MISSED`) are passed into code review to guide missing boundary test cases; no rigid mutation-score failure threshold is enforced in CI.
